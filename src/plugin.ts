@@ -1,4 +1,4 @@
-import type { Hooks, Plugin, PluginInput } from "@opencode-ai/plugin"
+import type { Hooks, Plugin, PluginInput, PluginOptions } from "@opencode-ai/plugin"
 import type {
   AgentmemoryWriteBackend,
   MemoryBackends,
@@ -33,9 +33,10 @@ export function createMetaGovernorPlugin(
 ): Plugin {
   const plugin: Plugin = async (
     input: PluginInput,
+    options?: PluginOptions,
   ): Promise<Hooks> => {
-    // 1. Load config from plugin input or environment
-    const rawConfig = (input.config?.meta_governor ?? {}) as MetaGovernorPluginConfig
+    // 1. Load config from plugin options (PluginOptions = Record<string, unknown>)
+    const rawConfig = ((options?.meta_governor as MetaGovernorPluginConfig) ?? {})
     const config = loadOrchestratorConfig(rawConfig)
 
     // 2. If disabled, return empty hooks
