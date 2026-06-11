@@ -16,6 +16,7 @@
     "build": "bun build.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test src/*.test.ts"
+  },
   "peerDependencies": {
     "@opencode-ai/plugin": ">=1.0.0"
   },
@@ -26,6 +27,6 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sisyphuslabs/omo-meta-governor.git"
+    "url": "https://github.com/herjarsa/omo-meta-governor.git"
   }
 }
