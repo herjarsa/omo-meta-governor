@@ -6,7 +6,7 @@ reads session state, scores progress, and dispatches decisions.
 ## Install
 
 ```bash
-npm install @sisyphuslabs/omo-meta-governor
+npm install @sisyphuslabs/omo-meta-governor  # or omo-meta-governor
 ```
 
 ## Usage
