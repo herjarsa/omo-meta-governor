@@ -1,5 +1,5 @@
 {
-  "name": "@sisyphuslabs/omo-meta-governor",
+  "name": "@herjarsa/omo-meta-governor"
   "version": "0.1.0",
   "type": "module",
   "description": "Self-judging agent orchestration layer for OpenCode. Reads memory, scores sessions, dispatches decisions.",
