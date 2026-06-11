@@ -1,3 +1,5 @@
+import { $ } from "bun"
+
 #!/usr/bin/env bun
 // Build the meta-governor plugin as ESM bundle + .d.ts declarations
 
@@ -8,7 +10,7 @@ await $`rm -rf ${outDir}`
 await $`mkdir -p ${outDir}`
 
 // Build ESM bundle
-await $`bun build src/index.ts --outdir=${outDir} --target=bun --format=esm --external=@opencode-ai/plugin --external=zod`
+await $`bun build src/index.ts --outdir=${outDir} --target=bun --format=esm --external=@opencode-ai/plugin`
 
 // Generate declarations
 await $`tsc --emitDeclarationOnly --outDir ${outDir}`
