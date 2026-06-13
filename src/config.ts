@@ -2,6 +2,7 @@ import type { InterventionConfig, ModelOverrideConfig, OrchestratorConfig, Proto
 import { defaultScoringConfig } from "./scoring-engine"
 import { defaultDecisionHandlerConfig } from "./decision-handler"
 import { defaultClosedLoopConfig } from "./closed-loop-learning"
+import type { ConfigFileSources, ConfigFileResult } from "./config-file"
 
 /**
  * MetaGovernor config schema exposed to users.
@@ -65,6 +66,12 @@ export interface MetaGovernorPluginConfig {
     path?: string
     injectIntoSystem?: boolean
     auditToolCalls?: boolean
+  }
+
+  /** Graph sync config for auto-initializing codegraph/graphify. */
+  graphSync?: {
+    enabled?: boolean
+    watch?: boolean
   }
 }
 
@@ -165,4 +172,16 @@ export function isMetaGovernorEnabled(
   config: MetaGovernorPluginConfig | undefined,
 ): boolean {
   return config?.enabled === true
+}
+
+/**
+ * Load orchestrator config from all available sources: config file (JSONC)
+ * with priority: CLI inline > project config > user config > defaults.
+ */
+export async function loadOrchestratorConfigFromSources(
+  sources: ConfigFileSources = {},
+): Promise<OrchestratorConfig> {
+  const { loadMetaGovernorConfig } = await import("./config-file")
+  const result: ConfigFileResult = await loadMetaGovernorConfig(sources)
+  return loadOrchestratorConfig(result.config)
 }

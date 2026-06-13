@@ -1,0 +1,350 @@
+/**
+ * JSON Schema generator for omo-meta-governor.jsonc.
+ *
+ * Generates a JSON Schema (draft-07) from the MetaGovernorPluginConfig
+ * interface definition. The schema is used for IDE autocompletion and
+ * validation when editing the .jsonc config file.
+ *
+ * Usage:
+ *   import { generateSchema } from "./generate-schema"
+ *   const schema = generateSchema()
+ *   await Bun.write("assets/omo-meta-governor.schema.json", JSON.stringify(schema, null, 2))
+ */
+
+export interface JsonSchema {
+  $schema: string
+  $id: string
+  title: string
+  description: string
+  type: "object"
+  properties: Record<string, JsonSchemaProperty>
+  additionalProperties: boolean
+  definitions?: Record<string, JsonSchemaProperty>
+}
+
+export interface JsonSchemaProperty {
+  type?: string | string[]
+  description?: string
+  default?: unknown
+  properties?: Record<string, JsonSchemaProperty>
+  items?: JsonSchemaProperty
+  additionalProperties?: boolean
+  required?: string[]
+  enum?: string[]
+  oneOf?: JsonSchemaProperty[]
+  anyOf?: JsonSchemaProperty[]
+  $ref?: string
+  minimum?: number
+  maximum?: number
+}
+
+const ID_BASE = "https://raw.githubusercontent.com/herjarsa/omo-meta-governor/main"
+
+/**
+ * Generate the full JSON Schema for the omo-meta-governor.jsonc config file.
+ */
+export function generateSchema(): JsonSchema {
+  return {
+    $schema: "http://json-schema.org/draft-07/schema#",
+    $id: `${ID_BASE}/assets/omo-meta-governor.schema.json`,
+    title: "omo-meta-governor",
+    description: "Configuration schema for @herjarsa/omo-meta-governor — Self-judging agent orchestration layer for OpenCode.",
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      $schema: {
+        type: "string",
+        description: "JSON Schema reference for IDE autocompletion.",
+      },
+      enabled: {
+        type: "boolean",
+        description: "Master feature flag — must be true to run the orchestrator.",
+        default: false,
+      },
+      decision: {
+        type: "object",
+        description: "Decision handler configuration.",
+        additionalProperties: false,
+        properties: {
+          maxHistoryPerSession: {
+            type: "integer",
+            description: "Maximum history entries per session before oldest are trimmed.",
+            default: 50,
+            minimum: 1,
+          },
+          forceContinueAfterStops: {
+            type: "integer",
+            description: "How many consecutive stops before forcing continue.",
+            default: 3,
+            minimum: 1,
+          },
+        },
+      },
+      memory: {
+        type: "object",
+        description: "Memory aggregator configuration.",
+        additionalProperties: false,
+        properties: {
+          agentmemoryTimeoutMs: {
+            type: "integer",
+            description: "Timeout for agentmemory queries in milliseconds.",
+            default: 2000,
+            minimum: 100,
+          },
+          magicContextTimeoutMs: {
+            type: "integer",
+            description: "Timeout for magic-context queries in milliseconds.",
+            default: 1000,
+            minimum: 100,
+          },
+          boulderStateTimeoutMs: {
+            type: "integer",
+            description: "Timeout for boulder-state queries in milliseconds.",
+            default: 1000,
+            minimum: 100,
+          },
+          query: {
+            type: "string",
+            description: "Natural-language query for memory recall.",
+            default: "meta_governor_context",
+          },
+        },
+      },
+      tokenPredictor: {
+        type: "object",
+        description: "Token predictor configuration.",
+        additionalProperties: false,
+        properties: {
+          compactBurnRateThreshold: {
+            type: "integer",
+            description: "Burn rate threshold (tokens/turn) above which to recommend compact-now.",
+            default: 500,
+            minimum: 0,
+          },
+          compactUsageThreshold: {
+            type: "number",
+            description: "Context usage ratio (0..1) above which to recommend compact-now.",
+            default: 0.85,
+            minimum: 0,
+            maximum: 1,
+          },
+          switchModelUsageThreshold: {
+            type: "number",
+            description: "Context usage ratio above which to recommend switch-model.",
+            default: 0.95,
+            minimum: 0,
+            maximum: 1,
+          },
+          delegateConsecutiveHighBurn: {
+            type: "integer",
+            description: "Max consecutive high-burn turns before recommending delegate.",
+            default: 5,
+            minimum: 1,
+          },
+        },
+      },
+      scoring: {
+        type: "object",
+        description: "Scoring engine configuration.",
+        additionalProperties: false,
+        properties: {
+          continueThreshold: {
+            type: "number",
+            description: "Score >= this -> continue silently.",
+            default: 0.3,
+            minimum: 0,
+            maximum: 1,
+          },
+          warnThreshold: {
+            type: "number",
+            description: "Score <= -warnThreshold -> warn.",
+            default: 0.3,
+            minimum: 0,
+            maximum: 1,
+          },
+          escalateThreshold: {
+            type: "number",
+            description: "Score <= -escalateThreshold -> escalate.",
+            default: 0.6,
+            minimum: 0,
+            maximum: 1,
+          },
+          stopThreshold: {
+            type: "number",
+            description: "Score <= -stopThreshold -> stop.",
+            default: 0.8,
+            minimum: 0,
+            maximum: 1,
+          },
+        },
+      },
+      closedLoop: {
+        type: "object",
+        description: "Closed-loop learning configuration.",
+        additionalProperties: false,
+        properties: {
+          saveDecisions: {
+            type: "boolean",
+            description: "Whether to save decision records.",
+            default: true,
+          },
+          saveLessons: {
+            type: "boolean",
+            description: "Whether to save lessons.",
+            default: true,
+          },
+        },
+      },
+      modelOverride: {
+        type: "object",
+        description: "Model override for MetaGovernor internal LLM usage.",
+        additionalProperties: false,
+        properties: {
+          providerID: {
+            type: "string",
+            description: "Provider ID (e.g. 'openai', 'anthropic').",
+          },
+          modelID: {
+            type: "string",
+            description: "Model ID (e.g. 'gpt-4o-mini', 'claude-sonnet-4-20250514').",
+          },
+          modelLimit: {
+            type: "integer",
+            description: "Context window size for token predictor.",
+            minimum: 1000,
+          },
+          temperature: {
+            type: "number",
+            description: "Sampling temperature. Default: 0.2.",
+            default: 0.2,
+            minimum: 0,
+            maximum: 2,
+          },
+          topP: {
+            type: "number",
+            description: "Top-p nucleus sampling. Default: 1.",
+            default: 1,
+            minimum: 0,
+            maximum: 1,
+          },
+          maxTokens: {
+            type: "integer",
+            description: "Max output tokens for internal reasoning.",
+            default: 2048,
+            minimum: 1,
+          },
+          reasoning: {
+            type: "boolean",
+            description: "Enable extended reasoning / thinking mode.",
+            default: false,
+          },
+          verbosity: {
+            type: "string",
+            description: "Verbosity level for internal logging.",
+            enum: ["silent", "minimal", "verbose"],
+            default: "minimal",
+          },
+        },
+      },
+      intervention: {
+        type: "object",
+        description: "Intervention config for visible decision injection.",
+        additionalProperties: false,
+        properties: {
+          mode: {
+            type: "string",
+            description: "How to inject: 'silent', 'message', or 'system'.",
+            enum: ["silent", "message", "system"],
+            default: "silent",
+          },
+          includeDecisionHistory: {
+            type: "boolean",
+            description: "Whether to include recent decision history.",
+            default: true,
+          },
+          maxHistoryMessages: {
+            type: "integer",
+            description: "Max history entries when includeDecisionHistory is true.",
+            default: 5,
+            minimum: 1,
+          },
+          minActionForMessage: {
+            type: "string",
+            description: "Minimum action: 'warn' (all non-continue), 'escalate', or 'stop'.",
+            enum: ["warn", "escalate", "stop"],
+            default: "warn",
+          },
+        },
+      },
+      protocolEnforcement: {
+        type: "object",
+        description: "Sisyphus protocol enforcement config.",
+        additionalProperties: false,
+        properties: {
+          enabled: {
+            type: "boolean",
+            description: "Master switch for protocol enforcement.",
+            default: false,
+          },
+          path: {
+            type: "string",
+            description: "Path to protocol markdown file.",
+          },
+          injectIntoSystem: {
+            type: "boolean",
+            description: "Whether to inject protocol rules into the system prompt.",
+            default: false,
+          },
+          auditToolCalls: {
+            type: "boolean",
+            description: "Whether to audit tool calls for protocol violations.",
+            default: false,
+          },
+        },
+      },
+      graphSync: {
+        type: "object",
+        description: "Graph synchronization (auto-init codegraph/graphify).",
+        additionalProperties: false,
+        properties: {
+          enabled: {
+            type: "boolean",
+            description: "Enable auto-initialization of codegraph and graphify.",
+            default: true,
+          },
+          watch: {
+            type: "boolean",
+            description: "Enable watch mode (re-index on file changes).",
+            default: false,
+          },
+        },
+      },
+    },
+    definitions: {
+      verbosity: {
+        type: "string",
+        enum: ["silent", "minimal", "verbose"],
+        description: "Verbosity level.",
+      },
+      interventionMode: {
+        type: "string",
+        enum: ["silent", "message", "system"],
+        description: "Intervention injection mode.",
+      },
+      minAction: {
+        type: "string",
+        enum: ["warn", "escalate", "stop"],
+        description: "Minimum action threshold.",
+      },
+    },
+  }
+}
+
+/**
+ * Write the schema to a file.
+ */
+export async function writeSchemaFile(outputPath: string): Promise<void> {
+  const schema = generateSchema()
+  const { writeFile } = await import("node:fs/promises")
+  await writeFile(outputPath, JSON.stringify(schema, null, 2) + "\n", "utf-8")
+}

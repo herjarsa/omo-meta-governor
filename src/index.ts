@@ -93,4 +93,29 @@ export {
   auditToolCall,
   DEFAULT_PROTOCOL_PATH,
 } from "./protocol-enforcer"
+
+// Config-file loader + graphSync + schema generator
+export {
+  stripJsoncComments,
+  parseJsonc,
+  loadJsoncFile,
+  deepMerge,
+  loadMetaGovernorConfig,
+  getUserConfigPath,
+  getProjectConfigPath,
+  type ConfigFileSources,
+  type ConfigFileResult,
+} from "./config-file"
+export {
+  runGraphSync,
+  stopWatches,
+  resetInitializedProjects,
+  type GraphSyncConfig,
+  type GraphSyncResult,
+  type GraphSyncCode,
+  type ToolAvailability,
+} from "./graph-sync"
+export { generateSchema, writeSchemaFile, type JsonSchema, type JsonSchemaProperty } from "./generate-schema"
+export { loadOrchestratorConfigFromSources } from "./config"
+
 export type { ProtocolViolation, ProtocolEnforcementSessionState } from "./types"

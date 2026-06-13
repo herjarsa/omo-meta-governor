@@ -7,6 +7,7 @@ import type {
   MetaGovernorInput,
   ProtocolViolation,
 } from "./types"
+import { runGraphSync, type GraphSyncConfig } from "./graph-sync"
 import { runMetaGovernor } from "./orchestrator"
 import { loadOrchestratorConfig, type MetaGovernorPluginConfig } from "./config"
 import { storeDecision, takeAnyDecision, takeDecision } from "./decision-store"
@@ -80,6 +81,13 @@ export function createMetaGovernorPlugin(
     if (!config.enabled) {
       return {}
     }
+
+    // 2a. Run graphSync (best-effort, non-blocking)
+    const graphSyncCfg: GraphSyncConfig = {
+      enabled: rawConfig?.graphSync?.enabled ?? true,
+      watch: rawConfig?.graphSync?.watch ?? false,
+    }
+    runGraphSync(graphSyncCfg).catch(() => {})
 
     // 3. Helper to resolve model settings from override or session
     const getProviderID = (): string | undefined =>
