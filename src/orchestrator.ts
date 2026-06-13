@@ -188,7 +188,7 @@ export async function runMetaGovernor(
   try {
     tokenPrediction = predict({
       currentUsage: input.recentTurnTokens.reduce((a, b) => a + b, 0),
-      modelLimit: 200_000,
+      modelLimit: input.modelLimit ?? config.modelOverride?.modelLimit ?? 200_000,
       recentTurnTokens: input.recentTurnTokens,
       timestampISO: new Date().toISOString(),
       providerID: input.providerID ?? "",

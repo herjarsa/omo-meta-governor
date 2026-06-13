@@ -2,6 +2,7 @@ import type { OrchestratorConfig } from "./types"
 import { defaultScoringConfig } from "./scoring-engine"
 import { defaultDecisionHandlerConfig } from "./decision-handler"
 import { defaultClosedLoopConfig } from "./closed-loop-learning"
+import type { ModelOverrideConfig } from "./types"
 
 /**
  * MetaGovernor config schema exposed to users.
@@ -47,6 +48,9 @@ export interface MetaGovernorPluginConfig {
     saveDecisions?: boolean
     saveLessons?: boolean
   }
+
+  /** Model override for MetaGovernor internal LLM usage. */
+  modelOverride?: ModelOverrideConfig
 }
 
 /**
@@ -112,6 +116,18 @@ export function loadOrchestratorConfig(
         ? { forceContinueAfterStops: full.decision.forceContinueAfterStops }
         : {}),
     },
+    modelOverride: full.modelOverride
+      ? {
+          providerID: full.modelOverride.providerID,
+          modelID: full.modelOverride.modelID,
+          modelLimit: full.modelOverride.modelLimit,
+          temperature: full.modelOverride.temperature ?? 0.2,
+          topP: full.modelOverride.topP ?? 1,
+          maxTokens: full.modelOverride.maxTokens ?? 2048,
+          reasoning: full.modelOverride.reasoning ?? false,
+          verbosity: full.modelOverride.verbosity ?? "minimal",
+        }
+      : undefined,
   }
 }
 

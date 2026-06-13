@@ -44,6 +44,14 @@ export function createMetaGovernorPlugin(
       return {}
     }
 
+    // 3. Helper to resolve model settings from override or session
+    const getProviderID = (): string | undefined =>
+      config.modelOverride?.providerID ?? deps.providerID?.()
+    const getModelID = (): string | undefined =>
+      config.modelOverride?.modelID ?? deps.modelID?.()
+    const getModelLimit = (): number =>
+      config.modelOverride?.modelLimit ?? 200_000
+
     // 3. Register tool.execute.after hook
     return {
       "tool.execute.after": async (
@@ -81,8 +89,9 @@ export function createMetaGovernorPlugin(
             saveLesson: async () => ({ id: "" }),
           },
           config,
-          ...(deps.providerID ? { providerID: deps.providerID() } : {}),
-          ...(deps.modelID ? { modelID: deps.modelID() } : {}),
+          ...(getProviderID() ? { providerID: getProviderID() } : {}),
+          ...(getModelID() ? { modelID: getModelID() } : {}),
+          modelLimit: getModelLimit(),
         }
 
         // Run the orchestrator (fire-and-forget — never block the tool chain)
@@ -91,7 +100,7 @@ export function createMetaGovernorPlugin(
         } catch (err) {
           // MetaGovernor must NEVER break a tool call.
           // Log the error but swallow it.
-          if (typeof console !== "undefined") {
+          if (typeof console !== "undefined" && config.modelOverride?.verbosity !== "silent") {
             console.error("[meta-governor] orchestrator error:", err)
           }
         }

@@ -33,6 +33,6 @@
     "url": "https://github.com/herjarsa/omo-meta-governor.git"
   },
   "devDependencies": {
-    "@opencode-ai/plugin": "^1.17.3"
+    "@opencode-ai/plugin": "^1.17.4"
   }
 }

@@ -1,6 +1,6 @@
+#!/usr/bin/env bun
 import { $ } from "bun"
 
-#!/usr/bin/env bun
 // Build the meta-governor plugin as ESM bundle + .d.ts declarations
 
 const outDir = "dist"
@@ -9,10 +9,10 @@ const outDir = "dist"
 await $`rm -rf ${outDir}`
 await $`mkdir -p ${outDir}`
 
-// Build ESM bundle
-await $`bun build src/index.ts --outdir=${outDir} --target=bun --format=esm --external=@opencode-ai/plugin`
+// Bundle runtime
+await $`bun build ./src/index.ts --outdir ${outDir} --format esm --target node --minify --sourcemap`
 
-// Generate declarations
-await $`tsc --emitDeclarationOnly --outDir ${outDir}`
+// Emit declarations
+await $`bun x tsc --project tsconfig.json --emitDeclarationOnly --outDir ${outDir}`
 
-console.log("[build] done: dist/index.js + dist/*.d.ts")
+console.log(`Build complete: ${outDir}/`)

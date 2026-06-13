@@ -330,6 +330,25 @@ export interface LearnFromOutcomeOutput {
  * window exhaustion.
  */
 
+export interface ModelOverrideConfig {
+  /** Provider ID (e.g. "openai", "anthropic", "openrouter"). */
+  readonly providerID?: string
+  /** Model ID (e.g. "gpt-4o-mini", "claude-sonnet-4-20250514"). */
+  readonly modelID?: string
+  /** Context window size for token predictor. */
+  readonly modelLimit?: number
+  /** Sampling temperature. Default: 0.2 (deterministic). */
+  readonly temperature?: number
+  /** 0..1 top-p nucleus sampling. Default: 1. */
+  readonly topP?: number
+  /** Max output tokens for internal reasoning. Default: 2048. */
+  readonly maxTokens?: number
+  /** Enable extended reasoning / thinking mode (provider-specific). Default: false. */
+  readonly reasoning?: boolean
+  /** Verbosity level for internal logging: "silent" | "minimal" | "verbose". Default: "minimal". */
+  readonly verbosity?: "silent" | "minimal" | "verbose"
+}
+
 export interface TokenPredictorConfig {
   /** Burn rate threshold (tokens/sec) above which to recommend compact-now. Default: 500. */
   readonly compactBurnRateThreshold: number
@@ -466,6 +485,8 @@ export interface OrchestratorConfig {
   readonly decision: Partial<DecisionHandlerConfig>
   /** Closed-loop learning config overrides. */
   readonly closedLoop: Partial<ClosedLoopConfig>
+  /** Model override for MetaGovernor's internal LLM usage. */
+  readonly modelOverride?: ModelOverrideConfig
 }
 
 /**
@@ -487,10 +508,11 @@ export interface MetaGovernorInput {
   readonly filesChanged: number
   readonly recentTurnTokens: readonly number[]
   readonly deviations: readonly Deviation[]
-  readonly consecutiveStops?: number
-  readonly backends: MemoryBackends
+readonly consecutiveStops?: number
+readonly backends: MemoryBackends
   readonly writeBackend: AgentmemoryWriteBackend
-  readonly config?: Partial<OrchestratorConfig>
+  readonly modelLimit?: number
+readonly config?: Partial<OrchestratorConfig>
 }
 
 /**
