@@ -148,3 +148,79 @@ describe("isMetaGovernorEnabled", () => {
     expect(isMetaGovernorEnabled(config)).toBe(true)
   })
 })
+
+describe("loadOrchestratorConfig — intervention", () => {
+  describe("#given undefined intervention config", () => {
+    const config: MetaGovernorPluginConfig = { enabled: true }
+    const result = loadOrchestratorConfig(config)
+
+    it("then intervention.mode defaults to silent", () => {
+      expect(result.intervention.mode).toBe("silent")
+    })
+
+    it("then intervention.includeDecisionHistory defaults to true", () => {
+      expect(result.intervention.includeDecisionHistory).toBe(true)
+    })
+
+    it("then intervention.maxHistoryMessages defaults to 5", () => {
+      expect(result.intervention.maxHistoryMessages).toBe(5)
+    })
+
+    it("then intervention.minActionForMessage defaults to warn", () => {
+      expect(result.intervention.minActionForMessage).toBe("warn")
+    })
+  })
+
+  describe("#given custom intervention config", () => {
+    const config: MetaGovernorPluginConfig = {
+      enabled: true,
+      intervention: {
+        mode: "message",
+        includeDecisionHistory: false,
+        maxHistoryMessages: 10,
+        minActionForMessage: "stop",
+      },
+    }
+    const result = loadOrchestratorConfig(config)
+
+    it("then intervention.mode reflects override", () => {
+      expect(result.intervention.mode).toBe("message")
+    })
+
+    it("then intervention.includeDecisionHistory reflects override", () => {
+      expect(result.intervention.includeDecisionHistory).toBe(false)
+    })
+
+    it("then intervention.maxHistoryMessages reflects override", () => {
+      expect(result.intervention.maxHistoryMessages).toBe(10)
+    })
+
+    it("then intervention.minActionForMessage reflects override", () => {
+      expect(result.intervention.minActionForMessage).toBe("stop")
+    })
+  })
+
+  describe("#given partial intervention config", () => {
+    const config: MetaGovernorPluginConfig = {
+      enabled: true,
+      intervention: { mode: "system" },
+    }
+    const result = loadOrchestratorConfig(config)
+
+    it("then intervention.mode reflects override", () => {
+      expect(result.intervention.mode).toBe("system")
+    })
+
+    it("then intervention.includeDecisionHistory defaults to true", () => {
+      expect(result.intervention.includeDecisionHistory).toBe(true)
+    })
+
+    it("then intervention.maxHistoryMessages defaults to 5", () => {
+      expect(result.intervention.maxHistoryMessages).toBe(5)
+    })
+
+    it("then intervention.minActionForMessage defaults to warn", () => {
+      expect(result.intervention.minActionForMessage).toBe("warn")
+    })
+  })
+})

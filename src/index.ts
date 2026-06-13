@@ -50,6 +50,13 @@ export { handleDecision, defaultDecisionHandlerConfig, trimHistory, countConsecu
 export { observeAndLearn, defaultClosedLoopConfig } from "./closed-loop-learning"
 export { aggregateRead } from "./memory-aggregator"
 export { recordRecovery, type RecoveryOutcome } from "./post-repair-recorder"
+export {
+  storeDecision,
+  takeDecision,
+  hasDecision,
+  takeAnyDecision,
+  clearAll,
+} from "./decision-store"
 
 // Types
 export type {
@@ -61,6 +68,8 @@ export type {
   Deviation,
   Evidence,
   EvidenceContribution,
+  InterventionConfig,
+  InterventionMode,
   LearnFromOutcomeInput,
   LearnFromOutcomeOutput,
   MemoryRead,

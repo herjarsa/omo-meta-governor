@@ -45,6 +45,12 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
   scoring: {},
   decision: {},
   closedLoop: {},
+  intervention: {
+    mode: "silent" as const,
+    includeDecisionHistory: true,
+    maxHistoryMessages: 5,
+    minActionForMessage: "warn" as const,
+  },
 })
 
 const EMPTY_MEMORY_READ: MemoryRead = {

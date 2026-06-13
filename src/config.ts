@@ -1,8 +1,7 @@
-import type { OrchestratorConfig } from "./types"
+import type { InterventionConfig, ModelOverrideConfig, OrchestratorConfig } from "./types"
 import { defaultScoringConfig } from "./scoring-engine"
 import { defaultDecisionHandlerConfig } from "./decision-handler"
 import { defaultClosedLoopConfig } from "./closed-loop-learning"
-import type { ModelOverrideConfig } from "./types"
 
 /**
  * MetaGovernor config schema exposed to users.
@@ -51,6 +50,14 @@ export interface MetaGovernorPluginConfig {
 
   /** Model override for MetaGovernor internal LLM usage. */
   modelOverride?: ModelOverrideConfig
+
+  /** Intervention config for visible decision injection. */
+  intervention?: {
+    mode?: "silent" | "message" | "system"
+    includeDecisionHistory?: boolean
+    maxHistoryMessages?: number
+    minActionForMessage?: "warn" | "escalate" | "stop"
+  }
 }
 
 /**
@@ -128,6 +135,12 @@ export function loadOrchestratorConfig(
           verbosity: full.modelOverride.verbosity ?? "minimal",
         }
       : undefined,
+    intervention: {
+      mode: full.intervention?.mode ?? "silent",
+      includeDecisionHistory: full.intervention?.includeDecisionHistory ?? true,
+      maxHistoryMessages: full.intervention?.maxHistoryMessages ?? 5,
+      minActionForMessage: full.intervention?.minActionForMessage ?? "warn",
+    } as InterventionConfig,
   }
 }
 

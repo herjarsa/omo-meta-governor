@@ -322,14 +322,6 @@ export interface LearnFromOutcomeOutput {
   readonly reason: string
 }
 
-/**
- * Token Predictor types. PR 4 of 8.
- *
- * Computes token burn rate from recent turn metrics and recommends
- * preemptive actions (compact, switch model, delegate) before context
- * window exhaustion.
- */
-
 export interface ModelOverrideConfig {
   /** Provider ID (e.g. "openai", "anthropic", "openrouter"). */
   readonly providerID?: string
@@ -347,6 +339,34 @@ export interface ModelOverrideConfig {
   readonly reasoning?: boolean
   /** Verbosity level for internal logging: "silent" | "minimal" | "verbose". Default: "minimal". */
   readonly verbosity?: "silent" | "minimal" | "verbose"
+}
+
+/** How the MetaGovernor should surface its guidance to the active agent. */
+export type InterventionMode = "silent" | "message" | "system"
+
+/**
+ * Configuration for visible intervention. When the MetaGovernor dispatches a
+ * non-continue decision, it can inject that guidance into the chat context
+ * so the active agent (e.g. Sisyphus) can react to it.
+ */
+export interface InterventionConfig {
+  /**
+   * - "silent" (default): decisions are logged/saved to memory but not shown.
+   * - "message": prepend a synthetic user message with the decision guidance.
+   * - "system": append the guidance to the system prompt via chat.system.transform.
+   */
+  readonly mode: InterventionMode
+  /**
+   * Minimum decision action that triggers an intervention.
+   * "warn" means warn/escalate/stop all trigger.
+   * "escalate" means escalate/stop trigger.
+   * "stop" means only stop triggers.
+   */
+  readonly minActionForMessage: "warn" | "escalate" | "stop"
+  /** Include recent decision history in the injected guidance. */
+  readonly includeDecisionHistory: boolean
+  /** Max number of recent decision history entries to include. */
+  readonly maxHistoryMessages: number
 }
 
 export interface TokenPredictorConfig {
@@ -487,6 +507,8 @@ export interface OrchestratorConfig {
   readonly closedLoop: Partial<ClosedLoopConfig>
   /** Model override for MetaGovernor's internal LLM usage. */
   readonly modelOverride?: ModelOverrideConfig
+  /** Intervention config for injecting decisions into agent context. */
+  readonly intervention: InterventionConfig
 }
 
 /**
