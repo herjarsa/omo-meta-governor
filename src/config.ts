@@ -1,4 +1,4 @@
-import type { InterventionConfig, ModelOverrideConfig, OrchestratorConfig } from "./types"
+import type { InterventionConfig, ModelOverrideConfig, OrchestratorConfig, ProtocolEnforcementConfig } from "./types"
 import { defaultScoringConfig } from "./scoring-engine"
 import { defaultDecisionHandlerConfig } from "./decision-handler"
 import { defaultClosedLoopConfig } from "./closed-loop-learning"
@@ -57,6 +57,14 @@ export interface MetaGovernorPluginConfig {
     includeDecisionHistory?: boolean
     maxHistoryMessages?: number
     minActionForMessage?: "warn" | "escalate" | "stop"
+  }
+
+  /** Sisyphus protocol enforcement config. */
+  protocolEnforcement?: {
+    enabled?: boolean
+    path?: string
+    injectIntoSystem?: boolean
+    auditToolCalls?: boolean
   }
 }
 
@@ -141,6 +149,12 @@ export function loadOrchestratorConfig(
       maxHistoryMessages: full.intervention?.maxHistoryMessages ?? 5,
       minActionForMessage: full.intervention?.minActionForMessage ?? "warn",
     } as InterventionConfig,
+    protocolEnforcement: {
+      enabled: full.protocolEnforcement?.enabled ?? false,
+      path: full.protocolEnforcement?.path,
+      injectIntoSystem: full.protocolEnforcement?.injectIntoSystem ?? false,
+      auditToolCalls: full.protocolEnforcement?.auditToolCalls ?? false,
+    } as ProtocolEnforcementConfig,
   }
 }
 

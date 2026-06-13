@@ -669,3 +669,82 @@ describe("meta-governor types", () => {
     })
   })
 })
+
+describe("ProtocolViolation", () => {
+  test("P1: carries rule, tool, severity, detail all required", () => {
+    // given
+    const pv: import("./types").ProtocolViolation = {
+      rule: "codebase-graph-first",
+      tool: "grep",
+      severity: "media",
+      detail: "Used grep when .codegraph/ exists",
+    }
+
+    // when + then
+    expect(pv.rule).toBe("codebase-graph-first")
+    expect(pv.tool).toBe("grep")
+    expect(pv.severity).toBe("media")
+    expect(pv.detail).toContain(".codegraph/")
+  })
+
+  test("P2: severity accepts all 3 levels (leve, media, grave)", () => {
+    // given
+    const levels: Array<"leve" | "media" | "grave"> = ["leve", "media", "grave"]
+
+    // then
+    expect(levels.length).toBe(3)
+    expect(levels).toContain("leve")
+    expect(levels).toContain("media")
+    expect(levels).toContain("grave")
+  })
+})
+
+describe("ProtocolEnforcementConfig", () => {
+  test("P3: accepts fully populated config", () => {
+    // given
+    const cfg: import("./types").ProtocolEnforcementConfig = {
+      enabled: true,
+      path: "/custom/path.md",
+      injectIntoSystem: true,
+      auditToolCalls: true,
+    }
+
+    // when + then
+    expect(cfg.enabled).toBe(true)
+    expect(cfg.path).toBe("/custom/path.md")
+    expect(cfg.injectIntoSystem).toBe(true)
+    expect(cfg.auditToolCalls).toBe(true)
+  })
+
+  test("P4: path is optional for default resolution", () => {
+    // given
+    const cfg: import("./types").ProtocolEnforcementConfig = {
+      enabled: true,
+      injectIntoSystem: false,
+      auditToolCalls: false,
+    }
+
+    // when + then
+    expect(cfg.path).toBeUndefined()
+  })
+})
+
+describe("ProtocolEnforcementSessionState", () => {
+  test("P5: carries all tracking fields", () => {
+    // given
+    const state: import("./types").ProtocolEnforcementSessionState = {
+      memoryToolsUsed: ["agentmemory_memory_recall"],
+      hasCodegraphDir: true,
+      hasGraphifyDir: false,
+      oracleInvoked: false,
+      filesChanged: 3,
+    }
+
+    // when + then
+    expect(state.memoryToolsUsed).toContain("agentmemory_memory_recall")
+    expect(state.hasCodegraphDir).toBe(true)
+    expect(state.hasGraphifyDir).toBe(false)
+    expect(state.oracleInvoked).toBe(false)
+    expect(state.filesChanged).toBe(3)
+  })
+})

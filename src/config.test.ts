@@ -224,3 +224,79 @@ describe("loadOrchestratorConfig — intervention", () => {
     })
   })
 })
+
+describe("loadOrchestratorConfig — protocolEnforcement", () => {
+  describe("#given undefined protocolEnforcement config", () => {
+    const config: MetaGovernorPluginConfig = { enabled: true }
+    const result = loadOrchestratorConfig(config)
+
+    it("then protocolEnforcement.enabled defaults to false", () => {
+      expect(result.protocolEnforcement.enabled).toBe(false)
+    })
+
+    it("then protocolEnforcement.injectIntoSystem defaults to false", () => {
+      expect(result.protocolEnforcement.injectIntoSystem).toBe(false)
+    })
+
+    it("then protocolEnforcement.auditToolCalls defaults to false", () => {
+      expect(result.protocolEnforcement.auditToolCalls).toBe(false)
+    })
+
+    it("then protocolEnforcement.path is undefined", () => {
+      expect(result.protocolEnforcement.path).toBeUndefined()
+    })
+  })
+
+  describe("#given custom protocolEnforcement config", () => {
+    const config: MetaGovernorPluginConfig = {
+      enabled: true,
+      protocolEnforcement: {
+        enabled: true,
+        path: "/custom/path.md",
+        injectIntoSystem: true,
+        auditToolCalls: true,
+      },
+    }
+    const result = loadOrchestratorConfig(config)
+
+    it("then protocolEnforcement.enabled reflects override", () => {
+      expect(result.protocolEnforcement.enabled).toBe(true)
+    })
+
+    it("then protocolEnforcement.path reflects override", () => {
+      expect(result.protocolEnforcement.path).toBe("/custom/path.md")
+    })
+
+    it("then protocolEnforcement.injectIntoSystem reflects override", () => {
+      expect(result.protocolEnforcement.injectIntoSystem).toBe(true)
+    })
+
+    it("then protocolEnforcement.auditToolCalls reflects override", () => {
+      expect(result.protocolEnforcement.auditToolCalls).toBe(true)
+    })
+  })
+
+  describe("#given partial protocolEnforcement config", () => {
+    const config: MetaGovernorPluginConfig = {
+      enabled: true,
+      protocolEnforcement: { injectIntoSystem: true },
+    }
+    const result = loadOrchestratorConfig(config)
+
+    it("then protocolEnforcement.enabled defaults to false", () => {
+      expect(result.protocolEnforcement.enabled).toBe(false)
+    })
+
+    it("then injectIntoSystem reflects override", () => {
+      expect(result.protocolEnforcement.injectIntoSystem).toBe(true)
+    })
+
+    it("then auditToolCalls defaults to false", () => {
+      expect(result.protocolEnforcement.auditToolCalls).toBe(false)
+    })
+
+    it("then path is undefined", () => {
+      expect(result.protocolEnforcement.path).toBeUndefined()
+    })
+  })
+})

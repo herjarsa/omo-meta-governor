@@ -51,6 +51,12 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
     maxHistoryMessages: 5,
     minActionForMessage: "warn" as const,
   },
+  protocolEnforcement: {
+    enabled: false,
+    path: undefined,
+    injectIntoSystem: false,
+    auditToolCalls: false,
+  },
 })
 
 const EMPTY_MEMORY_READ: MemoryRead = {

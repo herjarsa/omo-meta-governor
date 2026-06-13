@@ -5,11 +5,17 @@ import type {
   DecisionHandlerOutput,
   MemoryBackends,
   MetaGovernorInput,
-
+  ProtocolViolation,
 } from "./types"
 import { runMetaGovernor } from "./orchestrator"
 import { loadOrchestratorConfig, type MetaGovernorPluginConfig } from "./config"
 import { storeDecision, takeAnyDecision, takeDecision } from "./decision-store"
+import {
+  loadProtocol,
+  buildSystemInjection,
+  auditToolCall,
+  DEFAULT_PROTOCOL_PATH,
+} from "./protocol-enforcer"
 
 /**
  * Dependencies required by the MetaGovernor plugin.
@@ -86,8 +92,61 @@ export function createMetaGovernorPlugin(
     const providerID = getProviderID() ?? "unknown"
     const modelID = getModelID() ?? "unknown"
 
+    // 4. Load protocol text for enforcement (best-effort, cached once)
+    let protocolText: string | undefined
+    let systemInjection: string | undefined
+    if (config.protocolEnforcement.enabled || config.protocolEnforcement.injectIntoSystem) {
+      const protocolPath = config.protocolEnforcement.path ?? DEFAULT_PROTOCOL_PATH
+      loadProtocol(protocolPath).then((text) => {
+        protocolText = text
+        systemInjection = buildSystemInjection(text)
+      }).catch((err) => {
+        if (typeof console !== "undefined" && config.modelOverride?.verbosity !== "silent") {
+          console.warn("[meta-governor] could not load protocol:", err instanceof Error ? err.message : err)
+        }
+      })
+    }
+
+    // 5. Per-session audit state (for tool.execute.before)
+    type AuditState = {
+      memoryToolsUsed: string[]
+      hasCodegraphDir: boolean
+      hasGraphifyDir: boolean
+      oracleInvoked: boolean
+      filesChanged: number
+      emptyRecall: boolean
+      escalationAttempted: boolean
+    }
+    const auditSessions = new Map<string, AuditState>()
+
     return {
-      // ── Tool execute after ────────────────────────────────────
+      // ── Tool execute before (protocol audit) ────────────────────
+      "tool.execute.before": async (
+        toolInput: { tool: string; sessionID: string }
+      ): Promise<void> => {
+        if (!config.enabled) return
+        if (!config.protocolEnforcement.auditToolCalls) return
+        if (!toolInput.sessionID) return
+
+        // Get or create audit state for this session
+        let state = auditSessions.get(toolInput.sessionID)
+        if (!state) {
+          state = {
+            memoryToolsUsed: [],
+            hasCodegraphDir: false,
+            hasGraphifyDir: false,
+            oracleInvoked: false,
+            filesChanged: 0,
+            emptyRecall: false,
+            escalationAttempted: false,
+          }
+          auditSessions.set(toolInput.sessionID, state)
+        }
+
+        if (systemInjection) {
+          console.log("[meta-governor] protocol loaded, system injection ready")
+        }
+      },
       "tool.execute.after": async (
         toolInput: { tool: string; sessionID: string; callID: string },
         toolOutput: { title: string; output: string; metadata: unknown },
@@ -193,26 +252,35 @@ export function createMetaGovernorPlugin(
         })
       },
 
-      // ── System transform (appends decision guidance to system prompt) ──
+      // ── System transform (injects protocol text + decision guidance) ──
       "experimental.chat.system.transform": async (
         transformInput: { sessionID?: string },
         output: { system: string[] },
       ): Promise<void> => {
         if (!config.enabled) return
-        if (config.intervention.mode !== "system") return
-        if (!transformInput.sessionID) return
 
-        const decision = takeDecision(transformInput.sessionID)
-        if (!decision) return
-        if (decision.action === "continue") return
-        if (!decision.message) return
-        if (!meetsMinAction(decision.action, config.intervention.minActionForMessage)) return
+        // 1. Inject Sisyphus protocol text into system prompt
+        if (config.protocolEnforcement.injectIntoSystem && systemInjection) {
+          output.system.push(
+            "\n### ⚙ Sisyphus Protocol Enforcement",
+            systemInjection,
+            "---",
+          )
+        }
 
-        output.system.push(
-          "\n[MetaGovernor Intervention]",
-          decision.message,
-          "---",
-        )
+        // 2. Inject decision guidance for "system" intervention mode
+        if (config.intervention.mode === "system" && transformInput.sessionID) {
+          const decision = takeDecision(transformInput.sessionID)
+          if (decision && decision.action !== "continue" && decision.message) {
+            if (meetsMinAction(decision.action, config.intervention.minActionForMessage)) {
+              output.system.push(
+                "\n[MetaGovernor Intervention]",
+                decision.message,
+                "---",
+              )
+            }
+          }
+        }
       },
     }
   }

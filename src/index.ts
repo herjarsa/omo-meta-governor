@@ -86,3 +86,11 @@ export type {
   TokenPredictorOutput,
   ClosedLoopConfig,
 } from "./types"
+// Protocol enforcer
+export {
+  loadProtocol,
+  buildSystemInjection,
+  auditToolCall,
+  DEFAULT_PROTOCOL_PATH,
+} from "./protocol-enforcer"
+export type { ProtocolViolation, ProtocolEnforcementSessionState } from "./types"

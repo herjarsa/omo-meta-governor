@@ -106,6 +106,17 @@ export interface Deviation {
 }
 
 /**
+ * A protocol violation detected by the Sisyphus protocol enforcer.
+ * Severity reuses the 3-level taxonomy from Deviation for consistency.
+ */
+export interface ProtocolViolation {
+  readonly rule: string
+  readonly tool: string
+  readonly severity: "leve" | "media" | "grave"
+  readonly detail: string
+}
+
+/**
  * A lesson retrieved from agentmemory.lesson_recall. Confidence is the
  * stored confidence in the memory store, not the relevance to this query.
  */
@@ -369,6 +380,22 @@ export interface InterventionConfig {
   readonly maxHistoryMessages: number
 }
 
+/**
+ * Configuration for Sisyphus protocol enforcement.
+ * Controls whether the protocol is injected into the system prompt
+ * and whether tool calls are audited for protocol violations.
+ */
+export interface ProtocolEnforcementConfig {
+  /** Master switch for protocol enforcement. */
+  readonly enabled: boolean
+  /** Path to protocol markdown. Defaults to ~/.config/opencode/sisyphus-mandatory/sisyphus-mandatory.md */
+  readonly path?: string
+  /** Whether to inject protocol rules into the system prompt. */
+  readonly injectIntoSystem: boolean
+  /** Whether to audit tool calls for protocol violations. */
+  readonly auditToolCalls: boolean
+}
+
 export interface TokenPredictorConfig {
   /** Burn rate threshold (tokens/sec) above which to recommend compact-now. Default: 500. */
   readonly compactBurnRateThreshold: number
@@ -509,6 +536,8 @@ export interface OrchestratorConfig {
   readonly modelOverride?: ModelOverrideConfig
   /** Intervention config for injecting decisions into agent context. */
   readonly intervention: InterventionConfig
+  /** Protocol enforcement config for Sisyphus protocol injection and auditing. */
+  readonly protocolEnforcement: ProtocolEnforcementConfig
 }
 
 /**
@@ -550,4 +579,14 @@ export interface MetaGovernorOutput {
   readonly decisionHistory: readonly DecisionHistoryEntry[]
   readonly skipped: boolean
   readonly skipReason?: string
+}
+
+// ─── Protocol Enforcer Types ─────────────────────────────
+
+export interface ProtocolEnforcementSessionState {
+  readonly memoryToolsUsed: readonly string[]
+  readonly hasCodegraphDir: boolean
+  readonly hasGraphifyDir: boolean
+  readonly oracleInvoked: boolean
+  readonly filesChanged: number
 }
