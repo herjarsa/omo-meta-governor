@@ -69,10 +69,12 @@ export interface MetaGovernorPluginConfig {
   }
 
   /** Graph sync config for auto-initializing codegraph/graphify. */
-  graphSync?: {
-    enabled?: boolean
+graphSync?: {
+enabled?: boolean
     watch?: boolean
-  }
+    autoInstall?: boolean
+    installTimeoutMs?: number
+}
 }
 
 /**

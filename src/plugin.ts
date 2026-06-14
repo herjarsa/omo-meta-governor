@@ -83,10 +83,12 @@ export function createMetaGovernorPlugin(
     }
 
     // 2a. Run graphSync (best-effort, non-blocking)
-    const graphSyncCfg: GraphSyncConfig = {
-      enabled: rawConfig?.graphSync?.enabled ?? true,
+const graphSyncCfg: GraphSyncConfig = {
+enabled: rawConfig?.graphSync?.enabled ?? true,
       watch: rawConfig?.graphSync?.watch ?? false,
-    }
+      autoInstall: rawConfig?.graphSync?.autoInstall ?? true,
+      installTimeoutMs: rawConfig?.graphSync?.installTimeoutMs ?? 60_000,
+}
     runGraphSync(graphSyncCfg).catch(() => {})
 
     // 3. Helper to resolve model settings from override or session

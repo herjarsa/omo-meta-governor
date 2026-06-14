@@ -17,7 +17,7 @@
 
 import { execSync, spawn } from "node:child_process"
 import { access, stat } from "node:fs/promises"
-import { resolve, join } from "node:path"
+import { resolve } from "node:path"
 import { constants } from "node:fs"
 
 // ─── GraphSync config ──────────────────────────────────────────────
@@ -29,6 +29,71 @@ export interface GraphSyncConfig {
   watch: boolean
   /** Project directory to initialize in. Default: cwd */
   projectDir?: string
+  /**
+   * Auto-install missing backends. Default: true.
+   * - codegraph: installed via `npm i -D @colbymchenry/codegraph` in the project
+   * - graphify: installed via `pip install graphifyy --break-system-packages` (or `uv tool install graphifyy`)
+   */
+  autoInstall: boolean
+  /** Max ms to wait for each install. Default: 60_000 */
+  installTimeoutMs: number
+}
+
+// ─── Install codes ────────────────────────────────────────────────
+
+export type InstallCode =
+  | "codegraph-installed"
+  | "codegraph-install-failed"
+  | "codegraph-install-skipped"
+  | "graphify-installed"
+  | "graphify-install-failed"
+  | "graphify-install-skipped"
+
+/**
+ * Install codegraph via `npm i -D @colbymchenry/codegraph`.
+ * Best-effort, never throws.
+ */
+export async function installCodegraph(
+  projectDir: string,
+  timeoutMs: number = 60_000,
+): Promise<InstallCode> {
+  try {
+    execSync("npm i -D @colbymchenry/codegraph", {
+      cwd: projectDir,
+      stdio: "ignore",
+      timeout: timeoutMs,
+    })
+    return "codegraph-installed"
+  } catch {
+    return "codegraph-install-failed"
+  }
+}
+
+/**
+ * Install graphify via `pip install graphifyy --break-system-packages`.
+ * Falls back to `uv tool install graphifyy`.
+ * Best-effort, never throws.
+ */
+export async function installGraphify(
+  timeoutMs: number = 60_000,
+): Promise<InstallCode> {
+  try {
+    execSync("pip install graphifyy --break-system-packages --quiet", {
+      stdio: "ignore",
+      timeout: timeoutMs,
+    })
+    return "graphify-installed"
+  } catch {
+    try {
+      execSync("uv tool install graphifyy --quiet", {
+        stdio: "ignore",
+        timeout: timeoutMs,
+      })
+      return "graphify-installed"
+    } catch {
+      return "graphify-install-failed"
+    }
+  }
 }
 
 // ─── Graph sync state ──────────────────────────────────────────────
@@ -42,7 +107,7 @@ export function resetInitializedProjects(): void {
 // ─── Tool detection ────────────────────────────────────────────────
 
 export interface ToolAvailability {
-  /** Whether codegraph is available (via npx or node_modules/.bin) */
+  /** Whether codegraph is available (via npx or node_modules) */
   codegraph: boolean
   /** Whether graphify/graphifyy is available (via pip) */
   graphify: boolean
@@ -68,7 +133,6 @@ async function checkToolAvailability(projectDir: string): Promise<ToolAvailabili
     })
     codegraph = true
   } catch {
-    // Try local node_modules version
     try {
       execSync("node node_modules/.bin/codegraph --version", {
         cwd: projectDir,
@@ -88,7 +152,6 @@ async function checkToolAvailability(projectDir: string): Promise<ToolAvailabili
     })
     graphify = true
   } catch {
-    // Try graphifyy
     try {
       execSync("python3 -c 'import graphifyy; print(graphifyy.__version__)'", {
         stdio: "ignore",
@@ -105,10 +168,6 @@ async function checkToolAvailability(projectDir: string): Promise<ToolAvailabili
 
 // ─── Initialization ────────────────────────────────────────────────
 
-/**
- * Initialize codegraph for a project.
- * Creates `.codegraph/` directory and runs the init command.
- */
 async function initCodegraph(projectDir: string): Promise<void> {
   const codegraphDir = resolve(projectDir, ".codegraph")
   await ensureDir(codegraphDir)
@@ -124,10 +183,6 @@ async function initCodegraph(projectDir: string): Promise<void> {
   }
 }
 
-/**
- * Initialize graphify for a project.
- * Creates `graphify-out/` directory and runs the indexing.
- */
 async function initGraphify(projectDir: string): Promise<void> {
   const graphifyOut = resolve(projectDir, "graphify-out")
   await ensureDir(graphifyOut)
@@ -160,14 +215,9 @@ interface WatchProcess {
 
 const activeWatchProcesses = new Map<string, WatchProcess>()
 
-/**
- * Start a watch process for codegraph or graphify.
- * The process re-indexes when file changes are detected.
- * Returns the spawned child process.
- */
 function startWatch(projectDir: string, tool: "codegraph" | "graphify"): void {
   const key = `${projectDir}:${tool}`
-  if (activeWatchProcesses.has(key)) return // Already watching
+  if (activeWatchProcesses.has(key)) return
 
   try {
     let child: ReturnType<typeof spawn>
@@ -215,15 +265,6 @@ export function stopWatches(projectDir?: string): void {
 
 // ─── Main API ──────────────────────────────────────────────────────
 
-/**
- * Run the graphSync pipeline for a project.
- *
- * 1. Check if this project has already been initialized this session (skip if so)
- * 2. Check tool availability
- * 3. If tool is available and index does not exist, initialize it
- * 4. If watch mode is enabled, start watch processes
- * 5. Return the availability and init status
- */
 export interface GraphSyncResult {
   /** Whether synchronization was attempted */
   attempted: boolean
@@ -239,9 +280,13 @@ export type GraphSyncCode =
   | "codegraph-initialized"
   | "codegraph-already-exists"
   | "codegraph-unavailable"
+  | "codegraph-install-failed"
+  | "codegraph-install-skipped"
   | "graphify-initialized"
   | "graphify-already-exists"
   | "graphify-unavailable"
+  | "graphify-install-failed"
+  | "graphify-install-skipped"
   | "watch-started-codegraph"
   | "watch-started-graphify"
   | "disabled"
@@ -251,7 +296,7 @@ export type GraphSyncCode =
  * Run the graphSync pipeline. Best-effort, never throws.
  */
 export async function runGraphSync(
-  config: GraphSyncConfig = { enabled: true, watch: false },
+  config: GraphSyncConfig = { enabled: true, watch: false, autoInstall: true, installTimeoutMs: 60_000 },
 ): Promise<GraphSyncResult> {
   const codes: GraphSyncCode[] = []
   const projectDir = config.projectDir ?? process.cwd()
@@ -290,6 +335,26 @@ export async function runGraphSync(
     }
   }
 
+  // Auto-install missing backends
+  if (config.autoInstall !== false) {
+    if (!availability.codegraph) {
+      const result = await installCodegraph(projectDir, config.installTimeoutMs ?? 60_000)
+      codes.push(result as GraphSyncCode)
+      if (result === "codegraph-installed") {
+        availability.codegraph = true
+      }
+    }
+    if (!availability.graphify) {
+      const result = await installGraphify(config.installTimeoutMs ?? 60_000)
+      codes.push(result as GraphSyncCode)
+      if (result === "graphify-installed") {
+        availability.graphify = true
+      }
+    }
+  } else {
+    if (!availability.codegraph) codes.push("codegraph-install-skipped")
+    if (!availability.graphify) codes.push("graphify-install-skipped")
+  }
   // Codegraph init
   if (availability.codegraph) {
     if (!availability.codegraphIndexExists) {
