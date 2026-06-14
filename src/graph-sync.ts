@@ -104,6 +104,45 @@ export function resetInitializedProjects(): void {
   initializedProjects.clear()
 }
 
+// ─── Session tracking (for watch lifecycle) ────────────────────────
+
+const sessionCounts = new Map<string, number>()
+
+/**
+ * Track a new session for a project. Increments reference count.
+ * Returns the new count.
+ */
+export function trackSession(projectDir: string): number {
+  const current = sessionCounts.get(projectDir) ?? 0
+  const next = current + 1
+  sessionCounts.set(projectDir, next)
+  return next
+}
+
+/**
+ * Untrack a session for a project. Decrements reference count.
+ * When count drops to 0, all watch processes for that project
+ * are automatically stopped.
+ * Returns the remaining count.
+ */
+export function untrackSession(projectDir: string): number {
+  const current = sessionCounts.get(projectDir) ?? 0
+  const next = Math.max(0, current - 1)
+  if (next === 0) {
+    sessionCounts.delete(projectDir)
+    // Auto-cleanup watches when last session exits
+    stopWatches(projectDir)
+  } else {
+    sessionCounts.set(projectDir, next)
+  }
+  return next
+}
+
+/** Get active session count for a project. */
+export function getSessionCount(projectDir: string): number {
+  return sessionCounts.get(projectDir) ?? 0
+}
+
 // ─── Tool detection ────────────────────────────────────────────────
 
 export interface ToolAvailability {
@@ -223,11 +262,26 @@ function startWatch(projectDir: string, tool: "codegraph" | "graphify"): void {
     let child: ReturnType<typeof spawn>
 
     if (tool === "codegraph") {
-      child = spawn("npx", ["codegraph", "watch"], {
-        cwd: projectDir,
-        stdio: "ignore",
-        detached: true,
-      })
+      // codegraph has no built-in watch; use periodic update loop
+      child = spawn(
+        "node",
+        [
+          "-e",
+          `
+          const {execSync} = require("child_process");
+          const run = () => {
+            try { execSync("npx codegraph update 2>/dev/null", {cwd: ${JSON.stringify(projectDir)}, stdio: "ignore"}); }
+            catch(e) { /* best effort */ }
+          };
+          run();
+          setInterval(run, 30_000);
+          `,
+        ],
+        {
+          stdio: "ignore",
+          detached: true,
+        },
+      )
     } else {
       child = spawn("python3", ["-m", "graphify", ".", "--no-viz", "--watch"], {
         cwd: projectDir,
@@ -254,13 +308,26 @@ export function stopWatches(projectDir?: string): void {
   for (const [key, wp] of activeWatchProcesses) {
     if (!projectDir || key.startsWith(projectDir)) {
       try {
-        wp.process.kill()
+        wp.process.kill("SIGTERM")
       } catch {
         // Already dead
       }
+      setTimeout(() => {
+        try { wp.process.kill("SIGKILL") } catch { /* OK */ }
+      }, 2_000).unref()
       activeWatchProcesses.delete(key)
     }
   }
+}
+
+/** Check if watches are active for a project. */
+export function hasActiveWatcher(projectDir: string, tool?: "codegraph" | "graphify"): boolean {
+  for (const key of activeWatchProcesses.keys()) {
+    if (key.startsWith(projectDir)) {
+      if (!tool || key.endsWith(tool)) return true
+    }
+  }
+  return false
 }
 
 // ─── Main API ──────────────────────────────────────────────────────
@@ -355,6 +422,7 @@ export async function runGraphSync(
     if (!availability.codegraph) codes.push("codegraph-install-skipped")
     if (!availability.graphify) codes.push("graphify-install-skipped")
   }
+
   // Codegraph init
   if (availability.codegraph) {
     if (!availability.codegraphIndexExists) {

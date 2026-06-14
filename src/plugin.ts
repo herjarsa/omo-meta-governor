@@ -1,13 +1,11 @@
 import type { Hooks, Plugin, PluginInput, PluginOptions } from "@opencode-ai/plugin"
-import type { UserMessage, TextPart } from "@opencode-ai/sdk"
 import type {
   AgentmemoryWriteBackend,
   DecisionHandlerOutput,
   MemoryBackends,
   MetaGovernorInput,
-  ProtocolViolation,
 } from "./types"
-import { runGraphSync, type GraphSyncConfig } from "./graph-sync"
+import { runGraphSync, trackSession, untrackSession } from "./graph-sync"
 import { runMetaGovernor } from "./orchestrator"
 import { loadOrchestratorConfig, type MetaGovernorPluginConfig } from "./config"
 import { storeDecision, takeAnyDecision, takeDecision } from "./decision-store"
@@ -20,20 +18,16 @@ import {
 
 /**
  * Dependencies required by the MetaGovernor plugin.
- * All are optional — features degrade gracefully when backends are unavailable.
+ * All are optional - features degrade gracefully when backends are unavailable.
  */
 export interface MetaGovernorPluginDeps {
-  /** Backends for reading memory (agentmemory, magic-context, boulder-state). Optional — degrades gracefully. */
   backends?: MemoryBackends
-  /** Backend for writing lessons/decisions back to agentmemory. Optional — degrades gracefully. */
   writeBackend?: AgentmemoryWriteBackend
-  /** Provider ID for the current session (for token predictor). */
   providerID?: () => string | undefined
-  /** Model ID for the current session (for token predictor). */
   modelID?: () => string | undefined
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────
+// - Helpers
 
 const ACTION_SEVERITY: Record<string, number> = {
   continue: 0,
@@ -42,9 +36,6 @@ const ACTION_SEVERITY: Record<string, number> = {
   stop: 3,
 }
 
-/**
- * Check if the given action meets or exceeds the minimum severity threshold.
- */
 function meetsMinAction(
   action: DecisionHandlerOutput["action"],
   minAction: "warn" | "escalate" | "stop",
@@ -58,66 +49,67 @@ function generateID(): string {
   return `mg-${Date.now()}-${idCounter}`
 }
 
-// ─── Plugin factory ─────────────────────────────────────────────
+// - Plugin factory
 
-/**
- * Create a MetaGovernor plugin that registers:
- * 1. `tool.execute.after` — runs the orchestrator pipeline
- * 2. `experimental.chat.messages.transform` — injects decisions as synthetic user messages
- * 3. `experimental.chat.system.transform` — appends decision guidance to system prompt
- */
 export function createMetaGovernorPlugin(
+  config: MetaGovernorPluginConfig = {},
   deps: MetaGovernorPluginDeps = {},
 ): Plugin {
+  // Initialise graphSync when the module loads (before any session)
+  const graphSyncEnabled = config.graphSync?.enabled !== false
+  if (graphSyncEnabled) {
+    const cwd = process.cwd()
+    runGraphSync({
+      enabled: true,
+      watch: config.graphSync?.watch ?? false,
+      autoInstall: config.graphSync?.autoInstall ?? true,
+      installTimeoutMs: config.graphSync?.installTimeoutMs ?? 60_000,
+      projectDir: cwd,
+    }).catch(() => {})
+    trackSession(cwd)
+  }
+
   const plugin: Plugin = async (
     _input: PluginInput,
     options?: PluginOptions,
   ): Promise<Hooks> => {
-    // 1. Load config from plugin options (PluginOptions = Record<string, unknown>)
-    const rawConfig = ((options?.meta_governor as MetaGovernorPluginConfig) ?? {})
-    const config = loadOrchestratorConfig(rawConfig)
+    // 1. Load config from plugin options
+    const rawConfig = {
+      ...config,
+      ...((options?.meta_governor as MetaGovernorPluginConfig) ?? {}),
+    }
+    const mergedConfig = loadOrchestratorConfig(rawConfig)
 
     // 2. If disabled, return empty hooks
-    if (!config.enabled) {
+    if (!mergedConfig.enabled) {
       return {}
     }
 
-    // 2a. Run graphSync (best-effort, non-blocking)
-const graphSyncCfg: GraphSyncConfig = {
-enabled: rawConfig?.graphSync?.enabled ?? true,
-      watch: rawConfig?.graphSync?.watch ?? false,
-      autoInstall: rawConfig?.graphSync?.autoInstall ?? true,
-      installTimeoutMs: rawConfig?.graphSync?.installTimeoutMs ?? 60_000,
-}
-    runGraphSync(graphSyncCfg).catch(() => {})
-
-    // 3. Helper to resolve model settings from override or session
+    // 3. Resolve model settings from override or session
     const getProviderID = (): string | undefined =>
-      config.modelOverride?.providerID ?? deps.providerID?.()
+      mergedConfig.modelOverride?.providerID ?? deps.providerID?.()
     const getModelID = (): string | undefined =>
-      config.modelOverride?.modelID ?? deps.modelID?.()
+      mergedConfig.modelOverride?.modelID ?? deps.modelID?.()
     const getModelLimit = (): number =>
-      config.modelOverride?.modelLimit ?? 200_000
+      mergedConfig.modelOverride?.modelLimit ?? 200_000
 
     const providerID = getProviderID() ?? "unknown"
     const modelID = getModelID() ?? "unknown"
 
-    // 4. Load protocol text for enforcement (best-effort, cached once)
-    let protocolText: string | undefined
+    // 4. Load protocol text (best-effort, cached once)
     let systemInjection: string | undefined
-    if (config.protocolEnforcement.enabled || config.protocolEnforcement.injectIntoSystem) {
-      const protocolPath = config.protocolEnforcement.path ?? DEFAULT_PROTOCOL_PATH
+    if (mergedConfig.protocolEnforcement.enabled || mergedConfig.protocolEnforcement.injectIntoSystem) {
+      const protocolPath = mergedConfig.protocolEnforcement.path ?? DEFAULT_PROTOCOL_PATH
       loadProtocol(protocolPath).then((text) => {
-        protocolText = text
         systemInjection = buildSystemInjection(text)
       }).catch((err) => {
-        if (typeof console !== "undefined" && config.modelOverride?.verbosity !== "silent") {
+        if (typeof console !== "undefined" && mergedConfig.modelOverride?.verbosity !== "silent") {
           console.warn("[meta-governor] could not load protocol:", err instanceof Error ? err.message : err)
         }
       })
     }
 
-    // 5. Per-session audit state (for tool.execute.before)
+    // 5. Per-session audit state
     type AuditState = {
       memoryToolsUsed: string[]
       hasCodegraphDir: boolean
@@ -126,19 +118,24 @@ enabled: rawConfig?.graphSync?.enabled ?? true,
       filesChanged: number
       emptyRecall: boolean
       escalationAttempted: boolean
+      aftAvailable: boolean
+      aftUsed: boolean
+      recentToolCalls: string[]
+      recentWriteContents: string[]
+      memorySaved: boolean
+      batchCompletions: number
     }
     const auditSessions = new Map<string, AuditState>()
 
     return {
-      // ── Tool execute before (protocol audit) ────────────────────
+      // - Tool execute before (protocol audit)
       "tool.execute.before": async (
-        toolInput: { tool: string; sessionID: string }
+        toolInput: { tool: string; sessionID: string; callID: string },
       ): Promise<void> => {
-        if (!config.enabled) return
-        if (!config.protocolEnforcement.auditToolCalls) return
+        if (!mergedConfig.enabled) return
+        if (!mergedConfig.protocolEnforcement.auditToolCalls) return
         if (!toolInput.sessionID) return
 
-        // Get or create audit state for this session
         let state = auditSessions.get(toolInput.sessionID)
         if (!state) {
           state = {
@@ -149,6 +146,12 @@ enabled: rawConfig?.graphSync?.enabled ?? true,
             filesChanged: 0,
             emptyRecall: false,
             escalationAttempted: false,
+            aftAvailable: false,
+            aftUsed: false,
+            recentToolCalls: [],
+            recentWriteContents: [],
+            memorySaved: false,
+            batchCompletions: 0,
           }
           auditSessions.set(toolInput.sessionID, state)
         }
@@ -156,14 +159,90 @@ enabled: rawConfig?.graphSync?.enabled ?? true,
         if (systemInjection) {
           console.log("[meta-governor] protocol loaded, system injection ready")
         }
+
+        const violations = auditToolCall(toolInput.tool, {}, {
+          memoryToolsUsed: state.memoryToolsUsed,
+          hasCodegraphDir: state.hasCodegraphDir,
+          hasGraphifyDir: state.hasGraphifyDir,
+          oracleInvoked: state.oracleInvoked,
+          filesChanged: state.filesChanged,
+          emptyRecall: state.emptyRecall,
+          escalationAttempted: state.escalationAttempted,
+          aftAvailable: state.aftAvailable,
+          aftUsed: state.aftUsed,
+          recentToolCalls: state.recentToolCalls,
+          recentWriteContents: state.recentWriteContents,
+          memorySaved: state.memorySaved,
+          batchCompletions: state.batchCompletions,
+        })
+
+        if (violations.length > 0) {
+          console.warn("[meta-governor] protocol violations:", violations)
+        }
       },
+
+      // - Tool execute after (orchestrator + audit state update)
       "tool.execute.after": async (
-        toolInput: { tool: string; sessionID: string; callID: string },
+        toolInput: { tool: string; sessionID: string; callID: string; args: unknown },
         toolOutput: { title: string; output: string; metadata: unknown },
       ): Promise<void> => {
-        if (!config.enabled) return
+        if (!mergedConfig.enabled) return
 
-        // Build the orchestrator input from available signals
+        const sessionState = auditSessions.get(toolInput.sessionID)
+        if (sessionState) {
+          sessionState.recentToolCalls = [toolInput.tool].concat(
+            sessionState.recentToolCalls,
+          ).slice(0, 20)
+
+          const writeTools = [
+            "write", "edit", "edit_block",
+            "desktop-commander_write_file", "desktop-commander_edit_block",
+          ]
+          if (writeTools.includes(toolInput.tool)) {
+            sessionState.filesChanged++
+            const content = (toolOutput.output ?? "").slice(0, 500)
+            sessionState.recentWriteContents = [content].concat(
+              sessionState.recentWriteContents,
+            ).slice(0, 3)
+          }
+
+          const memoryTools = [
+            "agentmemory_memory_recall", "agentmemory_memory_smart_search",
+            "agentmemory_memory_save", "ctx_memory", "ctx_search", "ctx_note",
+          ]
+          const isMemoryTool = memoryTools.some((m) => toolInput.tool.startsWith(m))
+          if (isMemoryTool && !sessionState.memoryToolsUsed.includes(toolInput.tool)) {
+            sessionState.memoryToolsUsed.push(toolInput.tool)
+          }
+
+          if (toolInput.tool.startsWith("ctx_memory")) {
+            const out = toolOutput.output ?? ""
+            if (out.includes("saved") || out.includes("written")) {
+              sessionState.memorySaved = true
+            }
+          }
+
+          if (toolInput.tool.startsWith("aft_zoom") || toolInput.tool.startsWith("aft_outline")) {
+            sessionState.aftUsed = true
+          }
+
+          if (toolInput.tool === "task" && (toolOutput.output ?? "").includes("subagent_type=oracle")) {
+            sessionState.oracleInvoked = true
+          }
+
+          const outLower = (toolOutput.output ?? "").toLowerCase()
+          if (toolInput.tool.includes("recall") && (outLower.includes("returned empty") || outLower.includes("no results"))) {
+            sessionState.emptyRecall = true
+          }
+
+          if (toolInput.tool === "todowrite" && (toolOutput.output ?? "").includes("completed")) {
+            const matches = (toolOutput.output ?? "").match(/"status":"completed"/g) ?? []
+            if (matches.length >= 3) {
+              sessionState.batchCompletions++
+            }
+          }
+        }
+
         const orchestratorInput: MetaGovernorInput = {
           sessionID: toolInput.sessionID,
           toolName: toolInput.tool,
@@ -176,113 +255,82 @@ enabled: rawConfig?.graphSync?.enabled ?? true,
           recentTurnTokens: [],
           deviations: [],
           backends: deps.backends ?? {
-            agentmemory: {
-              smartSearch: async () => ({ lessons: [], crystals: [] }),
-            },
-            magicContext: {
-              slotList: async () => [],
-            },
-            boulderState: {
-              boulderRead: async () => [],
-            },
+            agentmemory: { smartSearch: async () => ({ lessons: [], crystals: [] }) },
+            magicContext: { slotList: async () => [] },
+            boulderState: { boulderRead: async () => [] },
           },
           writeBackend: deps.writeBackend ?? {
             saveMemory: async () => ({ id: "" }),
             saveLesson: async () => ({ id: "" }),
           },
-          config,
+          config: mergedConfig,
           ...(getProviderID() ? { providerID: getProviderID() } : {}),
           ...(getModelID() ? { modelID: getModelID() } : {}),
           modelLimit: getModelLimit(),
         }
 
-        // Run the orchestrator
         try {
           const output = await runMetaGovernor(orchestratorInput)
 
-          // 4. Store decision for intervention if applicable
-          if (config.intervention.mode !== "silent") {
+          if (mergedConfig.intervention.mode !== "silent") {
             const decision = output.decision
             if (
               decision.action !== "continue" &&
-              meetsMinAction(decision.action, config.intervention.minActionForMessage)
+              meetsMinAction(decision.action, mergedConfig.intervention.minActionForMessage)
             ) {
               storeDecision(toolInput.sessionID, decision)
             }
           }
-        } catch (err) {
-          // MetaGovernor must NEVER break a tool call.
-          if (typeof console !== "undefined" && config.modelOverride?.verbosity !== "silent") {
-            console.error("[meta-governor] orchestrator error:", err)
-          }
+        } catch {
+          // MetaGovernor must NEVER break a tool call
         }
       },
 
-      // ── Messages transform (injects decision as synthetic user message) ──
+      // - Messages transform (injects decision as synthetic user message)
       "experimental.chat.messages.transform": async (
         _input: {},
-        output: {
-          messages: Array<{ info: unknown; parts: unknown[] }>
-        },
+        output: { messages: Array<{ info: unknown; parts: unknown[] }> },
       ): Promise<void> => {
-        if (!config.enabled) return
-        if (config.intervention.mode !== "message") return
+        if (!mergedConfig.enabled) return
+        if (mergedConfig.intervention.mode !== "message") return
 
         const decision = takeAnyDecision()
         if (!decision) return
         if (decision.action === "continue") return
         if (!decision.message) return
-        if (!meetsMinAction(decision.action, config.intervention.minActionForMessage)) return
+        if (!meetsMinAction(decision.action, mergedConfig.intervention.minActionForMessage)) return
 
-        const messageID = generateID()
-        const partID = generateID()
-        const sessionID = "intervention"
-
-        const syntheticUserMessage: UserMessage = {
-          id: generateID(),
-          sessionID,
-          role: "user",
-          time: { created: Date.now() },
-          agent: "meta-governor",
-          model: { providerID, modelID },
-        }
-
-        const syntheticPart: TextPart = {
-          id: partID,
-          sessionID,
-          messageID,
+        const textPart = {
           type: "text",
-          text: decision.message,
+          text: `[MetaGovernor] ${decision.message}`,
           synthetic: true,
         }
 
-        output.messages.unshift({
-          info: syntheticUserMessage,
-          parts: [syntheticPart],
+        output.messages.push({
+          info: { role: "user", agent: "meta-governor" },
+          parts: [textPart],
         })
       },
 
-      // ── System transform (injects protocol text + decision guidance) ──
+      // - System transform (protocol injection + system intervention mode)
       "experimental.chat.system.transform": async (
-        transformInput: { sessionID?: string },
+        transformInput: { sessionID?: string; model: unknown },
         output: { system: string[] },
       ): Promise<void> => {
-        if (!config.enabled) return
+        if (!mergedConfig.enabled) return
 
-        // 1. Inject Sisyphus protocol text into system prompt
-        if (config.protocolEnforcement.injectIntoSystem && systemInjection) {
+        if (mergedConfig.protocolEnforcement.injectIntoSystem && systemInjection) {
           output.system.push(
-            "\n### ⚙ Sisyphus Protocol Enforcement",
+            "\n### Sisyphus Protocol Enforcement",
             systemInjection,
             "---",
           )
         }
 
-        // 2. Inject decision guidance for "system" intervention mode
-        if (config.intervention.mode === "system" && transformInput.sessionID) {
+        if (mergedConfig.intervention.mode === "system" && transformInput.sessionID) {
           const decision = takeDecision(transformInput.sessionID)
           if (decision && decision.action !== "continue" && decision.message) {
-            if (meetsMinAction(decision.action, config.intervention.minActionForMessage)) {
+            if (meetsMinAction(decision.action, mergedConfig.intervention.minActionForMessage)) {
               output.system.push(
                 "\n[MetaGovernor Intervention]",
                 decision.message,
