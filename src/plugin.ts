@@ -68,7 +68,6 @@ export function createMetaGovernorPlugin(
       projectDir: cwd,
     }).catch(() => {})
     trackSession(cwd)
-    trackSession(cwd)
   }
 
   // Log startup so the user can see the plugin is loaded
@@ -78,12 +77,12 @@ export function createMetaGovernorPlugin(
     intervention: config.intervention,
     protocolEnforcement: config.protocolEnforcement,
   })
-  }
 
   const plugin: Plugin = async (
     _input: PluginInput,
     options?: PluginOptions,
   ): Promise<Hooks> => {
+    // 1. Load config from plugin options
     // 1. Load config from plugin options
     const rawConfig = {
       ...config,
@@ -202,7 +201,6 @@ export function createMetaGovernorPlugin(
           logToFile("info", `audit OK on tool ${toolInput.tool}`)
         }
       },
-
       // - Tool execute after (orchestrator + audit state update)
       // - Tool execute after (orchestrator + audit state update)
       "tool.execute.after": async (
