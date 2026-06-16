@@ -10,6 +10,7 @@ import { runMetaGovernor } from "./orchestrator"
 import { loadOrchestratorConfig, type MetaGovernorPluginConfig } from "./config"
 import { storeDecision, takeAnyDecision, takeDecision } from "./decision-store"
 import { logToFile } from "./file-logger"
+import { statSync } from "node:fs"
 import {
   loadProtocol,
   buildSystemInjection,
@@ -56,10 +57,18 @@ export function createMetaGovernorPlugin(
   config: MetaGovernorPluginConfig = {},
   deps: MetaGovernorPluginDeps = {},
 ): Plugin {
-  // Initialise graphSync when the module loads (before any session)
+  // Detect project graph directories at load time
+  const cwd = process.cwd()
+  const projectHasCodegraph = (() => {
+    try { return statSync(`${cwd}/.codegraph`).isDirectory() } catch { return false }
+  })()
+  const projectHasGraphify = (() => {
+    try { return statSync(`${cwd}/graphify-out`).isDirectory() } catch { return false }
+  })()
+
+  // Initialise graphSync when the module loads
   const graphSyncEnabled = config.graphSync?.enabled !== false
   if (graphSyncEnabled) {
-    const cwd = process.cwd()
     runGraphSync({
       enabled: true,
       watch: config.graphSync?.watch ?? false,
@@ -72,17 +81,16 @@ export function createMetaGovernorPlugin(
 
   // Log startup so the user can see the plugin is loaded
   logToFile("info", "MetaGovernor plugin loaded", {
-    version: "0.9.0",
-    graphSync: config.graphSync,
-    intervention: config.intervention,
-    protocolEnforcement: config.protocolEnforcement,
+    version: "0.9.3",
+    cwd,
+    projectHasCodegraph,
+    projectHasGraphify,
   })
 
   const plugin: Plugin = async (
     _input: PluginInput,
     options?: PluginOptions,
   ): Promise<Hooks> => {
-    // 1. Load config from plugin options
     // 1. Load config from plugin options
     const rawConfig = {
       ...config,
@@ -110,9 +118,9 @@ export function createMetaGovernorPlugin(
     let systemInjection: string | undefined
     if (mergedConfig.protocolEnforcement.enabled || mergedConfig.protocolEnforcement.injectIntoSystem) {
       const protocolPath = mergedConfig.protocolEnforcement.path ?? DEFAULT_PROTOCOL_PATH
-      loadProtocol(protocolPath).then((text) => {
+      loadProtocol(protocolPath).then((text: string) => {
         systemInjection = buildSystemInjection(text)
-      }).catch((err) => {
+      }).catch((err: unknown) => {
         if (typeof console !== "undefined" && mergedConfig.modelOverride?.verbosity !== "silent") {
           console.warn("[meta-governor] could not load protocol:", err instanceof Error ? err.message : err)
         }
@@ -137,8 +145,9 @@ export function createMetaGovernorPlugin(
     }
     const auditSessions = new Map<string, AuditState>()
 
-    // Pending protocol violations queue: key=sessionID, value=violations to surface to the model
+    // Pending protocol violations queue
     const pendingViolations = new Map<string, string[]>()
+
     return {
       // - Tool execute before (protocol audit)
       "tool.execute.before": async (
@@ -152,8 +161,8 @@ export function createMetaGovernorPlugin(
         if (!state) {
           state = {
             memoryToolsUsed: [],
-            hasCodegraphDir: false,
-            hasGraphifyDir: false,
+            hasCodegraphDir: projectHasCodegraph,
+            hasGraphifyDir: projectHasGraphify,
             oracleInvoked: false,
             filesChanged: 0,
             emptyRecall: false,
@@ -189,9 +198,7 @@ export function createMetaGovernorPlugin(
         })
 
         if (violations.length > 0) {
-          // Log to file + console for visibility
           logToFile("warn", `protocol violations on tool ${toolInput.tool}`, violations)
-          // Queue violations so the next messages.transform surfaces them to the model
           const existing = pendingViolations.get(toolInput.sessionID) ?? []
           for (const v of violations) {
             existing.push(`[${v.severity.toUpperCase()}] ${v.rule}: ${v.detail}`)
@@ -201,7 +208,7 @@ export function createMetaGovernorPlugin(
           logToFile("info", `audit OK on tool ${toolInput.tool}`)
         }
       },
-      // - Tool execute after (orchestrator + audit state update)
+
       // - Tool execute after (orchestrator + audit state update)
       "tool.execute.after": async (
         toolInput: { tool: string; sessionID: string; callID: string; args: unknown },
@@ -231,7 +238,7 @@ export function createMetaGovernorPlugin(
             "agentmemory_memory_recall", "agentmemory_memory_smart_search",
             "agentmemory_memory_save", "ctx_memory", "ctx_search", "ctx_note",
           ]
-          const isMemoryTool = memoryTools.some((m) => toolInput.tool.startsWith(m))
+          const isMemoryTool = memoryTools.some((m: string) => toolInput.tool.startsWith(m))
           if (isMemoryTool && !sessionState.memoryToolsUsed.includes(toolInput.tool)) {
             sessionState.memoryToolsUsed.push(toolInput.tool)
           }
@@ -349,6 +356,8 @@ export function createMetaGovernorPlugin(
           parts: [textPart],
         })
       },
+
+      // - System transform (protocol injection + system intervention mode)
       "experimental.chat.system.transform": async (
         transformInput: { sessionID?: string; model: unknown },
         output: { system: string[] },
