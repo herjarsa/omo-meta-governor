@@ -68,6 +68,16 @@ export function createMetaGovernorPlugin(
       projectDir: cwd,
     }).catch(() => {})
     trackSession(cwd)
+    trackSession(cwd)
+  }
+
+  // Log startup so the user can see the plugin is loaded
+  logToFile("info", "MetaGovernor plugin loaded", {
+    version: "0.9.0",
+    graphSync: config.graphSync,
+    intervention: config.intervention,
+    protocolEnforcement: config.protocolEnforcement,
+  })
   }
 
   const plugin: Plugin = async (
