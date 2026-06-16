@@ -27,11 +27,8 @@ const pluginModule: PluginModule = {
 
 export default pluginModule
 
-export {
-  createMetaGovernorPlugin,
-  type MetaGovernorPluginDeps,
-} from "./plugin"
-
+export { createMetaGovernorPlugin, type MetaGovernorPluginDeps } from "./plugin"
+export { logToFile } from "./file-logger"
 export {
   runMetaGovernor,
   buildDecisionContext,

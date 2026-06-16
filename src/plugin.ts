@@ -9,6 +9,7 @@ import { runGraphSync, trackSession, untrackSession } from "./graph-sync"
 import { runMetaGovernor } from "./orchestrator"
 import { loadOrchestratorConfig, type MetaGovernorPluginConfig } from "./config"
 import { storeDecision, takeAnyDecision, takeDecision } from "./decision-store"
+import { logToFile } from "./file-logger"
 import {
   loadProtocol,
   buildSystemInjection,
@@ -127,6 +128,8 @@ export function createMetaGovernorPlugin(
     }
     const auditSessions = new Map<string, AuditState>()
 
+    // Pending protocol violations queue: key=sessionID, value=violations to surface to the model
+    const pendingViolations = new Map<string, string[]>()
     return {
       // - Tool execute before (protocol audit)
       "tool.execute.before": async (
@@ -177,10 +180,20 @@ export function createMetaGovernorPlugin(
         })
 
         if (violations.length > 0) {
-          console.warn("[meta-governor] protocol violations:", violations)
+          // Log to file + console for visibility
+          logToFile("warn", `protocol violations on tool ${toolInput.tool}`, violations)
+          // Queue violations so the next messages.transform surfaces them to the model
+          const existing = pendingViolations.get(toolInput.sessionID) ?? []
+          for (const v of violations) {
+            existing.push(`[${v.severity.toUpperCase()}] ${v.rule}: ${v.detail}`)
+          }
+          pendingViolations.set(toolInput.sessionID, existing)
+        } else {
+          logToFile("info", `audit OK on tool ${toolInput.tool}`)
         }
       },
 
+      // - Tool execute after (orchestrator + audit state update)
       // - Tool execute after (orchestrator + audit state update)
       "tool.execute.after": async (
         toolInput: { tool: string; sessionID: string; callID: string; args: unknown },
@@ -286,7 +299,7 @@ export function createMetaGovernorPlugin(
         }
       },
 
-      // - Messages transform (injects decision as synthetic user message)
+      // - Messages transform (injects decisions + protocol violations as synthetic user messages)
       "experimental.chat.messages.transform": async (
         _input: {},
         output: { messages: Array<{ info: unknown; parts: unknown[] }> },
@@ -294,6 +307,23 @@ export function createMetaGovernorPlugin(
         if (!mergedConfig.enabled) return
         if (mergedConfig.intervention.mode !== "message") return
 
+        // 1. Inject pending protocol violations so the model sees them
+        const lastMsg = output.messages[output.messages.length - 1] as { info?: { sessionID?: string } } | undefined
+        const violationSessionID = lastMsg?.info?.sessionID
+        if (violationSessionID && pendingViolations.has(violationSessionID)) {
+          const violations = pendingViolations.get(violationSessionID)!
+          if (violations.length > 0) {
+            const violationText = `[META-GOVERNOR PROTOCOL VIOLATIONS - YOU MUST COMPLY]\n\n${violations.map((v, i) => `${i + 1}. ${v}`).join("\n")}\n\nRemember: use codegraph/graphify for architecture queries, do not grep without trying AFT/codegraph first, no @ts-ignore/as-any, no empty catch, check memory before asking.`
+            output.messages.push({
+              info: { role: "user", agent: "meta-governor", synthetic: true },
+              parts: [{ type: "text", text: violationText, synthetic: true }],
+            })
+            pendingViolations.delete(violationSessionID)
+            logToFile("info", `injected ${violations.length} violation(s) to model`)
+          }
+        }
+
+        // 2. Inject MetaGovernor decision
         const decision = takeAnyDecision()
         if (!decision) return
         if (decision.action === "continue") return
@@ -311,8 +341,6 @@ export function createMetaGovernorPlugin(
           parts: [textPart],
         })
       },
-
-      // - System transform (protocol injection + system intervention mode)
       "experimental.chat.system.transform": async (
         transformInput: { sessionID?: string; model: unknown },
         output: { system: string[] },
