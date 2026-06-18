@@ -127,7 +127,7 @@ export function getUserConfigPath(): string {
  */
 export function getProjectConfigPath(projectDir?: string): string {
   const base = projectDir ?? process.cwd()
-  return resolve(base, ".opencode", CONFIG_FILE_NAME)
+  return join(base, ".opencode", CONFIG_FILE_NAME)
 }
 
 // ─── File existence check ──────────────────────────────────────────
