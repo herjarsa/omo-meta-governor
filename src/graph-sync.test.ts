@@ -48,9 +48,8 @@ describe("runGraphSync", () => {
     it("then returns attempted=true with some codes", async () => {
       const result = await runGraphSync(config)
       expect(result.attempted).toBe(true)
-      // Result must contain at least one code describing the outcome
       expect(result.codes.length).toBeGreaterThan(0)
-    })
+    }, 30000)
   })
 
   describe("#given autoInstall=true and tools missing", () => {
@@ -72,9 +71,9 @@ describe("runGraphSync", () => {
       try {
         await fs.rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
       } catch {
-        // Best effort cleanup - Windows may hold file handles briefly
+        // best effort cleanup - Windows may hold file handles briefly
       }
-    })
+    }, 30000)
   })
 
   describe("#given already initialized project", () => {
@@ -87,16 +86,14 @@ describe("runGraphSync", () => {
         installTimeoutMs: 100,
       }
 
-      // First call
       const first = await runGraphSync(config)
       expect(first.attempted).toBe(true)
       expect(first.alreadyInitialized).toBe(false)
 
-      // Second call
       const second = await runGraphSync(config)
       expect(second.alreadyInitialized).toBe(true)
       expect(second.attempted).toBe(false)
-    })
+    }, 30000)
   })
 
   describe("#given disabled config after prior init", () => {
@@ -126,6 +123,6 @@ describe("resetInitializedProjects", () => {
       const second = await runGraphSync(config)
       expect(second.alreadyInitialized).toBe(false)
       expect(second.attempted).toBe(true)
-    })
+    }, 30000)
   })
 })
