@@ -179,8 +179,12 @@ describe("getUserConfigPath", () => {
 
 describe("getProjectConfigPath", () => {
   it("then returns path in .opencode subdirectory", () => {
-    const path = getProjectConfigPath("/projects/test")
-    expect(path).toBe(`/projects/test${pathSep}.opencode${pathSep}omo-meta-governor.jsonc`)
+    // Use a Windows-safe path that doesn't get the leading-slash stripped
+    const sep = pathSep
+    const base = process.platform === "win32" ? `C:${sep}projects${sep}test` : "/projects/test"
+    const result = getProjectConfigPath(base)
+    const expected = `${base}${sep}.opencode${sep}omo-meta-governor.jsonc`
+    expect(result).toBe(expected)
   })
 
   it("then uses cwd when no projectDir provided", () => {
