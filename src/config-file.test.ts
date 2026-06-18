@@ -11,7 +11,7 @@
 
 import { describe, expect, it, beforeEach, afterEach } from "bun:test"
 import { mkdir, writeFile, unlink, rmdir } from "node:fs/promises"
-import { resolve } from "node:path"
+import { resolve, sep as pathSep } from "node:path"
 import { tmpdir } from "node:os"
 import {
   stripJsoncComments,
@@ -173,19 +173,19 @@ describe("deepMerge", () => {
 describe("getUserConfigPath", () => {
   it("then returns path ending with omo-meta-governor.jsonc", () => {
     const path = getUserConfigPath()
-    expect(path).toContain(".config/opencode/omo-meta-governor.jsonc")
+    expect(path).toContain(`.config${pathSep}opencode${pathSep}omo-meta-governor.jsonc`)
   })
 })
 
 describe("getProjectConfigPath", () => {
   it("then returns path in .opencode subdirectory", () => {
     const path = getProjectConfigPath("/projects/test")
-    expect(path).toBe("/projects/test/.opencode/omo-meta-governor.jsonc")
+    expect(path).toBe(`/projects/test${pathSep}.opencode${pathSep}omo-meta-governor.jsonc`)
   })
 
   it("then uses cwd when no projectDir provided", () => {
     const path = getProjectConfigPath()
-    expect(path).toContain(".opencode/omo-meta-governor.jsonc")
+    expect(path).toContain(`.opencode${pathSep}omo-meta-governor.jsonc`)
   })
 })
 

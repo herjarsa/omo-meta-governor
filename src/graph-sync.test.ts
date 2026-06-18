@@ -69,7 +69,11 @@ describe("runGraphSync", () => {
       const result = await runGraphSync(config)
       expect(result.attempted).toBe(true)
       expect(result.codes.length).toBeGreaterThan(0)
-      await fs.rm(tmp, { recursive: true, force: true })
+      try {
+        await fs.rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
+      } catch {
+        // Best effort cleanup - Windows may hold file handles briefly
+      }
     })
   })
 
