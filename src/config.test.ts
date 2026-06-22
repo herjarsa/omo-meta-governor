@@ -166,8 +166,9 @@ describe("loadOrchestratorConfig — intervention", () => {
       expect(result.intervention.maxHistoryMessages).toBe(5)
     })
 
-    it("then intervention.minActionForMessage defaults to warn", () => {
-      expect(result.intervention.minActionForMessage).toBe("warn")
+    it("then intervention.minActionForMessage defaults to 'stop' (v0.10.0)", () => {
+      expect(result.intervention.minActionForMessage).toBe("stop")
+    })
     })
   })
 
@@ -219,10 +220,9 @@ describe("loadOrchestratorConfig — intervention", () => {
       expect(result.intervention.maxHistoryMessages).toBe(5)
     })
 
-    it("then intervention.minActionForMessage defaults to warn", () => {
-      expect(result.intervention.minActionForMessage).toBe("warn")
+    it("then intervention.minActionForMessage defaults to 'stop' (v0.10.0)", () => {
+      expect(result.intervention.minActionForMessage).toBe("stop")
     })
-  })
 })
 
 describe("loadOrchestratorConfig — protocolEnforcement", () => {

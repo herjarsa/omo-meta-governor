@@ -58,7 +58,11 @@ export interface MetaGovernorPluginConfig {
     includeDecisionHistory?: boolean
     maxHistoryMessages?: number
     minActionForMessage?: "warn" | "escalate" | "stop"
-  }
+    /** v0.10.0: rate-limit interventions to break instruction loops. */
+    maxInterventionsPerSession?: number
+    /** v0.10.0: stop injecting after <promise>DONE</promise> + Oracle verified. */
+    respectDoneSignal?: boolean
+}
 
   /** Sisyphus protocol enforcement config. */
   protocolEnforcement?: {
@@ -156,7 +160,14 @@ export function loadOrchestratorConfig(
       mode: full.intervention?.mode ?? "silent",
       includeDecisionHistory: full.intervention?.includeDecisionHistory ?? true,
       maxHistoryMessages: full.intervention?.maxHistoryMessages ?? 5,
-      minActionForMessage: full.intervention?.minActionForMessage ?? "warn",
+      // v0.10.0: default is "stop" — see orchestrator.ts for rationale.
+      minActionForMessage: full.intervention?.minActionForMessage ?? "stop",
+      // v0.10.0: rate-limit interventions to break instruction loops.
+      maxInterventionsPerSession:
+        full.intervention?.maxInterventionsPerSession ?? 3,
+      // v0.10.0: stop injecting after the agent signals <promise>DONE</promise>
+      // AND Oracle has verified the work.
+      respectDoneSignal: full.intervention?.respectDoneSignal ?? true,
     } as InterventionConfig,
     protocolEnforcement: {
       enabled: full.protocolEnforcement?.enabled ?? false,

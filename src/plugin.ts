@@ -8,7 +8,7 @@ import type {
 import { runGraphSync, trackSession, untrackSession } from "./graph-sync"
 import { runMetaGovernor } from "./orchestrator"
 import { loadOrchestratorConfig, type MetaGovernorPluginConfig } from "./config"
-import { storeDecision, takeAnyDecision, takeDecision } from "./decision-store"
+import { storeDecision, takeDecision } from "./decision-store"
 import { logToFile } from "./file-logger"
 import { statSync } from "node:fs"
 import {
@@ -81,7 +81,7 @@ export function createMetaGovernorPlugin(
 
   // Log startup so the user can see the plugin is loaded
   logToFile("info", "MetaGovernor plugin loaded", {
-    version: "0.9.3",
+    version: "0.10.0",
     cwd,
     projectHasCodegraph,
     projectHasGraphify,
@@ -127,7 +127,7 @@ export function createMetaGovernorPlugin(
       })
     }
 
-    // 5. Per-session audit state
+    // 5. Per-session audit state (v0.10.0: adds DONE tracking + intervention cap)
     type AuditState = {
       memoryToolsUsed: string[]
       hasCodegraphDir: boolean
@@ -142,11 +142,22 @@ export function createMetaGovernorPlugin(
       recentWriteContents: string[]
       memorySaved: boolean
       batchCompletions: number
+      taskDoneSignal: boolean
+      interventionCount: number
+      interventionDisabled: boolean
     }
     const auditSessions = new Map<string, AuditState>()
 
     // Pending protocol violations queue
     const pendingViolations = new Map<string, string[]>()
+
+    // v0.10.0: detect `<promise>DONE</promise>` (with optional !) in any
+    // tool output / agent output string. Sisyphus emits this to mark the
+    // user's task as verifiably complete.
+    function detectDoneSignal(text: string | undefined | null): boolean {
+      if (typeof text !== "string" || text.length === 0) return false
+      return /<promise>\s*DONE!?\s*<\/promise>/i.test(text)
+    }
 
     return {
       // - Tool execute before (protocol audit)
@@ -173,6 +184,9 @@ export function createMetaGovernorPlugin(
             recentWriteContents: [],
             memorySaved: false,
             batchCompletions: 0,
+            taskDoneSignal: false,
+            interventionCount: 0,
+            interventionDisabled: false,
           }
           auditSessions.set(toolInput.sessionID, state)
         }
@@ -269,6 +283,25 @@ export function createMetaGovernorPlugin(
               sessionState.batchCompletions++
             }
           }
+
+          // v0.10.0: detect <promise>DONE</promise> in tool output
+          if (!sessionState.taskDoneSignal) {
+            if (
+              detectDoneSignal(toolOutput.output) ||
+              detectDoneSignal(toolInput.args as string | undefined)
+            ) {
+              sessionState.taskDoneSignal = true
+              logToFile(
+                "info",
+                `task_done_signal detected for session ${toolInput.sessionID}`,
+              )
+            }
+          }
+        }
+
+        // v0.10.0: hard break — if intervention already disabled, skip orchestrator
+        if (sessionState?.interventionDisabled) {
+          return
         }
 
         const orchestratorInput: MetaGovernorInput = {
@@ -277,9 +310,9 @@ export function createMetaGovernorPlugin(
           toolOutput: toolOutput.output,
           iteration: 0,
           maxIterations: 10,
-          oracleVerified: false,
+          oracleVerified: sessionState?.oracleInvoked ?? false,
           noProgress: false,
-          filesChanged: 0,
+          filesChanged: sessionState?.filesChanged ?? 0,
           recentTurnTokens: [],
           deviations: [],
           backends: deps.backends ?? {
@@ -300,12 +333,46 @@ export function createMetaGovernorPlugin(
         try {
           const output = await runMetaGovernor(orchestratorInput)
 
-          if (mergedConfig.intervention.mode !== "silent") {
+          if (mergedConfig.intervention.mode !== "silent" && sessionState) {
             const decision = output.decision
+
+            // v0.10.0: DONE + Oracle verified → stop intervening
+            if (
+              mergedConfig.intervention.respectDoneSignal &&
+              sessionState.taskDoneSignal &&
+              sessionState.oracleInvoked
+            ) {
+              sessionState.interventionDisabled = true
+              logToFile(
+                "info",
+                `task verified (DONE + Oracle): disabling intervention for session ${toolInput.sessionID}`,
+              )
+              takeDecision(toolInput.sessionID)
+              return
+            }
+
             if (
               decision.action !== "continue" &&
-              meetsMinAction(decision.action, mergedConfig.intervention.minActionForMessage)
+              meetsMinAction(
+                decision.action,
+                mergedConfig.intervention.minActionForMessage,
+              )
             ) {
+              // v0.10.0: rate-limit interventions
+              const cap = Math.max(
+                0,
+                mergedConfig.intervention.maxInterventionsPerSession ?? 0,
+              )
+              if (cap > 0 && sessionState.interventionCount >= cap) {
+                sessionState.interventionDisabled = true
+                logToFile(
+                  "warn",
+                  `intervention cap (${cap}) reached for session ${toolInput.sessionID}; disabling further intervention`,
+                )
+                takeDecision(toolInput.sessionID)
+                return
+              }
+              sessionState.interventionCount++
               storeDecision(toolInput.sessionID, decision)
             }
           }
@@ -322,28 +389,78 @@ export function createMetaGovernorPlugin(
         if (!mergedConfig.enabled) return
         if (mergedConfig.intervention.mode !== "message") return
 
+        // v0.10.0: derive current sessionID from the LAST message.
+        // MUST scope decisions to the current session; never takeAnyDecision().
+        // If we cannot derive a sessionID, the safe default is no injection.
+        const lastMsg = output.messages[output.messages.length - 1] as
+          | { info?: { sessionID?: string } }
+          | undefined
+        const currentSessionID = lastMsg?.info?.sessionID
+        if (!currentSessionID) {
+          return
+        }
+
+        // v0.10.0: respect per-session intervention disable
+        const state = auditSessions.get(currentSessionID)
+        if (state?.interventionDisabled) {
+          takeDecision(currentSessionID)
+          return
+        }
+
         // 1. Inject pending protocol violations so the model sees them
-        const lastMsg = output.messages[output.messages.length - 1] as { info?: { sessionID?: string } } | undefined
-        const violationSessionID = lastMsg?.info?.sessionID
-        if (violationSessionID && pendingViolations.has(violationSessionID)) {
-          const violations = pendingViolations.get(violationSessionID)!
+        if (pendingViolations.has(currentSessionID)) {
+          const violations = pendingViolations.get(currentSessionID)!
           if (violations.length > 0) {
             const violationText = `[META-GOVERNOR PROTOCOL VIOLATIONS - YOU MUST COMPLY]\n\n${violations.map((v, i) => `${i + 1}. ${v}`).join("\n")}\n\nRemember: use codegraph/graphify for architecture queries, do not grep without trying AFT/codegraph first, no @ts-ignore/as-any, no empty catch, check memory before asking.`
             output.messages.push({
               info: { role: "user", agent: "meta-governor", synthetic: true },
               parts: [{ type: "text", text: violationText, synthetic: true }],
             })
-            pendingViolations.delete(violationSessionID)
+            pendingViolations.delete(currentSessionID)
             logToFile("info", `injected ${violations.length} violation(s) to model`)
           }
         }
 
-        // 2. Inject MetaGovernor decision
-        const decision = takeAnyDecision()
+        // 2. Inject MetaGovernor decision — SCOPED to current session
+        const decision = takeDecision(currentSessionID)
         if (!decision) return
         if (decision.action === "continue") return
         if (!decision.message) return
         if (!meetsMinAction(decision.action, mergedConfig.intervention.minActionForMessage)) return
+
+        // v0.10.0: defense-in-depth cap check before push.
+        // State may not exist yet (no tool.execute.before ran); lazily create it.
+        let curState = state ?? auditSessions.get(currentSessionID)
+        if (!curState) {
+          curState = {
+            memoryToolsUsed: [],
+            hasCodegraphDir: projectHasCodegraph,
+            hasGraphifyDir: projectHasGraphify,
+            oracleInvoked: false,
+            filesChanged: 0,
+            emptyRecall: false,
+            escalationAttempted: false,
+            aftAvailable: false,
+            aftUsed: false,
+            recentToolCalls: [],
+            recentWriteContents: [],
+            memorySaved: false,
+            batchCompletions: 0,
+            taskDoneSignal: false,
+            interventionCount: 0,
+            interventionDisabled: false,
+          }
+          auditSessions.set(currentSessionID, curState)
+        }
+        const cap = Math.max(
+          0,
+          mergedConfig.intervention.maxInterventionsPerSession ?? 0,
+        )
+        if (cap > 0 && curState.interventionCount >= cap) {
+          curState.interventionDisabled = true
+          return
+        }
+        curState.interventionCount++
 
         const textPart = {
           type: "text",
@@ -373,9 +490,26 @@ export function createMetaGovernorPlugin(
         }
 
         if (mergedConfig.intervention.mode === "system" && transformInput.sessionID) {
+          // v0.10.0: also respect per-session intervention disable here
+          const state = auditSessions.get(transformInput.sessionID)
+          if (state?.interventionDisabled) {
+            takeDecision(transformInput.sessionID)
+            return
+          }
           const decision = takeDecision(transformInput.sessionID)
           if (decision && decision.action !== "continue" && decision.message) {
             if (meetsMinAction(decision.action, mergedConfig.intervention.minActionForMessage)) {
+              if (state) {
+                const cap = Math.max(
+                  0,
+                  mergedConfig.intervention.maxInterventionsPerSession ?? 0,
+                )
+                if (cap > 0 && state.interventionCount >= cap) {
+                  state.interventionDisabled = true
+                  return
+                }
+                state.interventionCount++
+              }
               output.system.push(
                 "\n[MetaGovernor Intervention]",
                 decision.message,

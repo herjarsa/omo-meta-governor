@@ -148,11 +148,17 @@ describe("experimental.chat.messages.transform", () => {
       const hooks = await plugin(mockPluginInput, options)
       const transform = hooks["experimental.chat.messages.transform"]!
 
-      const output = { messages: [] as Array<{ info: unknown; parts: unknown[] }> }
+      // v0.10.0: messages.transform requires sessionID to scope injection.
+      const output = {
+        messages: [
+          { info: { role: "user", sessionID: "test-session" }, parts: [{ type: "text", text: "hi" }] },
+        ] as Array<{ info: unknown;
+      parts: unknown[] }>,
+      }
       await transform({}, output)
 
-      expect(output.messages.length).toBe(1)
-      const msg = output.messages[0]!
+      expect(output.messages.length).toBe(2) // original 1 + injected 1
+      const msg = output.messages[output.messages.length - 1]!
       expect((msg.info as Record<string, unknown>).role).toBe("user")
       expect((msg.info as Record<string, unknown>).agent).toBe("meta-governor")
       expect(msg.parts.length).toBe(1)
@@ -296,11 +302,16 @@ describe("minActionForMessage threshold", () => {
       const hooks = await plugin(mockPluginInput, options)
       const transform = hooks["experimental.chat.messages.transform"]!
 
-      const output = { messages: [] as Array<{ info: unknown; parts: unknown[] }> }
+      // v0.10.0: messages.transform requires sessionID to scope injection.
+      const output = {
+        messages: [
+          { info: { role: "user", sessionID: "test-session" }, parts: [{ type: "text", text: "hi" }] },
+        ] as Array<{ info: unknown; parts: unknown[] }>,
+      }
       await transform({}, output)
 
-      expect(output.messages.length).toBe(1)
-      const part = output.messages[0]!.parts[0] as Record<string, unknown>
+      expect(output.messages.length).toBe(2) // original 1 + injected 1
+      const part = output.messages[output.messages.length - 1]!.parts[0] as Record<string, unknown>
       expect(part.text).toContain("Test stop message")
     })
   })

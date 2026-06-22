@@ -378,6 +378,19 @@ export interface InterventionConfig {
   readonly includeDecisionHistory: boolean
   /** Max number of recent decision history entries to include. */
   readonly maxHistoryMessages: number
+  /**
+   * Max number of times a single session may receive an intervention
+   * before the plugin auto-disables intervention for that session.
+   * v0.10.0: prevents infinite instruction loops. Default: 3.
+   */
+  readonly maxInterventionsPerSession: number
+  /**
+   * When true, the plugin stops injecting the moment the agent emits a
+   * `<promise>DONE</promise>` signal AND Oracle has verified the work.
+   * v0.10.0: prevents the plugin from continuing to "guide" the agent
+   * after the user's task is verifiably complete. Default: true.
+   */
+  readonly respectDoneSignal: boolean
 }
 
 /**

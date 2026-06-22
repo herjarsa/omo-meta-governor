@@ -46,17 +46,25 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
   decision: {},
   closedLoop: {},
   intervention: {
+    // v0.10.0: default is "stop" — warnings are advisory and must not auto-trigger
+    // message injection (which would create new LLM turns and trap the agent
+    // in an instruction loop). Users opt UP to "warn" explicitly.
     mode: "silent" as const,
     includeDecisionHistory: true,
     maxHistoryMessages: 5,
-    minActionForMessage: "warn" as const,
+    minActionForMessage: "stop" as const,
+    // v0.10.0: rate-limit interventions to break instruction loops.
+    maxInterventionsPerSession: 3,
+    // v0.10.0: stop injecting after the agent signals <promise>DONE</promise>
+    // AND Oracle has verified the work.
+    respectDoneSignal: true,
   },
   protocolEnforcement: {
-    enabled: false,
-    path: undefined,
-    injectIntoSystem: false,
-    auditToolCalls: false,
-  },
+enabled: false,
+path: undefined,
+injectIntoSystem: false,
+auditToolCalls: false,
+},
 })
 
 const EMPTY_MEMORY_READ: MemoryRead = {
