@@ -5,7 +5,13 @@ import type {
   MemoryBackends,
   MetaGovernorInput,
 } from "./types"
-import { runGraphSync, trackSession, untrackSession } from "./graph-sync"
+import {
+  runGraphSync,
+  trackSession,
+  untrackSession,
+  isGitCommitCommand,
+  triggerCodegraphSync,
+} from "./graph-sync"
 import { runMetaGovernor } from "./orchestrator"
 import { loadOrchestratorConfig, type MetaGovernorPluginConfig } from "./config"
 import { storeDecision, takeDecision } from "./decision-store"
@@ -61,7 +67,7 @@ export function createMetaGovernorPlugin(
   const cwd = process.cwd()
   const projectHasCodegraph = (() => {
     try { return statSync(`${cwd}/.codegraph`).isDirectory() } catch { return false }
-  })()
+})()
   const projectHasGraphify = (() => {
     try { return statSync(`${cwd}/graphify-out`).isDirectory() } catch { return false }
   })()
@@ -149,8 +155,14 @@ export function createMetaGovernorPlugin(
     const auditSessions = new Map<string, AuditState>()
 
     // Pending protocol violations queue
+// Pending protocol violations queue
     const pendingViolations = new Map<string, string[]>()
 
+    // v0.11.0: pending bot feedback (from `gh pr checks` / `gh pr view` output)
+    const pendingBotFeedback = new Map<string, string[]>()
+
+    // v0.11.0: whether the plan reminder has been injected for this session
+    const planReminderSent = new Set<string>()
     // v0.10.0: detect `<promise>DONE</promise>` (with optional !) in any
     // tool output / agent output string. Sisyphus emits this to mark the
     // user's task as verifiably complete.
@@ -379,8 +391,57 @@ export function createMetaGovernorPlugin(
         } catch {
           // MetaGovernor must NEVER break a tool call
         }
-      },
 
+        // v0.11.0: detect `git commit` and trigger reindex as a backup
+        // for users who skipped `graphify hook install`. The native git
+        // hook is the primary path; this is the safety net.
+        try {
+          if (toolInput.tool === "bash") {
+            const args = toolInput.args as { command?: string } | undefined
+            const cmd = args?.command
+            if (isGitCommitCommand(cmd)) {
+              logToFile(
+                "info",
+                "git_commit_reindex_triggered",
+                { sessionID: toolInput.sessionID, command: cmd },
+              )
+              // Fire and forget — don't block the tool call
+              void triggerCodegraphSync(cwd).catch((err) => {
+                logToFile("warn", `codegraph sync failed: ${String(err)}`)
+              })
+            }
+}
+} catch {
+// reindex is best-effort, never break a tool call
+        }
+
+        // v0.11.0: detect `gh pr ...` output and queue bot feedback
+        try {
+          if (toolInput.tool === "bash") {
+            const args = toolInput.args as { command?: string } | undefined
+            const cmd = args?.command
+            if (isGhPrCommand(cmd)) {
+              const feedback = extractBotFeedbackFromGhOutput(
+                toolOutput.output,
+                toolInput.sessionID,
+              )
+              if (feedback.length > 0) {
+                const existing = pendingBotFeedback.get(toolInput.sessionID) ?? []
+                pendingBotFeedback.set(
+                  toolInput.sessionID,
+                  existing.concat(feedback),
+                )
+                logToFile(
+                  "info",
+                  `captured ${feedback.length} bot feedback line(s) for session ${toolInput.sessionID}`,
+                )
+              }
+            }
+          }
+        } catch {
+          // bot feedback is best-effort
+        }
+},
       // - Messages transform (injects decisions + protocol violations as synthetic user messages)
       "experimental.chat.messages.transform": async (
         _input: {},
@@ -407,6 +468,38 @@ export function createMetaGovernorPlugin(
           return
         }
 
+        // 0. Plan reminder (v0.11.0) — nudge the agent to make a plan
+        //    before code changes, but only once per session.
+        if (
+          state &&
+          !planReminderSent.has(currentSessionID) &&
+          shouldInjectPlanReminder(cwd, state.interventionCount)
+        ) {
+          planReminderSent.add(currentSessionID)
+          const planText = `[MetaGovernor] Before any code change, create PLAN.md or a \`## Plan\` section in AGENTS.md that enumerates the phases. After each phase, commit (local + fork + upstream). Each commit triggers automatic reindex via the graphify post-commit hook + \`codegraph sync\`.`
+          output.messages.push({
+            info: { role: "user", agent: "meta-governor", synthetic: true },
+            parts: [{ type: "text", text: planText, synthetic: true }],
+          })
+          logToFile("info", `plan_reminder_injected for session ${currentSessionID}`)
+        }
+
+        // 0b. Bot feedback from PR reviewers (v0.11.0)
+        if (pendingBotFeedback.has(currentSessionID)) {
+          const feedback = pendingBotFeedback.get(currentSessionID)!
+          if (feedback.length > 0) {
+            const feedbackText = `[MetaGovernor PR Reviewer Feedback]\n\n${feedback.map((f, i) => `${i + 1}. ${f}`).join("\n")}\n\nApply these fixes to keep the PR mergeable.`
+            output.messages.push({
+              info: { role: "user", agent: "meta-governor", synthetic: true },
+              parts: [{ type: "text", text: feedbackText, synthetic: true }],
+            })
+            pendingBotFeedback.delete(currentSessionID)
+            logToFile(
+              "info",
+              `injected ${feedback.length} bot feedback line(s) to model for session ${currentSessionID}`,
+            )
+          }
+        }
         // 1. Inject pending protocol violations so the model sees them
         if (pendingViolations.has(currentSessionID)) {
           const violations = pendingViolations.get(currentSessionID)!
@@ -523,4 +616,82 @@ export function createMetaGovernorPlugin(
   }
 
   return plugin
+}
+// ─── v0.11.0: helpers ────────────────────────────────────────────
+
+/**
+ * Detect whether a shell command is a `git commit` invocation.
+ * Used to trigger codegraph reindex on each commit.
+ */
+export { isGitCommitCommand } from "./graph-sync"
+
+/**
+ * Extract bot feedback lines from `gh pr checks` output.
+ * Returns an array of human-readable notes like:
+ *   "pr-42 · claude-code-review: CodeRabbit found issues: missing test for X"
+ * Only "fail" status is reported; "pass" and "pending" are ignored.
+ */
+export function extractBotFeedbackFromGhOutput(
+  output: string,
+  prIdentifier: string,
+): string[] {
+  if (typeof output !== "string" || output.length === 0) return []
+  const lines = output.split("\n")
+  const feedback: string[] = []
+  for (const line of lines) {
+    // gh pr checks output: "<check-name>    <status>    <details>"
+    // Status values: pass, fail, pending, skipping, cancelled
+    const match = line.match(/^\s*(\S+)\s+(fail)\s+(.*)$/)
+    if (match) {
+      const name = match[1]!.trim()
+      const details = match[3]!.trim()
+      feedback.push(`${prIdentifier} · ${name}: ${details}`)
+    }
+  }
+  return feedback
+}
+
+/**
+ * Detect whether a shell command is a `gh pr ...` invocation.
+ * Used to capture bot feedback from PR review bots (CodeRabbit, codecov,
+ * claude-code-review, etc.) so the next LLM turn can act on the feedback.
+ */
+export function isGhPrCommand(command: string | undefined | null): boolean {
+  if (typeof command !== "string" || command.length === 0) return false
+  const normalized = command.replace(/\\\n/g, " ").replace(/\s*\n\s*/g, " ")
+  return /(?:^|[\s;&|])gh\s+pr(?:\s|$)/.test(normalized)
+}
+
+/**
+ * Decide whether to inject a "make a plan first" reminder on the current
+ * session. Returns true only when:
+ *   - first intervention for this session (interventionCount === 0)
+ *   - no PLAN.md exists in the project
+ *   - no "## Plan" section exists in AGENTS.md
+ *
+ * Once any of those becomes true, the reminder is suppressed for the
+ * rest of the session.
+ */
+export function shouldInjectPlanReminder(
+  projectDir: string,
+  interventionCount: number,
+): boolean {
+  if (interventionCount >= 1) return false
+  try {
+    const { statSync, readFileSync } = require("node:fs")
+    const { join } = require("node:path")
+    // PLAN.md wins
+    try {
+      statSync(join(projectDir, "PLAN.md"))
+      return false
+    } catch { /* no PLAN.md */ }
+    // Check AGENTS.md for a Plan section
+    try {
+      const agents = readFileSync(join(projectDir, "AGENTS.md"), "utf-8")
+      if (/^##\s+Plan\b/im.test(agents)) return false
+    } catch { /* no AGENTS.md */ }
+    return true
+  } catch {
+    return true
+  }
 }

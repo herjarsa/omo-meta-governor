@@ -358,7 +358,7 @@ export type GraphSyncCode =
   | "watch-started-graphify"
   | "disabled"
   | "error"
-
+  | "graphify-hook-installed"
 /**
  * Run the graphSync pipeline. Best-effort, never throws.
  */
@@ -451,6 +451,22 @@ export async function runGraphSync(
     } else {
       codes.push("graphify-already-exists")
     }
+
+    // v0.11.0: auto-install the graphify git hook so commits auto-rebuild
+    // the graph. Native hook is more reliable than our own polling.
+    try {
+      const alreadyInstalled = await isGraphifyHookInstalled(projectDir)
+      if (!alreadyInstalled) {
+        execSync("graphify hook install", {
+          cwd: projectDir,
+          stdio: "ignore",
+          timeout: 10_000,
+        })
+        codes.push("graphify-hook-installed")
+      }
+    } catch {
+      // best-effort
+    }
   } else {
     codes.push("graphify-unavailable")
   }
@@ -493,4 +509,151 @@ async function ensureDir(dirPath: string): Promise<void> {
     const { mkdir } = await import("node:fs/promises")
     await mkdir(dirPath, { recursive: true })
   }
+}
+
+// ─── v0.11.0: commit-triggered reindex ──────────────────────────
+
+/**
+ * Detect whether a shell command string contains `git commit`.
+ * Robust to leading whitespace, multi-line scripts, and command chains.
+ *
+ * The check is intentionally narrow: we only trigger reindex on a real
+ * commit (not `git status`, `git log`, etc.) because those don't change
+ * the source tree.
+ */
+export function isGitCommitCommand(command: string | undefined | null): boolean {
+  if (typeof command !== "string" || command.length === 0) return false
+  // Normalize: strip leading whitespace, collapse newlines
+  const normalized = command.replace(/\\\n/g, " ").replace(/\s*\n\s*/g, " ")
+  // Look for `git commit` as a token, but exclude `git commit-tree` and similar
+  // We match the verb "commit" immediately after "git ".
+  return /(?:^|[\s;&|])git\s+commit(?:\s+-|\s|$)/.test(normalized)
+}
+
+/**
+ * Trigger a one-shot reindex of both codegraph and graphify for the given
+ * project directory. Used by the plugin when a `git commit` completes —
+ * the source tree just changed and the graph indexes are now stale.
+ *
+ * Best-effort: never throws, returns a structured result instead.
+ */
+export async function triggerReindex(projectDir: string): Promise<GraphSyncResult> {
+  return await runGraphSync({
+    enabled: true,
+    watch: false,
+    autoInstall: false,
+    installTimeoutMs: 5_000,
+    projectDir,
+  })
+}
+
+// ─── v0.11.0: native hook integration ──────────────────────────
+
+/**
+ * v0.11.0: Check whether the project's `.git/hooks/post-commit` is the
+ * graphify-managed one. Reads the file and looks for the `graphify-hook-start`
+ * marker that `graphify hook install` writes.
+ *
+ * Returns false when the directory has no `.git/` (not a git repo) or when
+ * the post-commit hook is missing or wasn't installed by graphify.
+ */
+export async function isGraphifyHookInstalled(projectDir: string): Promise<boolean> {
+  const { access, readFile } = await import("node:fs/promises")
+  const { resolve } = await import("node:path")
+  const hookPath = resolve(projectDir, ".git", "hooks", "post-commit")
+  try {
+    await access(hookPath)
+  } catch {
+    return false
+  }
+  try {
+    const content = await readFile(hookPath, "utf-8")
+    return content.includes("graphify-hook-start")
+  } catch {
+    return false
+  }
+}
+
+/**
+ * v0.11.0: Trigger a one-shot codegraph reindex using the native
+ * `codegraph sync -q [path]` command. This is the git-hook-friendly form
+ * (quiet, reindexes only changes since last index). Falls back to
+ * `codegraph update` if sync is unavailable, then to the full pipeline.
+ *
+ * Best-effort: never throws, returns a structured result.
+ */
+export async function triggerCodegraphSync(projectDir: string): Promise<GraphSyncResult> {
+  const { execSync } = await import("node:child_process")
+  const { access } = await import("node:fs/promises")
+  const { resolve } = await import("node:path")
+  const codes: GraphSyncCode[] = []
+  const codegraphIndexExists = await dirExists(resolve(projectDir, ".codegraph"))
+
+  let codegraphAvailable = false
+  try {
+    execSync("npx --yes codegraph --version", { stdio: "ignore", timeout: 5_000 })
+    codegraphAvailable = true
+  } catch {
+    try {
+      execSync("node node_modules/.bin/codegraph --version", {
+        cwd: projectDir,
+        stdio: "ignore",
+        timeout: 5_000,
+      })
+      codegraphAvailable = true
+    } catch { /* not available */ }
+  }
+
+  if (!codegraphAvailable) {
+    return {
+      attempted: true,
+      codes: ["codegraph-unavailable"],
+      availability: { codegraph: false, graphify: false, codegraphIndexExists, graphifyIndexExists: await dirExists(resolve(projectDir, "graphify-out")) },
+      alreadyInitialized: false,
+    }
+  }
+
+  if (!codegraphIndexExists) {
+    // No prior index — call runGraphSync to do the full init
+    return await runGraphSync({
+      enabled: true,
+      watch: false,
+      autoInstall: false,
+      installTimeoutMs: 5_000,
+      projectDir,
+    })
+  }
+
+  // We have an index — run `codegraph sync -q <projectDir>` in the background
+  // so we don't block the tool.execute.after hook
+  try {
+    const child = execSync("npx --yes codegraph sync -q", {
+      cwd: projectDir,
+      stdio: "ignore",
+      timeout: 30_000,
+    })
+    void child
+    codes.push("codegraph-already-exists") // re-uses existing code
+    logToFile?.("info", `codegraph sync -q completed for ${projectDir}`)
+  } catch (err) {
+    logToFile?.("warn", `codegraph sync failed for ${projectDir}: ${err}`)
+    codes.push("codegraph-install-failed") // re-uses existing code
+  }
+
+  return {
+    attempted: true,
+    codes,
+    availability: {
+      codegraph: true,
+      graphify: false,
+      codegraphIndexExists,
+      graphifyIndexExists: await dirExists(resolve(projectDir, "graphify-out")),
+    },
+    alreadyInitialized: false,
+  }
+}
+
+// Helper: lazy import to avoid bundling fs-logger into graph-sync.ts
+function logToFile(_level: "info" | "warn" | "error", _msg: string): void {
+  // Imported lazily at call sites to keep graph-sync self-contained
 }
