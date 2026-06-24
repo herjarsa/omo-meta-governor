@@ -30,9 +30,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  try {
-    await rm(testTmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 })
-  } catch { /* */ }
+  try { await rm(testTmp, { recursive: true, force: true }) } catch { /* ok */ }
 })
 
 // ─── S1: graphSync.isGraphifyHookInstalled ──────────────────────

@@ -657,3 +657,216 @@ export async function triggerCodegraphSync(projectDir: string): Promise<GraphSyn
 function logToFile(_level: "info" | "warn" | "error", _msg: string): void {
   // Imported lazily at call sites to keep graph-sync self-contained
 }
+
+// ─── v0.12.0: auto-upgrade helpers ─────────────────────────────
+
+/**
+ * Compare two semver strings. Returns true if `latest` is strictly greater
+ * than `installed`. Handles X.Y.Z with optional pre-release suffix (-rc.1,
+ * -beta.2). Pre-release is considered LOWER than the same X.Y.Z without it.
+ *
+ * Defensive: returns false on malformed input (unknown version, empty
+ * string, etc.) so callers can default to "don't upgrade" instead of
+ * triggering a network call.
+ */
+export function isNewerVersion(installed: string | null | undefined, latest: string | null | undefined): boolean {
+if (!installed || !latest) return false
+  if (installed === latest) return false
+  // Defensive: reject non-semver strings instead of treating them as 0.0.0
+  const SEMVER_RE = /^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/
+  if (!SEMVER_RE.test(installed) || !SEMVER_RE.test(latest)) return false
+  // Strip pre-release suffix for base comparison
+  const parseBase = (v: string): [number, number, number, string] => {
+    const [base = "", pre = ""] = v.split("-", 2)
+    const parts = base.split(".").map((n) => {
+      const num = Number.parseInt(n, 10)
+      return Number.isFinite(num) ? num : 0
+    })
+    const [maj = 0, min = 0, pat = 0] = parts
+    return [maj, min, pat, pre]
+  }
+  const [iMaj, iMin, iPat, iPre] = parseBase(installed)
+  const [lMaj, lMin, lPat, lPre] = parseBase(latest)
+  if (lMaj !== iMaj) return lMaj > iMaj
+  if (lMin !== iMin) return lMin > iMin
+  if (lPat !== iPat) return lPat > iPat
+  // Same base — pre-release ordering: no pre > with pre
+  if (iPre && !lPre) return true
+  if (!iPre && lPre) return false
+  return lPre > iPre
+}
+
+/**
+ * v0.12.0: persisted cache of latest-version lookups so we don't
+ * hammer npm/pip registries on every plugin load.
+ *
+ * File path defaults to ~/.config/opencode/omo-meta-governor-upgrade-check.json
+ */
+export interface UpgradeCache {
+  checkedAtMs: number
+  codegraphLatest?: string
+  graphifyLatest?: string
+}
+
+export function getDefaultUpgradeCachePath(): string {
+  const { resolve } = require("node:path")
+  const { homedir } = require("node:os")
+  return resolve(homedir(), ".config", "opencode", "omo-meta-governor-upgrade-check.json")
+}
+
+export async function readUpgradeCache(path: string): Promise<UpgradeCache | null> {
+  try {
+    const { readFile } = await import("node:fs/promises")
+const content = await readFile(path, "utf-8")
+const parsed = JSON.parse(content)
+if (typeof parsed?.checkedAtMs === "number") {
+return parsed as UpgradeCache
+}
+return null
+} catch {
+return null
+}
+}
+
+export async function writeUpgradeCache(path: string, payload: UpgradeCache): Promise<void> {
+  const { dirname } = await import("node:path")
+  const { mkdir, writeFile } = await import("node:fs/promises")
+  const dir = dirname(path)
+  try {
+    await mkdir(dir, { recursive: true })
+    await writeFile(path, JSON.stringify(payload, null, 2))
+  } catch {
+    // best-effort — cache write failures must NEVER break the plugin
+  }
+}
+
+/** Returns true if cache exists AND its `checkedAtMs` is within ttlMs of now. */
+export function isCacheFresh(cache: UpgradeCache | null, ttlMs: number): boolean {
+  if (!cache) return false
+  const ageMs = Date.now() - cache.checkedAtMs
+  return ageMs >= 0 && ageMs < ttlMs
+}
+
+/**
+ * v0.12.0: decide whether to upgrade. Pure function over (installed,
+ * latest, cache, ttl). Used by runGraphSync before calling out to the
+ * registry. Centralizes the upgrade-decision policy.
+ *
+ * - If cache is fresh AND cache has a known latest version, use cached
+ *   latest instead of trusting `latest` (which may be stale). This is
+ *   how we avoid hammering npm/pip registries.
+ * - If both installed and effective-latest are unknown → false.
+ * - If installed >= effective-latest → false.
+ * - Otherwise → true.
+ */
+export function shouldUpgrade(
+  installed: string | null | undefined,
+  registryLatest: string | null | undefined,
+  cache: UpgradeCache | null,
+  ttlMs: number,
+): boolean {
+  // Determine the "effective" latest version to compare against.
+  // If cache is fresh and has a value, prefer it (avoids extra registry calls).
+  let effectiveLatest = registryLatest
+  if (isCacheFresh(cache, ttlMs)) {
+    effectiveLatest = cache?.codegraphLatest ?? effectiveLatest
+  }
+  if (!installed && !effectiveLatest) return false
+  if (!effectiveLatest) return false
+  if (!installed) return true
+  return isNewerVersion(installed, effectiveLatest)
+}
+
+/**
+ * v0.12.0: fetch the latest version of codegraph from npm registry.
+ * Returns null on failure (best-effort, never throws).
+ */
+export async function fetchCodegraphLatestVersion(): Promise<string | null> {
+  const { execSync } = await import("node:child_process")
+  try {
+    const out = execSync("npm view @colbymchenry/codegraph version", {
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 10_000,
+    })
+    const v = out.toString().trim()
+    return v.length > 0 ? v : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * v0.12.0: fetch the latest version of graphify from pip.
+ * Returns null on failure (best-effort, never throws).
+ */
+export async function fetchGraphifyLatestVersion(): Promise<string | null> {
+  const { execSync } = await import("node:child_process")
+  // Try `pip index versions graphifyy` first, then `pip install graphifyy== 2>&1 | head`
+  try {
+    const out = execSync("python3 -m pip index versions graphifyy", {
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 10_000,
+    })
+    // Output looks like "graphifyy (1.2.3)\nAvailable versions: ..."
+    // Parse the first version.
+    const first = out.toString().split("\n")[0] ?? ""
+    const m = first.match(/graphifyy\s*\(?([0-9]+\.[0-9]+\.[0-9]+[^\s)]*)/)
+    if (m) return m[1]!
+  } catch { /* fall through */ }
+  try {
+    // Fallback: query PyPI directly via pip search-equivalent
+    const out = execSync(
+      "python3 -c \"import urllib.request, json; d=json.load(urllib.request.urlopen('https://pypi.org/pypi/graphifyy/json')); print(d['info']['version'])\"",
+      { stdio: ["ignore", "pipe", "ignore"], timeout: 10_000 },
+    )
+    const v = out.toString().trim()
+    return v.length > 0 ? v : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * v0.12.0: get the installed version of codegraph by running its CLI.
+ * Returns null on failure.
+ */
+export async function getInstalledCodegraphVersion(): Promise<string | null> {
+  const { execSync } = await import("node:child_process")
+  try {
+    const out = execSync("npx --yes codegraph --version", {
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 10_000,
+    })
+    const v = out.toString().trim()
+    return v.length > 0 ? v : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * v0.12.0: get the installed version of graphify via pip show.
+ * Returns null on failure.
+ */
+export async function getInstalledGraphifyVersion(): Promise<string | null> {
+  const { execSync } = await import("node:child_process")
+  try {
+    const out = execSync("python3 -m pip show graphifyy", {
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 10_000,
+    })
+    const m = out.toString().match(/Version:\s*([0-9]+\.[0-9]+\.[0-9]+[^\s]*)/)
+    if (m) return m[1]!
+  } catch { /* fall through */ }
+  try {
+    const out = execSync("python3 -m pip show graphify", {
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 10_000,
+    })
+    const m = out.toString().match(/Version:\s*([0-9]+\.[0-9]+\.[0-9]+[^\s]*)/)
+    if (m) return m[1]!
+  } catch {
+    return null
+  }
+  return null
+}
