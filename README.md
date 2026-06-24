@@ -38,6 +38,47 @@ After every tool call, MetaGovernor:
 
 See [docs/guide/meta-governor.md](docs/guide/meta-governor.md) for full docs.
 
+## Graph Sync (v0.11.0)
+
+MetaGovernor wires the plugin into the native git hooks of **codegraph** and
+**graphify** so each commit automatically reindexes both graphs. No more
+polling loops, no more stale indexes.
+
+### What it does on first load in a project
+
+1. **Auto-install** codegraph via `npm i -D @colbymchenry/codegraph` and
+   graphify via `pip install graphifyy` (falls back to `uv tool install
+   graphifyy`) if they're not already on PATH.
+2. **Run `codegraph init`** + **`graphify . --no-viz`** to build the initial
+   indexes for the project.
+3. **Run `graphify hook install`** to wire up the native `post-commit` and
+   `post-checkout` git hooks. From that point on, every `git commit`
+   triggers `graphify update` automatically (deterministic clustering with
+   `PYTHONHASHSEED=0`, rebase/merge/cherry-pick detection, detached
+   subprocess for non-blocking rebuild).
+
+### What it does on each `git commit`
+
+- **Primary path** (native git hook): `graphify update` runs in background.
+- **Backup path** (plugin's `tool.execute.after`): detects `git commit` in
+  bash commands and runs `codegraph sync -q [path]`. Catches the case
+  where the user manually deleted the native hook.
+
+### Plan enforcement
+
+On the first message of each session, if the project has no `PLAN.md` and
+no `## Plan` section in `AGENTS.md`, the plugin injects a one-time reminder:
+"create a plan, commit per phase, push to fork + upstream". The reminder
+honors the same gates as intervention (max 3, DONE+Oracle disables).
+
+### PR reviewer bot feedback
+
+When a bash command matches `gh pr ...` (e.g. `gh pr checks 42`, `gh pr view
+42 --comments`), the plugin extracts failing check runs and review
+comments. The next LLM turn receives them as actionable feedback so the
+agent can apply fixes to keep the PR mergeable. Recognizes: codecov,
+claude-code-review, CodeRabbit, etc.
+
 ## Intervention
 
 MetaGovernor can inject its decisions into the active agent's context

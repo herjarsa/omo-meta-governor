@@ -19,7 +19,7 @@
  *   5. Inject plan reminder + capture bot feedback from gh output
  */
 import { describe, expect, it, beforeEach, afterEach } from "bun:test"
-import { rm, mkdtemp, writeFile, readFile } from "node:fs/promises"
+import { rm, mkdtemp, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -175,8 +175,12 @@ describe("isGhPrCommand (v0.11.0 S6)", () => {
 // ─── S7: end-to-end plugin integration (smoke) ──────────────────
 
 describe("plugin: git commit triggers reindex (v0.11.0 S7)", () => {
-  it("then tool.execute.after on `bash` with `git commit` calls triggerCodegraphSync", async () => {
+  it("then tool.execute.after on `bash` with `git commit` fires the reindex trigger", async () => {
     const { createMetaGovernorPlugin } = await import("./plugin")
+
+    // Hermetic: capture the trigger via the test-only deps callback instead
+    // of relying on log files or filesystem state from outside the test.
+    const triggers: Array<{ projectDir: string; command: string; sessionID: string }> = []
 
     const mockInput: any = {
       client: null,
@@ -195,14 +199,16 @@ describe("plugin: git commit triggers reindex (v0.11.0 S7)", () => {
       },
     }
 
-    const plugin = createMetaGovernorPlugin()
+    const plugin = createMetaGovernorPlugin(undefined, {
+      __test_onCommitTrigger: (payload) => { triggers.push(payload) },
+    })
     const hooks = await plugin(mockInput, options)
     const afterHook = hooks["tool.execute.after"]!
 
     await afterHook(
       {
         tool: "bash",
-        sessionID: "s-1",
+        sessionID: "s-7",
         callID: "c1",
         args: { command: "git commit -m 'fix: foo'" },
       },
@@ -213,15 +219,52 @@ describe("plugin: git commit triggers reindex (v0.11.0 S7)", () => {
       },
     )
 
-    await new Promise(r => setTimeout(r, 500))
+    // The trigger fires synchronously inside the afterHook — no need to wait.
+    expect(triggers.length).toBe(1)
+    expect(triggers[0]!.sessionID).toBe("s-7")
+    // Note: cwd is captured by the plugin at module-load time from
+    // process.cwd(), so we don't assert exact projectDir equality.
+    expect(triggers[0]!.projectDir.length).toBeGreaterThan(0)
+  })
 
-    const logPath = "/home/herjarsa/.config/opencode/meta-governor.log"
-    let logContent = ""
-    try { logContent = await readFile(logPath, "utf-8") } catch { /* log may not exist */ }
-    expect(
-      logContent.includes("git_commit_reindex_triggered") ||
-      logContent.includes("codegraph sync") ||
-      logContent.includes("graphify update"),
-    ).toBe(true)
-  }, 30_000)
+  it("then tool.execute.after on non-commit commands does NOT fire the trigger", async () => {
+    const { createMetaGovernorPlugin } = await import("./plugin")
+
+    const triggers: Array<{ projectDir: string; command: string; sessionID: string }> = []
+
+    const mockInput: any = {
+      client: null,
+      project: null,
+      directory: testTmp,
+      worktree: "",
+      experimental_workspace: { register: () => {} },
+      serverUrl: new URL("http://localhost"),
+      $: null,
+    }
+
+    const options: any = {
+      meta_governor: {
+        enabled: true,
+        graphSync: { enabled: true, watch: false, autoInstall: false },
+      },
+    }
+
+    const plugin = createMetaGovernorPlugin(undefined, {
+      __test_onCommitTrigger: (payload) => { triggers.push(payload) },
+    })
+    const hooks = await plugin(mockInput, options)
+    const afterHook = hooks["tool.execute.after"]!
+
+    await afterHook(
+      {
+        tool: "bash",
+        sessionID: "s-7b",
+        callID: "c1",
+        args: { command: "git status" },
+      },
+      { title: "ok", output: "On branch main", metadata: {} },
+    )
+
+    expect(triggers.length).toBe(0)
+  })
 })

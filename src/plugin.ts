@@ -33,6 +33,14 @@ export interface MetaGovernorPluginDeps {
   writeBackend?: AgentmemoryWriteBackend
   providerID?: () => string | undefined
   modelID?: () => string | undefined
+  // v0.11.0: test-only hooks for hermetic assertions. NOT part of the
+  // public contract; used by integration tests to verify the plugin
+  // triggered an event without depending on filesystem state.
+  __test_onCommitTrigger?: (payload: {
+    projectDir: string
+    command: string
+    sessionID: string
+  }) => void
 }
 
 // - Helpers
@@ -405,11 +413,18 @@ export function createMetaGovernorPlugin(
                 "git_commit_reindex_triggered",
                 { sessionID: toolInput.sessionID, command: cmd },
               )
-              // Fire and forget — don't block the tool call
-              void triggerCodegraphSync(cwd).catch((err) => {
-                logToFile("warn", `codegraph sync failed: ${String(err)}`)
+              // v0.11.0: test-only hook so hermetic tests can assert
+              // the trigger fired without depending on log file paths.
+              deps.__test_onCommitTrigger?.({
+                projectDir: cwd,
+                command: cmd ?? "",
+                sessionID: toolInput.sessionID,
               })
-            }
+// Fire and forget — don't block the tool call
+void triggerCodegraphSync(cwd).catch((err) => {
+logToFile("warn", `codegraph sync failed: ${String(err)}`)
+})
+}
 }
 } catch {
 // reindex is best-effort, never break a tool call
