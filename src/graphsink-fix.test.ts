@@ -197,7 +197,7 @@ describe("plugin: git commit triggers reindex (v0.11.0 S7)", () => {
       },
     }
 
-    const plugin = createMetaGovernorPlugin(undefined, {
+    const plugin = createMetaGovernorPlugin({ graphSync: { enabled: false } } as any, {
       __test_onCommitTrigger: (payload) => { triggers.push(payload) },
     })
     const hooks = await plugin(mockInput, options)
@@ -247,7 +247,7 @@ describe("plugin: git commit triggers reindex (v0.11.0 S7)", () => {
       },
     }
 
-    const plugin = createMetaGovernorPlugin(undefined, {
+    const plugin = createMetaGovernorPlugin({ graphSync: { enabled: false } } as any, {
       __test_onCommitTrigger: (payload) => { triggers.push(payload) },
     })
     const hooks = await plugin(mockInput, options)
