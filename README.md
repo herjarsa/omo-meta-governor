@@ -79,6 +79,17 @@ comments. The next LLM turn receives them as actionable feedback so the
 agent can apply fixes to keep the PR mergeable. Recognizes: codecov,
 claude-code-review, CodeRabbit, etc.
 
+## Auto-upgrade (v0.12.0)
+
+On plugin load, queries npm/pip registries to check whether newer versions
+of **codegraph** or **graphify** exist. If a newer version is found AND the
+installed version is older, the plugin upgrades automatically.
+
+- **Upgrade check TTL**: 24h by default. Cached to
+  `~/.config/opencode/omo-meta-governor-upgrade-check.json`.
+- **Config**: `graphSync.autoUpgrade` (default `true`),
+  `graphSync.upgradeCheckTtlMs` (default `86400000`).
+
 ## Intervention
 
 MetaGovernor can inject its decisions into the active agent's context

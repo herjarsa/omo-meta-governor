@@ -23,21 +23,28 @@ import { constants } from "node:fs"
 // ─── GraphSync config ──────────────────────────────────────────────
 
 export interface GraphSyncConfig {
-  /** Enable auto-initialization. Default: true */
-  enabled: boolean
-  /** Enable watch mode (re-index on file changes). Default: false */
-  watch: boolean
-  /** Project directory to initialize in. Default: cwd */
-  projectDir?: string
-  /**
-   * Auto-install missing backends. Default: true.
-   * - codegraph: installed via `npm i -D @colbymchenry/codegraph` in the project
-   * - graphify: installed via `pip install graphifyy --break-system-packages` (or `uv tool install graphifyy`)
-   */
-  autoInstall: boolean
-  /** Max ms to wait for each install. Default: 60_000 */
+/** Enable auto-initialization. Default: true */
+enabled: boolean
+/** Enable watch mode (re-index on file changes). Default: false */
+watch: boolean
+/** Project directory to initialize in. Default: cwd */
+projectDir?: string
+/**
+* Auto-install missing backends. Default: true.
+* - codegraph: installed via `npm i -D @colbymchenry/codegraph` in the project
+* - graphify: installed via `pip install graphifyy --break-system-packages` (or `uv tool install graphifyy`)
+*/
+autoInstall: boolean
+/** Max ms to wait for each install. Default: 60_000 */
   installTimeoutMs: number
+  /** v0.12.0: Auto-upgrade codegraph/graphify when new versions are published.
+   * On plugin load, queries npm/pip registries and upgrades if newer version
+   * exists. Respects upgradeCheckTtlMs to avoid hammering registries. */
+  autoUpgrade?: boolean
+  /** v0.12.0: Min ms between registry queries for version check. Default 24h. */
+  upgradeCheckTtlMs?: number
 }
+
 
 // ─── Install codes ────────────────────────────────────────────────
 
@@ -359,9 +366,13 @@ export type GraphSyncCode =
   | "disabled"
   | "error"
   | "graphify-hook-installed"
+  | "codegraph-upgraded"
+  | "graphify-upgraded"
+  | "upgrade-check-skipped"
+
 /**
- * Run the graphSync pipeline. Best-effort, never throws.
- */
+* Run the graphSync pipeline. Best-effort, never throws.
+*/
 export async function runGraphSync(
   config: GraphSyncConfig = { enabled: true, watch: false, autoInstall: true, installTimeoutMs: 60_000 },
 ): Promise<GraphSyncResult> {
@@ -399,6 +410,53 @@ export async function runGraphSync(
       codes: ["error"],
       availability: { codegraph: false, graphify: false, codegraphIndexExists: false, graphifyIndexExists: false },
       alreadyInitialized: false,
+    }
+  }
+
+  // v0.12.0: auto-upgrade check — query registries if cache is stale
+  if (config.autoUpgrade !== false) {
+    try {
+      const cachePath = getDefaultUpgradeCachePath()
+      const cache = await readUpgradeCache(cachePath)
+      const ttlMs = config.upgradeCheckTtlMs ?? 24 * 60 * 60 * 1000
+
+      if (availability.codegraph) {
+        const installed = await getInstalledCodegraphVersion()
+        if (shouldUpgrade(installed, null, cache, ttlMs)) {
+          const latest = await fetchCodegraphLatestVersion()
+          if (latest && isNewerVersion(installed, latest)) {
+            const up = await installCodegraph(projectDir, config.installTimeoutMs ?? 60_000)
+            if (up === "codegraph-installed") codes.push("codegraph-upgraded")
+          }
+        }
+      }
+
+      if (availability.graphify) {
+        const installed = await getInstalledGraphifyVersion()
+        if (shouldUpgrade(installed, null, cache, ttlMs)) {
+          const latest = await fetchGraphifyLatestVersion()
+          if (latest && isNewerVersion(installed, latest)) {
+            const up = await installGraphify(config.installTimeoutMs ?? 60_000)
+            if (up === "graphify-installed") codes.push("graphify-upgraded")
+          }
+        }
+      }
+
+      // Persist cache after all registry lookups and upgrades
+      const nowMs = Date.now()
+      try {
+        const cgLatest = await fetchCodegraphLatestVersion()
+        const gfLatest = await fetchGraphifyLatestVersion()
+        await writeUpgradeCache(cachePath, {
+          checkedAtMs: nowMs,
+          codegraphLatest: cgLatest ?? undefined,
+          graphifyLatest: gfLatest ?? undefined,
+        })
+      } catch {
+        // cache write is best-effort
+      }
+    } catch {
+      codes.push("upgrade-check-skipped")
     }
   }
 

@@ -5,7 +5,7 @@
     "": {
       "name": "@herjarsa/omo-meta-governor",
       "devDependencies": {
-        "@colbymchenry/codegraph": "^1.0.1",
+        "@colbymchenry/codegraph": "^1.1.0",
         "@opencode-ai/plugin": "^1.17.4",
         "@types/node": "^25.9.3",
       },
@@ -15,19 +15,19 @@
     },
   },
   "packages": {
-    "@colbymchenry/codegraph": ["@colbymchenry/codegraph@1.0.1", "", { "optionalDependencies": { "@colbymchenry/codegraph-darwin-arm64": "1.0.1", "@colbymchenry/codegraph-darwin-x64": "1.0.1", "@colbymchenry/codegraph-linux-arm64": "1.0.1", "@colbymchenry/codegraph-linux-x64": "1.0.1", "@colbymchenry/codegraph-win32-arm64": "1.0.1", "@colbymchenry/codegraph-win32-x64": "1.0.1" }, "bin": { "codegraph": "npm-shim.js" } }, "sha512-Y4ZMk7wxSRI9g2wQTcW21TfLr+fw7td1Dadkll6Udl9Ll8wX3H6qtov7K/VGtHG2AFX2j1e5Lm48PTHi74mImg=="],
+    "@colbymchenry/codegraph": ["@colbymchenry/codegraph@1.1.0", "", { "optionalDependencies": { "@colbymchenry/codegraph-darwin-arm64": "1.1.0", "@colbymchenry/codegraph-darwin-x64": "1.1.0", "@colbymchenry/codegraph-linux-arm64": "1.1.0", "@colbymchenry/codegraph-linux-x64": "1.1.0", "@colbymchenry/codegraph-win32-arm64": "1.1.0", "@colbymchenry/codegraph-win32-x64": "1.1.0" }, "bin": { "codegraph": "npm-shim.js" } }, "sha512-JFzNLf+EPh7wpH0Ly1z0BU1LwHVXzYFGTTPGVhhYQ0vwR0u+s2swUqJIhTVByE9hmLZBpaYF1BQIbjBTl70WsQ=="],
 
-    "@colbymchenry/codegraph-darwin-arm64": ["@colbymchenry/codegraph-darwin-arm64@1.0.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-4z3aNzR3Ml31MBVzAvFQm+bk83erdHkjnaJ0PoeM6I9T7xuTIcdAGV36i3qYwgBE4tdrghRdR0mP5MNM+OrGFA=="],
+    "@colbymchenry/codegraph-darwin-arm64": ["@colbymchenry/codegraph-darwin-arm64@1.1.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-NOgrL8HwjTS3suy7qYkNlu0QX48KvR8Ym3Q5jNPrIIxnq2xMM47e6prm5oqNyGjG4zrSrcFKnBuDUW6VRvpq5A=="],
 
-    "@colbymchenry/codegraph-darwin-x64": ["@colbymchenry/codegraph-darwin-x64@1.0.1", "", { "os": "darwin", "cpu": "x64" }, "sha512-KBSKl+tLCSIgV4iyi21SqYlpXL0P8DPqAnVHvvStdyYsCmkc2Heqf4oQIko+TYyFmuo65m4VpX989JkYZVGIVQ=="],
+    "@colbymchenry/codegraph-darwin-x64": ["@colbymchenry/codegraph-darwin-x64@1.1.0", "", { "os": "darwin", "cpu": "x64" }, "sha512-oChjFjrou2gCQFUIDAaJcl7E2NT+IiJQQp75bUcBFmOH4aZR5zkT5L9utnvjcL8JSEUkz7IwZIKvvhXtxh5HOQ=="],
 
-    "@colbymchenry/codegraph-linux-arm64": ["@colbymchenry/codegraph-linux-arm64@1.0.1", "", { "os": "linux", "cpu": "arm64" }, "sha512-2TOeL/Lx3kME+dmv2Q9hbIQFBvT6uKLdZONDRaYto+1Bcl3GrJuIu6bsu3jiJuifPhnYIL2xwUV6y+TZQ8MbTw=="],
+    "@colbymchenry/codegraph-linux-arm64": ["@colbymchenry/codegraph-linux-arm64@1.1.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-tjZfIt6UKni1s0Qzq58DZVlyfybGYfmyiIb9bIUmiEkQFv5QwHQg0xC6EEAxei6flyE5h12A9vWLYF0FasTDYA=="],
 
-    "@colbymchenry/codegraph-linux-x64": ["@colbymchenry/codegraph-linux-x64@1.0.1", "", { "os": "linux", "cpu": "x64" }, "sha512-UENXSURJJUhcvdKoYsB5Wj6Z6O9C2afhYfG0LnL13KFWJhGXugqYKjF4KwkaeE8Po8TFul9k3f+8eXjmJwwwaQ=="],
+    "@colbymchenry/codegraph-linux-x64": ["@colbymchenry/codegraph-linux-x64@1.1.0", "", { "os": "linux", "cpu": "x64" }, "sha512-eXG2C93YhSgxa7Qf6b01S4QAKQV8JwNEtn4XBooOL/kU3XFauldgPbPrhw6yBjd5SVtWVJuYVfjrX5t47mW4aA=="],
 
-    "@colbymchenry/codegraph-win32-arm64": ["@colbymchenry/codegraph-win32-arm64@1.0.1", "", { "os": "win32", "cpu": "arm64" }, "sha512-ZEG+HOakHiAe1AWMa2LgD52HyIEbWsY2FyNvDmon4Ss2889OghqUyA8BOLu5hNW+EI42JwwSXijVevn2Zn0hlg=="],
+    "@colbymchenry/codegraph-win32-arm64": ["@colbymchenry/codegraph-win32-arm64@1.1.0", "", { "os": "win32", "cpu": "arm64" }, "sha512-HKedatFWwnI5tn2MiYxKjEIGbbNx3TygZn0QX3K0gZELUZjI5d7YYmlxX2duNY2ytH+hxgb4ulgllAEyEoz+0A=="],
 
-    "@colbymchenry/codegraph-win32-x64": ["@colbymchenry/codegraph-win32-x64@1.0.1", "", { "os": "win32", "cpu": "x64" }, "sha512-qU6jjyma635qKJ0aaL8XU8QtYUGkWly0Mu4Wm2cSWRcNDL1v6sVoHMElgfUY7E9tK0gnU+/LbZW3MfmtqLG1GA=="],
+    "@colbymchenry/codegraph-win32-x64": ["@colbymchenry/codegraph-win32-x64@1.1.0", "", { "os": "win32", "cpu": "x64" }, "sha512-F0HgjWpySsGnOuWTaauVxuDBEDibuUsMrY9r8KqJdk8UBQM8LFAjCh6j4vl2QrSpctnkpzXeuYBjtjrClXvm2w=="],
 
     "@msgpackr-extract/msgpackr-extract-darwin-arm64": ["@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.4", "", { "os": "darwin", "cpu": "arm64" }, "sha512-LCkGo6JDfaBhgST7UpPWgNgLINpcpabaHfyz5OBx75nUYxBsaEPxjnyNjWpeb/xBup/682QnBfRBy2/LvPutZQ=="],
 
