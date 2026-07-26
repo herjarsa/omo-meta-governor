@@ -436,7 +436,7 @@ export class GraphRetrieval {
     if (!this.hasGraphifyDir(projectDir)) {
       return { kind: null, query: `${from} ${to}`, result: null, timedOut: false, durationMs: Date.now() - start }
     }
-    const cmd = "graphify"
+    const cmd = options.graphifyBin ?? "graphify"
     const args = ["path", from, to]
     try {
       const output = await this.spawnWithTimeout(cmd, args, timeoutMs, projectDir)
@@ -517,7 +517,7 @@ export class GraphRetrieval {
     if (!this.hasGraphifyDir(projectDir)) {
       return { kind: null, query: argument, result: null, timedOut: false, durationMs: Date.now() - start }
     }
-    const cmd = "graphify"
+    const cmd = options.graphifyBin ?? "graphify"
     const args = [subcommand, argument]
     try {
       const output = await this.spawnWithTimeout(cmd, args, timeoutMs, projectDir)
