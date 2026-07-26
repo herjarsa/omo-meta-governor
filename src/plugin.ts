@@ -232,15 +232,23 @@ export function createMetaGovernorPlugin(
 
     // 4. Load protocol text (best-effort, cached once)
     let systemInjection: string | undefined
+    let protocolReady = false
+    // v0.16.0: eagerly await protocol load + gate on a readiness flag.
+    // Previously the load was fire-and-forget, so system.transform could
+    // fire before systemInjection was set, silently skipping injection.
     if (mergedConfig.protocolEnforcement.enabled || mergedConfig.protocolEnforcement.injectIntoSystem) {
       const protocolPath = mergedConfig.protocolEnforcement.path ?? DEFAULT_PROTOCOL_PATH
-      loadProtocol(protocolPath).then((text: string) => {
+      try {
+        const text = await loadProtocol(protocolPath)
         systemInjection = buildSystemInjection(text)
-      }).catch((err: unknown) => {
+        protocolReady = true
+      } catch (err: unknown) {
         if (typeof console !== "undefined" && mergedConfig.modelOverride?.verbosity !== "silent") {
           console.warn("[meta-governor] could not load protocol:", err instanceof Error ? err.message : err)
         }
-      })
+      }
+    } else {
+      protocolReady = true
     }
 
     // 5. Per-session audit state (v0.10.0: adds DONE tracking + intervention cap)

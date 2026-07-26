@@ -41,9 +41,10 @@ export function hasDecision(sessionID: string): boolean {
 }
 
 /**
- * Take any pending decision across all sessions.
- * Useful for hooks that do not receive a sessionID.
- * Returns the first pending decision found, or undefined if none.
+ * @deprecated v0.16.0: this function can leak decisions across sessions.
+ * Use takeDecision(sessionID) instead — the messages.transform hook now
+ * derives the sessionID from the last outgoing message (see plugin.ts).
+ * Will be removed in v0.18.0.
  */
 export function takeAnyDecision(): DecisionHandlerOutput | undefined {
   for (const [sessionID, decision] of store) {

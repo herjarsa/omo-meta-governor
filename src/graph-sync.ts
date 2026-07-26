@@ -692,9 +692,9 @@ export async function triggerCodegraphSync(projectDir: string): Promise<GraphSyn
     })
     void child
     codes.push("codegraph-already-exists") // re-uses existing code
-    logToFile?.("info", `codegraph sync -q completed for ${projectDir}`)
+    void logToFile("info", `codegraph sync -q completed for ${projectDir}`)
   } catch (err) {
-    logToFile?.("warn", `codegraph sync failed for ${projectDir}: ${err}`)
+    void logToFile("warn", `codegraph sync failed for ${projectDir}: ${err}`)
     codes.push("codegraph-install-failed") // re-uses existing code
   }
 
@@ -711,9 +711,21 @@ export async function triggerCodegraphSync(projectDir: string): Promise<GraphSyn
   }
 }
 
-// Helper: lazy import to avoid bundling fs-logger into graph-sync.ts
-function logToFile(_level: "info" | "warn" | "error", _msg: string): void {
-  // Imported lazily at call sites to keep graph-sync self-contained
+// v0.16.0: F2.3 — replaced the no-op stub with a lazy proxy to the real
+// file-logger. The previous stub silently dropped sync-failure messages
+// (H4 in the audit). Now the proxy re-imports logToFile on first call
+// to avoid a hard dependency cycle at module load.
+import type { LogLevel } from "./file-logger"
+let _logToFile: ((level: LogLevel, msg: string) => void) | null = null
+async function getLogToFile(): Promise<(level: LogLevel, msg: string) => void> {
+  if (_logToFile) return _logToFile
+  const mod = await import("./file-logger")
+  _logToFile = (level, msg) => mod.logToFile(level, msg)
+  return _logToFile
+}
+export async function logToFile(level: LogLevel, msg: string): Promise<void> {
+  const fn = await getLogToFile()
+  fn(level, msg)
 }
 
 // ─── v0.12.0: auto-upgrade helpers ─────────────────────────────
