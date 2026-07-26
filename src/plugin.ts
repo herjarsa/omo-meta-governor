@@ -186,8 +186,19 @@ export function createMetaGovernorPlugin(
     // v0.14.0: capture OpenCode server client for MCP tool access (AgentMemory,
     // Magic Context, AFT). Hydrates the MCPClient singleton on first plugin
     // invocation. Safe to call multiple times — setClient is idempotent.
-    getMCPClient().setClient((_input.client ?? null) as never)
-    setSessionClient((_input.client ?? null) as never)
+    // v0.16.0: F3.4 — runtime guard instead of "as never". The cast
+    // hid incompatibilities between OpenCode plugin API versions; the
+    // guard makes failures visible (we skip hydration) instead of
+    // silently feeding the wrong shape to setClient.
+    const clientCandidate = _input.client
+    const safeClient =
+      clientCandidate != null &&
+      typeof clientCandidate === "object" &&
+      "tool" in clientCandidate
+        ? clientCandidate
+        : null
+    getMCPClient().setClient(safeClient as never) // safeClient narrowed to null | valid-shape
+    setSessionClient(safeClient as never)
 
     // 1. Load config from plugin options
     const rawConfig = {
