@@ -24,7 +24,7 @@ try {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   _pluginVersion = require("../package.json").version as string
 } catch { /* package.json not available at runtime; fall back to literal below */ }
-const DEFAULT_VERSION = _pluginVersion
+export const DEFAULT_VERSION = _pluginVersion
 
 export type MetricEvent =
   | "decisions_taken"

@@ -204,7 +204,7 @@ export function buildOmoHealthTool(deps: OmoHealthDeps) {
 
       // Build the health snapshot and write to file
       const health: PluginHealth = {
-        version: "0.14.2",
+        version: PLUGIN_VERSION,
         status: snap.counters.orchestrator_errors?.count ? "degraded" : "healthy",
         enabled: true,
         startedAtISO: snap.startedAtISO,
@@ -239,7 +239,7 @@ export function buildOmoHealthTool(deps: OmoHealthDeps) {
       }
 
       const output =
-        `# omo-meta-governor v0.13.1 — Health Report\n\n` +
+        `# omo-meta-governor v${PLUGIN_VERSION} — Health Report\n\n` +
         `**Status**: ${health.status}\n` +
         `**Enabled**: ${health.enabled}\n` +
         `**Uptime**: ${(health.uptimeMs / 1000).toFixed(1)}s\n` +

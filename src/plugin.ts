@@ -42,6 +42,7 @@ import { loadOrchestratorConfig, type MetaGovernorPluginConfig } from "./config"
 import { storeDecision, takeDecision } from "./decision-store"
 import { GraphRetrieval, getDefaultGraphRetrieval } from "./graph-retrieval"
 import { AuditStateCache } from "./audit-state-cache"
+import { DEFAULT_VERSION } from "./metrics"
 import { statSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import {
@@ -110,7 +111,7 @@ function extractQueryFromArgs(toolInput: { tool: string; args?: unknown }): stri
 }
 
 // Module-level metrics collector — shared across all invocations of the plugin
-const metricsCollector = createMetricsCollector({ sessionID: "__global__", global: true, version: "0.14.2" })
+const metricsCollector = createMetricsCollector({ sessionID: "__global__", global: true, version: DEFAULT_VERSION })
 const healthFilePath = resolve(homedir(), ".config", "opencode", "meta-governor-health.json")
 
 // - Plugin factory
@@ -172,7 +173,7 @@ export function createMetaGovernorPlugin(
 
   // Log startup so the user can see the plugin is loaded
   logToFile("info", "MetaGovernor plugin loaded", {
-    version: "0.14.2",
+    version: DEFAULT_VERSION,
     cwd,
     projectHasCodegraph,
     projectHasGraphify,
@@ -232,7 +233,6 @@ export function createMetaGovernorPlugin(
 
     // 4. Load protocol text (best-effort, cached once)
     let systemInjection: string | undefined
-    let protocolReady = false
     // v0.16.0: eagerly await protocol load + gate on a readiness flag.
     // Previously the load was fire-and-forget, so system.transform could
     // fire before systemInjection was set, silently skipping injection.
@@ -241,14 +241,11 @@ export function createMetaGovernorPlugin(
       try {
         const text = await loadProtocol(protocolPath)
         systemInjection = buildSystemInjection(text)
-        protocolReady = true
       } catch (err: unknown) {
         if (typeof console !== "undefined" && mergedConfig.modelOverride?.verbosity !== "silent") {
           console.warn("[meta-governor] could not load protocol:", err instanceof Error ? err.message : err)
         }
       }
-    } else {
-      protocolReady = true
     }
 
     // 5. Per-session audit state (v0.10.0: adds DONE tracking + intervention cap)
