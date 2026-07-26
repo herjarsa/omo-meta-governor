@@ -13,9 +13,34 @@ import {
   triggerCodegraphSync,
 } from "./graph-sync"
 import { runMetaGovernor } from "./orchestrator"
+import { getDefaultSqliteBackend } from "./sqlite-backend"
+import {
+  buildOmoSearchTool,
+  buildOmoRecallTool,
+  buildOmoHealthTool,
+  buildOmoFindTool,
+  buildOmoImpactTool,
+  buildOmoRememberTool,
+  buildOmoRecallMcpTool,
+  buildOmoRuleTool,
+  buildOmoHistoryTool,
+  buildOmoNoteTool,
+  buildOmoPathTool,
+  buildOmoExplainTool,
+  buildOmoOutlineTool,
+  buildOmoCheckpointTool,
+  buildOmoUndoTool,
+} from "./custom-tools"
+import { getMCPClient } from "./mcp-client"
+import { setSessionClient } from "./session-bridge"
+import { LOG_PATH, logToFile } from "./file-logger"
+import { resolve } from "node:path"
+import { homedir } from "node:os"
+import { describeLogFile } from "./health"
+import { createMetricsCollector } from "./metrics"
 import { loadOrchestratorConfig, type MetaGovernorPluginConfig } from "./config"
 import { storeDecision, takeDecision } from "./decision-store"
-import { logToFile } from "./file-logger"
+import { GraphRetrieval, getDefaultGraphRetrieval } from "./graph-retrieval"
 import { statSync } from "node:fs"
 import {
   loadProtocol,
@@ -65,17 +90,67 @@ function generateID(): string {
   return `mg-${Date.now()}-${idCounter}`
 }
 
+/**
+ * Extract a search query from tool args. For `grep`, the query is the
+ * `pattern` field. For `glob`, the query is the `pattern` field. Returns
+ * null if no usable query can be extracted.
+ */
+function extractQueryFromArgs(toolInput: { tool: string; args?: unknown }): string | null {
+  const args = (toolInput as { args?: Record<string, unknown> }).args
+  if (!args || typeof args !== "object") return null
+  // Common arg names for grep/glob across OpenCode versions
+  const candidates = ["pattern", "query", "path", "glob", "regex", "include_pattern"]
+  for (const key of candidates) {
+    const v = (args as Record<string, unknown>)[key]
+    if (typeof v === "string" && v.trim().length > 0) return v.trim()
+  }
+  return null
+}
+
+// Module-level metrics collector — shared across all invocations of the plugin
+const metricsCollector = createMetricsCollector({ sessionID: "__global__", global: true, version: "0.14.2" })
+const healthFilePath = resolve(homedir(), ".config", "opencode", "meta-governor-health.json")
+
 // - Plugin factory
 
 export function createMetaGovernorPlugin(
   config: MetaGovernorPluginConfig = {},
   deps: MetaGovernorPluginDeps = {},
 ): Plugin {
-  // Detect project graph directories at load time
+  // v0.13.0: lazy graph-dir detection via the graph-retrieval layer.
+  // This fixes the race condition where static booleans were set at load
+  // time before async runGraphSync() could create the directories.
+  // The booleans below remain for backwards-compat with AuditContext.
+  const graphRetrieval = getDefaultGraphRetrieval()
   const cwd = process.cwd()
+
+  // v0.13.1: initialize custom tools for the LLM to call.
+  const sqlite = getDefaultSqliteBackend()
+  const omoSearchTool = buildOmoSearchTool({ graphRetrieval, cwd })
+  const omoRecallTool = buildOmoRecallTool({ sqlite })
+  const omoHealthTool = buildOmoHealthTool({
+    metrics: metricsCollector,
+    logFilePath: LOG_PATH,
+    healthFilePath: healthFilePath,
+  })
+  // v0.14.0: extended tools (CodeGraph sub-commands)
+  const omoFindTool = buildOmoFindTool({ cwd })
+  const omoImpactTool = buildOmoImpactTool({ cwd })
+  // v0.14.0: Opción A pivot — tools that bridge to MCP servers via session.prompt()
+  const omoRememberTool = buildOmoRememberTool({})
+  const omoRecallMcpTool = buildOmoRecallMcpTool({})
+  const omoRuleTool = buildOmoRuleTool({})
+  const omoHistoryTool = buildOmoHistoryTool({})
+  const omoNoteTool = buildOmoNoteTool({})
+  const omoPathTool = buildOmoPathTool({ cwd })
+  const omoExplainTool = buildOmoExplainTool({ cwd })
+  const omoOutlineTool = buildOmoOutlineTool({ cwd })
+  const omoCheckpointTool = buildOmoCheckpointTool({})
+  const omoUndoTool = buildOmoUndoTool({})
   const projectHasCodegraph = (() => {
     try { return statSync(`${cwd}/.codegraph`).isDirectory() } catch { return false }
 })()
+
   const projectHasGraphify = (() => {
     try { return statSync(`${cwd}/graphify-out`).isDirectory() } catch { return false }
   })()
@@ -95,7 +170,7 @@ export function createMetaGovernorPlugin(
 
   // Log startup so the user can see the plugin is loaded
   logToFile("info", "MetaGovernor plugin loaded", {
-    version: "0.10.0",
+    version: "0.14.2",
     cwd,
     projectHasCodegraph,
     projectHasGraphify,
@@ -105,6 +180,12 @@ export function createMetaGovernorPlugin(
     _input: PluginInput,
     options?: PluginOptions,
   ): Promise<Hooks> => {
+    // v0.14.0: capture OpenCode server client for MCP tool access (AgentMemory,
+    // Magic Context, AFT). Hydrates the MCPClient singleton on first plugin
+    // invocation. Safe to call multiple times — setClient is idempotent.
+    getMCPClient().setClient((_input.client ?? null) as never)
+    setSessionClient((_input.client ?? null) as never)
+
     // 1. Load config from plugin options
     const rawConfig = {
       ...config,
@@ -113,8 +194,27 @@ export function createMetaGovernorPlugin(
     const mergedConfig = loadOrchestratorConfig(rawConfig)
 
     // 2. If disabled, return empty hooks
+    // 2. If disabled, still register custom tools (but skip governance hooks)
     if (!mergedConfig.enabled) {
-      return {}
+      return {
+        tool: {
+          omo_search: omoSearchTool,
+          omo_recall: omoRecallTool,
+          omo_health: omoHealthTool,
+          omo_find: omoFindTool,
+          omo_impact: omoImpactTool,
+          omo_remember: omoRememberTool,
+          omo_recall_mcp: omoRecallMcpTool,
+          omo_rule: omoRuleTool,
+          omo_history: omoHistoryTool,
+          omo_note: omoNoteTool,
+          omo_path: omoPathTool,
+          omo_explain: omoExplainTool,
+          omo_outline: omoOutlineTool,
+          omo_checkpoint: omoCheckpointTool,
+          omo_undo: omoUndoTool,
+        },
+      }
     }
 
     // 3. Resolve model settings from override or session
@@ -156,7 +256,17 @@ export function createMetaGovernorPlugin(
       recentWriteContents: string[]
       memorySaved: boolean
       batchCompletions: number
+      /** v0.10.0: kept for legacy readers. Set by `<promise>DONE</promise>`
+       *  (with optional `!`). In v0.15.0 phase-aware mode this is NOT used
+       *  by the gate; see `phaseCompleteSignal` and `planCompleteSignal`. */
       taskDoneSignal: boolean
+      /** v0.15.0: set by `<promise>DONE</promise>` OR
+       *  `<promise>PHASE-N-COMPLETE</promise>`. Per-phase hint only;
+       *  only latches intervention in legacy (phaseAwareDoneSignal=false) mode. */
+      phaseCompleteSignal: boolean
+      /** v0.15.0: set by `<promise>PLAN-COMPLETE</promise>`. Terminal signal;
+       *  always latches intervention (when Oracle has verified). */
+      planCompleteSignal: boolean
       interventionCount: number
       interventionDisabled: boolean
     }
@@ -171,13 +281,10 @@ export function createMetaGovernorPlugin(
 
     // v0.11.0: whether the plan reminder has been injected for this session
     const planReminderSent = new Set<string>()
-    // v0.10.0: detect `<promise>DONE</promise>` (with optional !) in any
-    // tool output / agent output string. Sisyphus emits this to mark the
-    // user's task as verifiably complete.
-    function detectDoneSignal(text: string | undefined | null): boolean {
-      if (typeof text !== "string" || text.length === 0) return false
-      return /<promise>\s*DONE!?\s*<\/promise>/i.test(text)
-    }
+    // v0.10.0 / legacy detection imported below; closure removed in v0.15.0
+    // in favor of the module-level detectors (detectDoneSignal,
+    // detectPhaseCompleteSignal, detectPlanCompleteSignal). See the bottom
+    // of this file for the export block.
 
     return {
       // - Tool execute before (protocol audit)
@@ -205,6 +312,8 @@ export function createMetaGovernorPlugin(
             memorySaved: false,
             batchCompletions: 0,
             taskDoneSignal: false,
+            phaseCompleteSignal: false,
+            planCompleteSignal: false,
             interventionCount: 0,
             interventionDisabled: false,
           }
@@ -240,6 +349,30 @@ export function createMetaGovernorPlugin(
           pendingViolations.set(toolInput.sessionID, existing)
         } else {
           logToFile("info", `audit OK on tool ${toolInput.tool}`)
+        }
+
+        // v0.13.0: actually invoke codegraph/graphify when the agent is about
+        // to do a search. This is the C2 fix — previously the plugin only
+        // told the agent to use graph tools via prompt text. Now it runs them
+        // and caches the result for system.transform to inject.
+        if (
+          (toolInput.tool === "grep" || toolInput.tool === "glob") &&
+          (graphRetrieval.hasCodegraphDir(cwd) || graphRetrieval.hasGraphifyDir(cwd))
+        ) {
+          const query = extractQueryFromArgs(toolInput)
+          if (query) {
+            // Fire-and-forget: never block tool.execute.before
+            graphRetrieval
+              .invoke(cwd, query, { timeoutMs: 5_000 })
+              .then((result) => {
+                if (result.result) {
+                  graphRetrieval.cacheContext(toolInput.sessionID, query, result.result)
+                }
+              })
+              .catch(() => {
+                // Best-effort: silently swallow errors
+              })
+          }
         }
       },
 
@@ -304,18 +437,34 @@ export function createMetaGovernorPlugin(
             }
           }
 
-          // v0.10.0: detect <promise>DONE</promise> in tool output
-          if (!sessionState.taskDoneSignal) {
-            if (
-              detectDoneSignal(toolOutput.output) ||
-              detectDoneSignal(toolInput.args as string | undefined)
-            ) {
-              sessionState.taskDoneSignal = true
-              logToFile(
-                "info",
-                `task_done_signal detected for session ${toolInput.sessionID}`,
-              )
-            }
+          // v0.15.0: split per-phase hint (DONE / PHASE-N-COMPLETE) from
+          // terminal (PLAN-COMPLETE). Each signal has its own latch; the
+          // gate (further below) decides which one disables intervention.
+          const textToScan = [
+            typeof toolOutput.output === "string" ? toolOutput.output : "",
+            typeof toolInput.args === "string" ? toolInput.args : "",
+          ].join("\n")
+
+          if (!sessionState.taskDoneSignal && detectDoneSignal(textToScan)) {
+            sessionState.taskDoneSignal = true
+            logToFile(
+              "info",
+              `task_done_signal detected (legacy) for session ${toolInput.sessionID}`,
+            )
+          }
+          if (!sessionState.phaseCompleteSignal && detectPhaseCompleteSignal(textToScan)) {
+            sessionState.phaseCompleteSignal = true
+            logToFile(
+              "info",
+              `phase_complete_signal detected for session ${toolInput.sessionID}`,
+            )
+          }
+          if (!sessionState.planCompleteSignal && detectPlanCompleteSignal(textToScan)) {
+            sessionState.planCompleteSignal = true
+            logToFile(
+              "info",
+              `plan_complete_signal detected for session ${toolInput.sessionID}`,
+            )
           }
         }
 
@@ -335,15 +484,41 @@ export function createMetaGovernorPlugin(
           filesChanged: sessionState?.filesChanged ?? 0,
           recentTurnTokens: [],
           deviations: [],
-          backends: deps.backends ?? {
-            agentmemory: { smartSearch: async () => ({ lessons: [], crystals: [] }) },
-            magicContext: { slotList: async () => [] },
-            boulderState: { boulderRead: async () => [] },
-          },
-          writeBackend: deps.writeBackend ?? {
-            saveMemory: async () => ({ id: "" }),
-            saveLesson: async () => ({ id: "" }),
-          },
+          // v0.13.0: default backends are real SQLite (was: no-op stubs).
+          // The user can still override via `deps.backends` / `deps.writeBackend`.
+          // If SQLite init fails (non-Bun runtime, no permissions, etc.) we
+          // degrade silently to a no-op so the plugin still loads.
+          ...((): Pick<MetaGovernorInput, "backends" | "writeBackend"> => {
+            const userBackends = deps.backends
+            const userWrite = deps.writeBackend
+            if (userBackends && userWrite) {
+              return { backends: userBackends, writeBackend: userWrite }
+            }
+            try {
+              const sqlite = getDefaultSqliteBackend()
+              return {
+                backends: userBackends ?? {
+                  agentmemory: sqlite,
+                  magicContext: { slotList: async () => [] },
+                  boulderState: sqlite,
+                },
+                writeBackend: userWrite ?? sqlite,
+              }
+            } catch {
+              // SQLite init failed (no Bun, no permissions, etc.) — degrade silently
+              return {
+                backends: userBackends ?? {
+                  agentmemory: { smartSearch: async () => ({ lessons: [], crystals: [] }) },
+                  magicContext: { slotList: async () => [] },
+                  boulderState: { boulderRead: async () => [] },
+                },
+                writeBackend: userWrite ?? {
+                  saveMemory: async () => ({ id: "" }),
+                  saveLesson: async () => ({ id: "" }),
+                },
+              }
+            }
+          })(),
           config: mergedConfig,
           ...(getProviderID() ? { providerID: getProviderID() } : {}),
           ...(getModelID() ? { modelID: getModelID() } : {}),
@@ -356,16 +531,29 @@ export function createMetaGovernorPlugin(
           if (mergedConfig.intervention.mode !== "silent" && sessionState) {
             const decision = output.decision
 
-            // v0.10.0: DONE + Oracle verified → stop intervening
+            // v0.15.0: terminal-signal gate. Latches intervention when:
+            //   respectDoneSignal is true (master switch from v0.10.0), AND
+            //   Oracle has verified, AND either:
+            //     a) <promise>PLAN-COMPLETE</promise> was emitted (always terminal), or
+            //     b) phaseAwareDoneSignal is false (legacy) and a phase
+            //        completion signal was emitted (DONE / PHASE-N-COMPLETE).
+            const phaseAwareDone =
+              mergedConfig.intervention.phaseAwareDoneSignal === true
             if (
               mergedConfig.intervention.respectDoneSignal &&
-              sessionState.taskDoneSignal &&
-              sessionState.oracleInvoked
+              sessionState.oracleInvoked &&
+              (sessionState.planCompleteSignal ||
+                (!phaseAwareDone &&
+                  (sessionState.taskDoneSignal ||
+                    sessionState.phaseCompleteSignal)))
             ) {
               sessionState.interventionDisabled = true
+              const cause = sessionState.planCompleteSignal
+                ? "PLAN-COMPLETE"
+                : (sessionState.taskDoneSignal ? "DONE" : "PHASE-N-COMPLETE")
               logToFile(
                 "info",
-                `task verified (DONE + Oracle): disabling intervention for session ${toolInput.sessionID}`,
+                `task verified (${cause} + Oracle): disabling intervention for session ${toolInput.sessionID}`,
               )
               takeDecision(toolInput.sessionID)
               return
@@ -555,6 +743,8 @@ logToFile("warn", `codegraph sync failed: ${String(err)}`)
             memorySaved: false,
             batchCompletions: 0,
             taskDoneSignal: false,
+            phaseCompleteSignal: false,
+            planCompleteSignal: false,
             interventionCount: 0,
             interventionDisabled: false,
           }
@@ -597,6 +787,20 @@ logToFile("warn", `codegraph sync failed: ${String(err)}`)
           )
         }
 
+        // v0.13.0: inject cached graph context (C2 fix). When tool.execute.before
+        // fired a graph query earlier, the result is now in the per-session cache
+        // and we append it to the system prompt as reference material.
+        if (transformInput.sessionID) {
+          const graphContext = graphRetrieval.getCachedContext(transformInput.sessionID)
+          if (graphContext) {
+            output.system.push(
+              "\n### Graph Context (auto-retrieved)",
+              graphContext,
+              "---",
+            )
+          }
+        }
+
         if (mergedConfig.intervention.mode === "system" && transformInput.sessionID) {
           // v0.10.0: also respect per-session intervention disable here
           const state = auditSessions.get(transformInput.sessionID)
@@ -625,6 +829,64 @@ logToFile("warn", `codegraph sync failed: ${String(err)}`)
               )
             }
           }
+        }
+      },
+
+      // v0.13.1: custom tool registration — the LLM can call these explicitly
+      tool: {
+        omo_search: omoSearchTool,
+        omo_recall: omoRecallTool,
+        omo_health: omoHealthTool,
+        omo_find: omoFindTool,
+        omo_impact: omoImpactTool,
+        omo_remember: omoRememberTool,
+        omo_recall_mcp: omoRecallMcpTool,
+        omo_rule: omoRuleTool,
+        omo_history: omoHistoryTool,
+        omo_note: omoNoteTool,
+        omo_path: omoPathTool,
+        omo_explain: omoExplainTool,
+        omo_outline: omoOutlineTool,
+        omo_checkpoint: omoCheckpointTool,
+        omo_undo: omoUndoTool,
+      },
+
+      // v0.13.1: inject lesson context at compaction time so learned patterns
+      // survive context window compaction.
+      "experimental.session.compacting": async (
+        compactInput: { sessionID: string },
+        compactOutput: { context: string[]; prompt?: string },
+      ): Promise<void> => {
+        if (!mergedConfig.enabled || !mergedConfig.closedLoop.enabled) return
+        // Fetch top-3 relevant lessons and inject into compaction context
+        const sqlite = getDefaultSqliteBackend()
+        const recentQuery = `session:${compactInput.sessionID}`
+        const results = await sqlite.smartSearch({ query: recentQuery, limit: 3 })
+        if (results.lessons.length > 0) {
+          const lessonText = results.lessons
+            .map(
+              (l, i) =>
+                `${i + 1}. [${l.id}] confidence=${l.confidence.toFixed(2)}\n   ${l.content.slice(0, 300)}`,
+            )
+            .join("\n\n")
+          compactOutput.context.push(
+            "\n### Past Lessons (auto-retrieved)",
+            lessonText,
+            "---",
+          )
+        }
+      },
+
+      // v0.13.1: disable auto-continue when the plugin has determined the
+      // task is complete (DONE+Oracle or intervention cap reached).
+      "experimental.compaction.autocontinue": async (
+        _autoInput: { sessionID: string; overflow: boolean },
+        autoOutput: { enabled: boolean },
+      ): Promise<void> => {
+        if (!mergedConfig.enabled) return
+        const state = auditSessions.get(_autoInput.sessionID)
+        if (state?.interventionDisabled) {
+          autoOutput.enabled = false
         }
       },
     }
@@ -709,4 +971,50 @@ export function shouldInjectPlanReminder(
   } catch {
     return true
   }
+}
+
+// ─── v0.15.0 completion-signal detectors (module-level exports for testing) ───
+
+/**
+ * v0.10.0 legacy detector. Matches `<promise>DONE</promise>` (with optional
+ * trailing `!`) and nothing else. Retained for backwards compatibility —
+ * new code should prefer {@link detectPhaseCompleteSignal} for per-phase
+ * hints or {@link detectPlanCompleteSignal} for the terminal marker.
+ */
+export function detectDoneSignal(
+  text: string | undefined | null,
+): boolean {
+  if (typeof text !== "string" || text.length === 0) return false
+  return /<promise>\s*DONE!?\s*<\/promise>/i.test(text)
+}
+
+/**
+ * v0.15.0: per-phase hint detector. Matches `<promise>DONE</promise>` (with
+ * optional trailing `!`) AND `<promise>PHASE-N-COMPLETE</promise>` where N
+ * is a positive integer (1, 2, 3, ...). Case-insensitive, whitespace-tolerant.
+ *
+ * The MetaGovernor gate respects `phaseAwareDoneSignal` when deciding whether
+ * this signal latches intervention.
+ */
+export function detectPhaseCompleteSignal(
+  text: string | undefined | null,
+): boolean {
+  if (typeof text !== "string" || text.length === 0) return false
+  return (
+    /<promise>\s*DONE!?\s*<\/promise>/i.test(text) ||
+    /<promise>\s*PHASE-\d+-COMPLETE\s*<\/promise>/i.test(text)
+  )
+}
+
+/**
+ * v0.15.0: terminal marker detector. Matches `<promise>PLAN-COMPLETE</promise>`
+ * only. Case-insensitive, whitespace-tolerant. This is the ONLY signal that
+ * latches intervention unconditionally (when Oracle has verified and
+ * `respectDoneSignal: true`).
+ */
+export function detectPlanCompleteSignal(
+  text: string | undefined | null,
+): boolean {
+  if (typeof text !== "string" || text.length === 0) return false
+  return /<promise>\s*PLAN-COMPLETE\s*<\/promise>/i.test(text)
 }

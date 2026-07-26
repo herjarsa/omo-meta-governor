@@ -386,11 +386,33 @@ export interface InterventionConfig {
   readonly maxInterventionsPerSession: number
   /**
    * When true, the plugin stops injecting the moment the agent emits a
-   * `<promise>DONE</promise>` signal AND Oracle has verified the work.
-   * v0.10.0: prevents the plugin from continuing to "guide" the agent
-   * after the user's task is verifiably complete. Default: true.
+   * terminal completion signal AND Oracle has verified the work.
+   *
+   * v0.10.0: introduced `<promise>DONE</promise>` as the terminal signal.
+   * v0.15.0: terminal signal depends on `phaseAwareDoneSignal`:
+   *   - phaseAwareDoneSignal=false (legacy): ONLY `<promise>DONE</promise>`
+   *     is terminal. `<promise>PHASE-N-COMPLETE</promise>` and
+   *     `<promise>PLAN-COMPLETE</promise>` extend this with new semantics.
+   *   - phaseAwareDoneSignal=true: `<promise>DONE</promise>` and
+   *     `<promise>PHASE-N-COMPLETE</promise>` are per-phase hints and do NOT
+   *     latch intervention. Only `<promise>PLAN-COMPLETE</promise>` is
+   *     terminal.
+   * Default: true.
    */
   readonly respectDoneSignal: boolean
+  /**
+   * v0.15.0: split per-phase hint from terminal signal. When true, the
+   * plugin no longer treats `<promise>DONE</promise>` as terminal —
+   * `<promise>PLAN-COMPLETE</promise>` is the only terminal marker.
+   *
+   * Recommended for multi-phase plans (Sisyphus/Prometheus work plans):
+   * set to true and emit `<promise>PLAN-COMPLETE</promise>` only when the
+   * entire plan is verifiably done (Oracle has approved the last phase).
+   *
+   * Default: false in v0.15.0 (preserves v0.10.0–v0.14.x behavior). Will
+   * flip to true in v0.16.0 once migration is documented.
+   */
+  readonly phaseAwareDoneSignal: boolean
 }
 
 /**

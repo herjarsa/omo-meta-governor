@@ -62,6 +62,8 @@ export interface MetaGovernorPluginConfig {
     maxInterventionsPerSession?: number
     /** v0.10.0: stop injecting after <promise>DONE</promise> + Oracle verified. */
     respectDoneSignal?: boolean
+  /** v0.15.0: split per-phase hint from terminal signal. See types.ts. */
+    phaseAwareDoneSignal?: boolean
 }
 
   /** Sisyphus protocol enforcement config. */
@@ -168,6 +170,10 @@ export function loadOrchestratorConfig(
       // v0.10.0: stop injecting after the agent signals <promise>DONE</promise>
       // AND Oracle has verified the work.
       respectDoneSignal: full.intervention?.respectDoneSignal ?? true,
+      // v0.15.0: split per-phase hint (DONE) from terminal (PLAN-COMPLETE).
+      // Default false (preserves v0.10.0–v0.14.x behavior). Users with
+      // multi-phase plans opt in to phase-aware DONE gating.
+      phaseAwareDoneSignal: full.intervention?.phaseAwareDoneSignal ?? false,
     } as InterventionConfig,
     protocolEnforcement: {
       enabled: full.protocolEnforcement?.enabled ?? false,

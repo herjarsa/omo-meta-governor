@@ -58,6 +58,10 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
     // v0.10.0: stop injecting after the agent signals <promise>DONE</promise>
     // AND Oracle has verified the work.
     respectDoneSignal: true,
+    // v0.15.0: split per-phase hint from terminal signal. Default false
+    // preserves v0.10.0–v0.14.x behavior. Will flip to true in v0.16.0
+    // once migration is documented (see types.ts).
+    phaseAwareDoneSignal: false,
   },
   protocolEnforcement: {
 enabled: false,
