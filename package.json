@@ -37,7 +37,5 @@
     "@opencode-ai/plugin": "^1.17.4",
     "@types/node": "^25.9.3"
   },
-  "dependencies": {
-    "@herjarsa/omo-meta-governor": "^0.14.4"
-  }
+  "dependencies": {}
 }
