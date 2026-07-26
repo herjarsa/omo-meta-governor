@@ -113,6 +113,8 @@ export {
   type ToolAvailability,
 } from "./graph-sync"
 export { generateSchema, writeSchemaFile, type JsonSchema, type JsonSchemaProperty } from "./generate-schema"
+export { SqliteBackend, getDefaultSqliteBackend } from "./sqlite-backend"
+export { GraphRetrieval, getDefaultGraphRetrieval, hashQuery, type GraphToolKind, type GraphInvocationResult, type GraphRetrievalConfig, type InvokeOptions } from "./graph-retrieval"
 export { loadOrchestratorConfigFromSources } from "./config"
 
 export type { ProtocolViolation, ProtocolEnforcementSessionState } from "./types"

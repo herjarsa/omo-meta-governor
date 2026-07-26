@@ -11,27 +11,27 @@ describe("file-logger", () => {
     try { rmSync(LOG_PATH, { force: true }) } catch { /* ignore */ }
   })
 
-  it("writes info level entries with timestamp", () => {
+  it("writes info level entries as JSONL with timestamp", () => {
     logToFile("info", "test message")
     expect(existsSync(LOG_PATH)).toBe(true)
     const content = readFileSync(LOG_PATH, "utf-8")
-    expect(content).toContain("[INFO]")
-    expect(content).toContain("test message")
+    expect(content).toContain(`"level":"info"`)
+    expect(content).toContain(`"message":"test message"`)
     expect(content).toMatch(/\d{4}-\d{2}-\d{2}T/)  // ISO timestamp
   })
 
-  it("writes warn level entries with [WARN] tag", () => {
+  it("writes warn level entries as JSONL with warn level", () => {
     logToFile("warn", "warning text")
     const content = readFileSync(LOG_PATH, "utf-8")
-    expect(content).toContain("[WARN]")
-    expect(content).toContain("warning text")
+    expect(content).toContain(`"level":"warn"`)
+    expect(content).toContain(`"message":"warning text"`)
   })
 
-  it("writes error level entries with [ERROR] tag", () => {
+  it("writes error level entries as JSONL with error level", () => {
     logToFile("error", "error text")
     const content = readFileSync(LOG_PATH, "utf-8")
-    expect(content).toContain("[ERROR]")
-    expect(content).toContain("error text")
+    expect(content).toContain(`"level":"error"`)
+    expect(content).toContain(`"message":"error text"`)
   })
 
   it("serializes data payload as JSON", () => {

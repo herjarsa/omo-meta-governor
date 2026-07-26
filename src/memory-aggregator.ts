@@ -37,7 +37,7 @@ import type {
 // ---------------------------------------------------------------------------
 // Raw backend types (private to this module — NOT exported to the contract)
 
-interface RawLesson {
+export interface RawLesson {
   readonly id: string;
   readonly title: string;
   readonly content: string;
@@ -45,9 +45,10 @@ interface RawLesson {
   readonly concepts: readonly string[];
   readonly confidence: number;
   readonly files: readonly string[];
+  readonly advice?: "continue" | "stop" | "warn" | "info";
 }
 
-interface RawCrystal {
+export interface RawCrystal {
   readonly id: string;
   readonly title: string;
   readonly content: string;
@@ -66,7 +67,7 @@ interface RawSlot {
   readonly updatedAt?: number;
 }
 
-interface RawBoulderTask {
+export interface RawBoulderTask {
   readonly id: string;
   readonly title: string;
   readonly priority: number;
@@ -204,7 +205,7 @@ async function readAgentmemory(
     .map((l) => ({
       id: l.id,
       title: l.title,
-      advice: "info" as const,
+      advice: l.advice ?? "info" as const,
       confidence: l.confidence,
       concepts: l.concepts,
     }));

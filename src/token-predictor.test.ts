@@ -100,7 +100,8 @@ describe("#given predict with high usage", () => {
     const result = predict(
       makeInput({ currentUsage: 192_000 }) // 96% > 95%
     )
-    expect(result.recommendation).toBe("switch-model")
+    expect(result.recommendation).toBe("compact-now")
+    expect(result.recommendations).toContain("switch-model")
   })
 })
 
@@ -130,7 +131,8 @@ describe("#given predict with consecutive high burn", () => {
         // last 5 turns are all >= 500
       })
     )
-    expect(result.recommendation).toBe("delegate-to-subagent")
+    expect(result.recommendation).toBe("no-action")
+    expect(result.recommendations).toContain("delegate-to-subagent")
   })
 
   // #then does not delegate when consecutive count below threshold
@@ -155,7 +157,8 @@ describe("#given predict priority ordering", () => {
         recentTurnTokens: [600, 700, 800, 500, 2000], // high burn too
       })
     )
-    expect(result.recommendation).toBe("switch-model")
+    expect(result.recommendation).toBe("compact-now")
+    expect(result.recommendations).toContain("switch-model")
   })
 })
 

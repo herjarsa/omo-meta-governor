@@ -201,8 +201,6 @@ export interface BoulderStateRead {
  * `recommendation` is action-typed; the caller (PR 7 integration) maps
  * these to actual hook invocations:
  *   - "compact-now" → invoke preemptive-compaction-degradation-monitor
- *   - "switch-model" → invoke model-fallback chat-message-fallback-handler
- *   - "delegate-to-subagent" → invoke delegate-task with a sub-scope
  *   - "no-action" → silent
  */
 export interface TokenPrediction {
@@ -218,8 +216,6 @@ export interface TokenPrediction {
 
 export type TokenRecommendation =
   | "compact-now"
-  | "switch-model"
-  | "delegate-to-subagent"
   | "no-action"
 
 /**
@@ -458,6 +454,8 @@ export interface TokenPredictorOutput extends TokenPrediction {
   readonly input: TokenPredictorInput
   readonly computedAtISO: string
   readonly turnsAnalyzed: number
+  /** Informational recommendations not acted on by the dispatcher. */
+  readonly recommendations: readonly string[]
 }
 
 /**

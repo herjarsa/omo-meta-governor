@@ -303,5 +303,6 @@ function createNoopPrediction(
     },
     computedAtISO: new Date().toISOString(),
     turnsAnalyzed: input.recentTurnTokens.length,
+    recommendations: [],
   }
 }

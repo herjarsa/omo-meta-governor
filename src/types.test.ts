@@ -261,6 +261,7 @@ describe("meta-governor types", () => {
           confidence: 0.95,
           modelLimit: 200_000,
           windowRemaining: 150_000,
+          recommendations: [],
         },
         {
           currentUsage: 180_000,
@@ -271,13 +272,15 @@ describe("meta-governor types", () => {
           confidence: 0.85,
           modelLimit: 200_000,
           windowRemaining: 20_000,
+          recommendations: [],
         },
         {
           currentUsage: 90_000,
           burnRate: 3_000,
           budgetLeft: 110_000,
           willOverflowAt: "2026-06-09T12:30:00.000Z",
-          recommendation: "switch-model",
+          recommendation: "compact-now",
+          recommendations: ["switch-model"],
           confidence: 0.7,
           modelLimit: 200_000,
           windowRemaining: 110_000,
@@ -287,7 +290,8 @@ describe("meta-governor types", () => {
           burnRate: 2_000,
           budgetLeft: 80_000,
           willOverflowAt: "2026-06-09T12:40:00.000Z",
-          recommendation: "delegate-to-subagent",
+          recommendation: "no-action",
+          recommendations: ["delegate-to-subagent"],
           confidence: 0.65,
           modelLimit: 200_000,
           windowRemaining: 80_000,
@@ -295,8 +299,6 @@ describe("meta-governor types", () => {
       ]
       const recommendations: TokenRecommendation[] = [
         "compact-now",
-        "switch-model",
-        "delegate-to-subagent",
         "no-action",
       ]
 
@@ -311,10 +313,11 @@ describe("meta-governor types", () => {
           p.confidence <= 1,
       )
       const allRecommendations = new Set(predictions.map((p) => p.recommendation))
+      expect(predictions.some((p) => p.recommendations.length > 0)).toBe(true)
 
       // then
       expect(allHaveFields).toBe(true)
-      expect(allRecommendations.size).toBe(4)
+      expect(allRecommendations.size).toBe(2)
       for (const r of recommendations) {
         expect(allRecommendations.has(r)).toBe(true)
       }

@@ -104,12 +104,13 @@ export function predict(input: TokenPredictorInput): TokenPredictorOutput {
 
   // Determine recommendation
   let recommendation: TokenPredictorOutput["recommendation"] = "no-action"
+  const recommendations: string[] = []
   let reason = "within normal parameters"
 
   // Layer 1: Critical — context nearly full
   if (usageRatio >= config.switchModelUsageThreshold) {
-    recommendation = "switch-model"
     reason = `context usage ${(usageRatio * 100).toFixed(1)}% exceeds switch threshold ${(config.switchModelUsageThreshold * 100).toFixed(1)}%`
+    recommendations.push("switch-model")
   }
 
   // Layer 2: High burn rate or usage above compact threshold
@@ -135,8 +136,8 @@ export function predict(input: TokenPredictorInput): TokenPredictorOutput {
     consecutiveHighBurn >= config.delegateConsecutiveHighBurn &&
     recommendation === "no-action"
   ) {
-    recommendation = "delegate-to-subagent"
     reason = `${consecutiveHighBurn} consecutive high-burn turns (threshold: ${config.delegateConsecutiveHighBurn})`
+    recommendations.push("delegate-to-subagent")
   }
 
   const willOverflowAt = predictOverflowTime(
@@ -152,6 +153,7 @@ export function predict(input: TokenPredictorInput): TokenPredictorOutput {
     budgetLeft,
     willOverflowAt,
     recommendation,
+    recommendations,
     confidence,
     modelLimit,
     windowRemaining: Math.max(0, Math.floor(budgetLeft / Math.max(burnRate, 1))),
