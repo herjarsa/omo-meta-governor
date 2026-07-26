@@ -936,7 +936,8 @@ export function buildOmoOutlineTool(deps: OmoOutlineDeps) {
 // omo_checkpoint — create a named AFT checkpoint
 // ---------------------------------------------------------------------------
 
-export interface OmoCheckpointDeps {}
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export type OmoCheckpointDeps = Record<string, never>
 
 /**
  * Build the `omo_checkpoint` tool. Creates a named AFT checkpoint so the
@@ -968,7 +969,8 @@ export function buildOmoCheckpointTool(_deps: OmoCheckpointDeps) {
 // omo_undo — revert to most recent AFT checkpoint
 // ---------------------------------------------------------------------------
 
-export interface OmoUndoDeps {}
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export type OmoUndoDeps = Record<string, never>
 
 /**
  * Build the `omo_undo` tool. Reverts tracked files to the most recent AFT

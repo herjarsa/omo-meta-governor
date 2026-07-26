@@ -26,6 +26,48 @@ import { resolve, dirname } from "node:path"
 import { homedir } from "node:os"
 
 // ---------------------------------------------------------------------------
+// Redaction
+// ---------------------------------------------------------------------------
+
+const SECRET_PATTERNS = [
+  /eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g,
+  /sk-(?:proj-|svc-|)[a-zA-Z0-9]{20,}/g,
+  /pk-[a-zA-Z0-9]{20,}/g,
+  /ghp_[a-zA-Z0-9]{36,}/g,
+  /ghs_[a-zA-Z0-9]{36,}/g,
+  /github_pat_[a-zA-Z0-9]{22,}/g,
+  /Bearer\s+[a-zA-Z0-9_\-]{20,}/gi,
+  /(?:key|secret|token|password|credential|private_key)\s*[:=]\s*['"]?[a-zA-Z0-9_\-]{16,}/gi,
+]
+
+const SECRET_KEYS = /^(?:key|secret|token|password|credential|private_key|api[_-]?key|access[_-]?token|auth[_-]?token)$/i
+
+function redactValue(value: string): string {
+  let result = value
+  for (const pattern of SECRET_PATTERNS) {
+    result = result.replace(pattern, "[REDACTED]")
+  }
+  return result
+}
+
+function redactData(data: unknown): unknown {
+  if (typeof data === "string") return redactValue(data)
+  if (Array.isArray(data)) return data.map(redactData)
+  if (data && typeof data === "object") {
+    const obj: Record<string, unknown> = { ...data as Record<string, unknown> }
+    for (const [k, v] of Object.entries(obj)) {
+      if (SECRET_KEYS.test(k)) {
+        obj[k] = "[REDACTED]"
+      } else {
+        obj[k] = redactData(v)
+      }
+    }
+    return obj
+  }
+  return data
+}
+
+// ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
@@ -94,13 +136,15 @@ function rotateIfNeeded(): void {
 function emit(level: LogLevel, message: string, data?: unknown, event?: string, sessionID?: string): void {
   ensureLogDir()
   rotateIfNeeded()
+  const safeMessage = redactValue(message)
+  const safeData = data !== undefined ? redactData(data) : undefined
   const entry: LogEntry = {
     timestamp: new Date().toISOString(),
     level,
-    message,
+    message: safeMessage,
     ...(event ? { event } : {}),
     ...(sessionID ? { sessionID } : {}),
-    ...(data !== undefined ? { data } : {}),
+    ...(safeData !== undefined ? { data: safeData } : {}),
   }
   let line: string
   try {
