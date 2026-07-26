@@ -41,7 +41,9 @@ import { createMetricsCollector } from "./metrics"
 import { loadOrchestratorConfig, type MetaGovernorPluginConfig } from "./config"
 import { storeDecision, takeDecision } from "./decision-store"
 import { GraphRetrieval, getDefaultGraphRetrieval } from "./graph-retrieval"
-import { statSync } from "node:fs"
+import { AuditStateCache } from "./audit-state-cache"
+import { statSync, readFileSync } from "node:fs"
+import { join } from "node:path"
 import {
   loadProtocol,
   buildSystemInjection,
@@ -270,14 +272,28 @@ export function createMetaGovernorPlugin(
       interventionCount: number
       interventionDisabled: boolean
     }
-    const auditSessions = new Map<string, AuditState>()
+    // v0.16.0: replaced unbounded Map with TTL+LRU-bounded AuditStateCache.
+    // Capped at 100 sessions, 1h TTL. Prevents the C1/H16 memory leak.
+    //
+    // Concurrency model: Bun's runtime is single-threaded. Between two
+    // synchronous statements, the event loop cannot be interrupted.
+    // Therefore read-modify-write of state fields is atomic per-call.
+    // If ported to a multi-threaded runtime, this becomes a TODO for
+    // per-session mutex.
+    const auditSessions = new AuditStateCache<AuditState>({
+      maxEntries: 100,
+      ttlMs: 60 * 60 * 1000,
+    })
 
     // Pending protocol violations queue
 // Pending protocol violations queue
-    const pendingViolations = new Map<string, string[]>()
+    // v0.16.0: TTL-wrapped queue (F1.3). Items expire after 5 minutes
+    // to prevent memory growth if a session ends without consuming its queue.
+    const pendingViolations = new Map<string, { items: string[]; expiresAtMs: number }>()
+    const PENDING_TTL_MS = 5 * 60 * 1000
 
     // v0.11.0: pending bot feedback (from `gh pr checks` / `gh pr view` output)
-    const pendingBotFeedback = new Map<string, string[]>()
+    const pendingBotFeedback = new Map<string, { items: string[]; expiresAtMs: number }>()
 
     // v0.11.0: whether the plan reminder has been injected for this session
     const planReminderSent = new Set<string>()
@@ -342,11 +358,14 @@ export function createMetaGovernorPlugin(
 
         if (violations.length > 0) {
           logToFile("warn", `protocol violations on tool ${toolInput.tool}`, violations)
-          const existing = pendingViolations.get(toolInput.sessionID) ?? []
+          const existing = pendingViolations.get(toolInput.sessionID)?.items ?? []
           for (const v of violations) {
             existing.push(`[${v.severity.toUpperCase()}] ${v.rule}: ${v.detail}`)
           }
-          pendingViolations.set(toolInput.sessionID, existing)
+          pendingViolations.set(toolInput.sessionID, {
+            items: existing,
+            expiresAtMs: Date.now() + PENDING_TTL_MS,
+          })
         } else {
           logToFile("info", `audit OK on tool ${toolInput.tool}`)
         }
@@ -629,10 +648,13 @@ logToFile("warn", `codegraph sync failed: ${String(err)}`)
                 toolInput.sessionID,
               )
               if (feedback.length > 0) {
-                const existing = pendingBotFeedback.get(toolInput.sessionID) ?? []
+                const existing = pendingBotFeedback.get(toolInput.sessionID)?.items ?? []
                 pendingBotFeedback.set(
                   toolInput.sessionID,
-                  existing.concat(feedback),
+                  {
+                    items: existing.concat(feedback),
+                    expiresAtMs: Date.now() + PENDING_TTL_MS,
+                  },
                 )
                 logToFile(
                   "info",
@@ -688,8 +710,9 @@ logToFile("warn", `codegraph sync failed: ${String(err)}`)
         }
 
         // 0b. Bot feedback from PR reviewers (v0.11.0)
-        if (pendingBotFeedback.has(currentSessionID)) {
-          const feedback = pendingBotFeedback.get(currentSessionID)!
+        const botEntry = pendingBotFeedback.get(currentSessionID)
+        if (botEntry && botEntry.expiresAtMs > Date.now()) {
+          const feedback = botEntry.items
           if (feedback.length > 0) {
             const feedbackText = `[MetaGovernor PR Reviewer Feedback]\n\n${feedback.map((f, i) => `${i + 1}. ${f}`).join("\n")}\n\nApply these fixes to keep the PR mergeable.`
             output.messages.push({
@@ -704,8 +727,9 @@ logToFile("warn", `codegraph sync failed: ${String(err)}`)
           }
         }
         // 1. Inject pending protocol violations so the model sees them
-        if (pendingViolations.has(currentSessionID)) {
-          const violations = pendingViolations.get(currentSessionID)!
+        const violEntry = pendingViolations.get(currentSessionID)
+        if (violEntry && violEntry.expiresAtMs > Date.now()) {
+          const violations = violEntry.items
           if (violations.length > 0) {
             const violationText = `[META-GOVERNOR PROTOCOL VIOLATIONS - YOU MUST COMPLY]\n\n${violations.map((v, i) => `${i + 1}. ${v}`).join("\n")}\n\nRemember: use codegraph/graphify for architecture queries, do not grep without trying AFT/codegraph first, no @ts-ignore/as-any, no empty catch, check memory before asking.`
             output.messages.push({
@@ -954,23 +978,19 @@ export function shouldInjectPlanReminder(
   interventionCount: number,
 ): boolean {
   if (interventionCount >= 1) return false
+  // v0.16.0: replaced inline CJS require with top-level ESM imports (F1.2).
+  // In strict ESM environments, require() throws ReferenceError; the catch
+  // was silently returning true (always inject), which broke the logic.
+  // Now both file checks use synchronous fs/imports at module load.
   try {
-    const { statSync, readFileSync } = require("node:fs")
-    const { join } = require("node:path")
-    // PLAN.md wins
-    try {
-      statSync(join(projectDir, "PLAN.md"))
-      return false
-    } catch { /* no PLAN.md */ }
-    // Check AGENTS.md for a Plan section
-    try {
-      const agents = readFileSync(join(projectDir, "AGENTS.md"), "utf-8")
-      if (/^##\s+Plan\b/im.test(agents)) return false
-    } catch { /* no AGENTS.md */ }
-    return true
-  } catch {
-    return true
-  }
+    statSync(join(projectDir, "PLAN.md"))
+    return false
+  } catch { /* no PLAN.md */ }
+  try {
+    const agents = readFileSync(join(projectDir, "AGENTS.md"), "utf-8")
+    if (/^##\s+Plan\b/im.test(agents)) return false
+  } catch { /* no AGENTS.md */ }
+  return true
 }
 
 // ─── v0.15.0 completion-signal detectors (module-level exports for testing) ───
