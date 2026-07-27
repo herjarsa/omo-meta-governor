@@ -51,3 +51,44 @@ describe("file-logger", () => {
     expect(lineCount).toBe(3)
   })
 })
+
+
+describe("redaction", () => {
+  afterEach(() => {
+    try { rmSync(LOG_PATH, { force: true }) } catch { /* ignore */ }
+  })
+
+  it("redacts JWT tokens from message string", () => {
+    logToFile("info", "token: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.dGhpcyBpcyBhIHRlc3Q")
+    const content = readFileSync(LOG_PATH, "utf-8")
+    expect(content).toContain("[REDACTED]")
+    expect(content).not.toMatch(/eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/)
+  })
+
+  it("redacts OpenAI API keys from message", () => {
+    logToFile("warn", "key=sk-proj-AbCdEf1234567890LongKey")
+    const content = readFileSync(LOG_PATH, "utf-8")
+    expect(content).toContain("[REDACTED]")
+  })
+
+  it("redacts Bearer tokens from Authorization header", () => {
+    logToFile("error", 'Authorization: Bearer ghp_abc123def456secret', { endpoint: "/api/data" })
+    const content = readFileSync(LOG_PATH, "utf-8")
+    expect(content).toContain("[REDACTED]")
+  })
+
+  it("redacts secret-key fields in data objects", () => {
+    logToFile("info", "config", { api_key: "super-secret-value", name: "public" })
+    const content = readFileSync(LOG_PATH, "utf-8")
+    expect(content).toContain('"api_key":"[REDACTED]"')
+    expect(content).toContain('"name":"public"')
+  })
+
+  it("redacts nested secret values in data", () => {
+    logToFile("info", "nested", { config: { secret: "hidden", port: 3000 } })
+    const content = readFileSync(LOG_PATH, "utf-8")
+    expect(content).toContain('"secret":"[REDACTED]"')
+    expect(content).toContain('"port":3000')
+  })
+})
+

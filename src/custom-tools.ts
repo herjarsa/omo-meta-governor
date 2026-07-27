@@ -936,7 +936,6 @@ export function buildOmoOutlineTool(deps: OmoOutlineDeps) {
 // omo_checkpoint — create a named AFT checkpoint
 // ---------------------------------------------------------------------------
 
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export type OmoCheckpointDeps = Record<string, never>
 
 /**
@@ -969,7 +968,6 @@ export function buildOmoCheckpointTool(_deps: OmoCheckpointDeps) {
 // omo_undo — revert to most recent AFT checkpoint
 // ---------------------------------------------------------------------------
 
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export type OmoUndoDeps = Record<string, never>
 
 /**
