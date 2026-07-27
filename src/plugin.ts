@@ -594,6 +594,8 @@ export function createMetaGovernorPlugin(
           ...(getProviderID() ? { providerID: getProviderID() } : {}),
           ...(getModelID() ? { modelID: getModelID() } : {}),
           modelLimit: getModelLimit(),
+          // v0.17.0 (F5.4): thread current lesson count for maxLessonsPerSession cap
+          currentLessonCount: sessionState?.lessonCount ?? 0,
         }
 
         try {

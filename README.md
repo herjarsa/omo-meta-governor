@@ -246,6 +246,82 @@ No user action required. All changes are internal. The default `phaseAwareDoneSi
 - F3.6 — Bridge tools lying about delivery (5 tools still return "dispatched" without polling). Recommend the user explicitly request this if delivery verification is critical.
 
 
+
+
+## v0.17.0 — Wire escalate to Oracle, enforce lesson cap, verify bridge delivery
+
+v0.17.0 closes the 3 deferred items from the v0.16.0 audit: **F5.1** (escalate → Oracle), **F5.4** (`maxLessonsPerSession` enforcement), and **F3.6** (bridge tool delivery verification).
+
+### Highlights
+
+#### F5.1 — Escalate action now fires Oracle (v0.17.0)
+
+When the scoring engine produces an `escalate` action with target `oracle`, the plugin's `tool.execute.after` hook now fires a `session.prompt()` instructing the LLM to invoke `task(subagent_type=oracle)`. The prompt includes the decision reasoning, evidence count, and a verification pass directive. New `buildEscalationPrompt()` function in `session-bridge.ts` is the pure prompt builder (testable in isolation). User-targeted escalations get a separate prompt asking the LLM to summarize for human input.
+
+```ts
+// Decision flow when score lands in escalate band:
+score ≤ -escalateThreshold (default -0.6)
+  → decision.action = "escalate"
+  → decision.shouldEscalateTo = "oracle" (or "user" for grave deviations)
+  → plugin fires session.prompt with buildEscalationPrompt(...)
+  → LLM invokes Oracle (or summarizes for user)
+  → Oracle verifies → oracleInvoked=true → governance continues
+```
+
+#### F5.4 — `maxLessonsPerSession` is now enforced
+
+The cap (default 20) was a config field that was never enforced. v0.17.0 adds:
+- `currentLessonCount` on `LearnFromOutcomeInput` and `MetaGovernorInput`
+- `lessonCount` tracked in per-session `AuditState`
+- `observeAndLearn()` short-circuits when `currentLessonCount >= maxLessonsPerSession`
+- The orchestrator increments `sessionState.lessonCount` after each successful save
+- **Cap semantics: inclusive** — when count equals cap, no more lessons are saved
+
+#### F3.6 — Bridge tool delivery verification
+
+The 5 bridge tools (`omo_remember`, `omo_recall_mcp`, `omo_rule`, `omo_history`, `omo_note`) previously returned "dispatched" after the `session.prompt()` was queued — without verifying the LLM actually called the MCP tool. v0.17.0 adds:
+
+- **New `PendingDeliveryRegistry` module** (`src/delivery-registry.ts`) — tracks pending dispatches per session with TTL-based cleanup.
+- **`tool.execute.after` hook** marks deliveries when a matching MCP tool call is observed.
+- **All 5 bridge tools** now report `deliveryStatus: "delivered" | "pending"` in their tool result and metadata, and briefly poll (1.5s) for fast deliveries.
+- When the LLM follows the prompt, the tool returns immediately with `"delivered"`. When it doesn't, the tool returns `"pending"` and the entry expires silently after 10s.
+
+```ts
+// Bridge tool result metadata now includes:
+{
+  tool: "omo_remember",
+  ok: true,
+  deliveryStatus: "delivered" | "pending",
+  messageID: "...",
+  durationMs: 1234,
+  contentLength: 256
+}
+```
+
+### Test & build status
+
+- **514/514 tests pass** (up from 495 in v0.16.0 — 5 + 4 + 10 new tests across F5.4, F5.1, F3.6).
+- `bun run typecheck` clean.
+- `bun build.ts` clean (0.34 MB dist).
+- `npm pack --dry-run` validated.
+
+### Migration
+
+No user action required. All changes are internal or additive:
+- `deliveryStatus` is an additive metadata field — existing consumers ignore it.
+- `maxLessonsPerSession` is now actually enforced — if you have sessions that previously saved more than 20 lessons (e.g. from before the cap was added), this may surprise you. Bump the cap in your config if needed.
+- `escalate` action now actively fires Oracle — this is the first version where Oracle is auto-invoked, not just manually invoked by the LLM.
+
+### Audit roadmap (status as of v0.17.0)
+
+| Release | Status | Scope |
+|---------|--------|-------|
+| v0.15.1 (F0) | ✅ Shipped | Hotfix self-dep + npm pack gate |
+| v0.16.0 (F1-F7) | ✅ Shipped | Memory hygiene, dead code, tool coverage, CI |
+| v0.17.0 (deferred) | ✅ Shipped | F5.1 escalate, F5.4 cap, F3.6 delivery verify |
+
+All audit findings are now closed. Future work focuses on new features and user-driven feedback.
+
 ## Auto-upgrade (v0.12.0)
 
 On plugin load, queries npm/pip registries to check whether newer versions
