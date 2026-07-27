@@ -45,6 +45,61 @@ try {
 // omo_search — semantic code search via codegraph/graphify
 // ---------------------------------------------------------------------------
 
+
+// ─── v0.17.0 (F3.6): bridge tool delivery verification ──────────────
+
+/**
+ * Brief async poll for delivery verification. When the LLM calls the MCP
+ * tool within the window, returns "delivered". Otherwise "expired".
+ *
+ * The actual polling lives in the registry (set by the plugin's
+ * tool.execute.after hook). Here we just check after a short wait.
+ */
+async function pollForDelivery(
+  sessionID: string,
+  mcpTool: string,
+  timeoutMs: number = 1500,
+): Promise<"delivered" | "pending"> {
+  if (!pendingRegistryRef) return "pending"
+  const status = await pendingRegistryRef.awaitDelivery({
+    sessionID,
+    mcpTool,
+    timeoutMs,
+  })
+  return status === "delivered" ? "delivered" : "pending"
+}
+
+/**
+ * Module-level reference to the PendingDeliveryRegistry. The plugin
+ * factory sets this once at startup. Bridge tools call it via
+ * onDispatch and pollForDelivery.
+ */
+let pendingRegistryRef: {
+  register(input: { sessionID: string; mcpTool: string; mcpArgs: Record<string, unknown>; ttlMs?: number }): string
+  awaitDelivery(input: { sessionID: string; mcpTool: string; timeoutMs?: number }): Promise<"delivered" | "expired">
+} | null = null
+
+/**
+ * Called by the plugin factory at startup to inject the delivery registry.
+ * Exposed as a setter so we don't need to thread it through every tool deps.
+ */
+export function setPendingDeliveryRegistry(registry: typeof pendingRegistryRef): void {
+  pendingRegistryRef = registry
+}
+
+/**
+ * v0.17.0 (F3.6): After a successful prompt dispatch, briefly poll for
+ * actual delivery. Returns "delivered" if the LLM's MCP tool call was
+ * observed within the timeout, "pending" otherwise.
+ *
+ * This is best-effort — the LLM may still call the MCP tool on a later
+ * turn even if the poll times out.
+ */
+async function verifyDelivery(sessionID: string, mcpTool: string): Promise<"delivered" | "pending"> {
+  return await pollForDelivery(sessionID, mcpTool)
+}
+
+
 export interface OmoSearchDeps {
   graphRetrieval: GraphRetrieval
   cwd: string
@@ -454,8 +509,10 @@ export function buildOmoImpactTool(deps: OmoImpactDeps) {
 // ---------------------------------------------------------------------------
 
 export interface OmoRememberDeps {
-  /** The current sessionID (from ToolContext) */
-
+  /** Optional callback invoked after a successful prompt dispatch.
+   *  Used by the plugin to register the pending delivery in the registry
+   *  so the bridge tool can verify the LLM actually called the MCP tool. */
+  onDispatch?: (input: { sessionID: string; mcpTool: string; mcpArgs: Record<string, unknown> }) => void
 }
 
 /**
@@ -503,11 +560,18 @@ export function buildOmoRememberTool(deps: OmoRememberDeps) {
           metadata: { tool: "omo_remember", ok: false, durationMs: result.durationMs },
         }
       }
+      // v0.17.0 (F3.6): register pending delivery + briefly poll for actual
+      // MCP tool call. Fast deliveries are detected within ~1.5s.
+      deps.onDispatch?.({ sessionID, mcpTool: "agentmemory_memory_save", mcpArgs })
+      const deliveryStatus = await pollForDelivery(sessionID, "agentmemory_memory_save")
+      const titleSuffix = deliveryStatus === "delivered" ? "delivered" : "dispatched"
       return {
-        title: "omo_remember: dispatched",
+        title: `omo_remember: ${titleSuffix}`,
         output:
-          `Dispatched save to AgentMemory (messageID: ${result.messageID ?? "pending"}). ` +
-          `The LLM will call agentmemory_memory_save with args: ${JSON.stringify(mcpArgs)}. ` +
+          `Save to AgentMemory ${deliveryStatus === "delivered" ? "verified" : "dispatched"} ` +
+          `(messageID: ${result.messageID ?? "pending"}). ` +
+          `LLM call to agentmemory_memory_save ${deliveryStatus === "delivered" ? "was observed" : "not yet observed (will happen on next turn)"} ` +
+          `with args: ${JSON.stringify(mcpArgs)}. ` +
           `It will be available in future sessions via agentmemory_memory_recall.`,
         metadata: {
           tool: "omo_remember",
@@ -515,6 +579,7 @@ export function buildOmoRememberTool(deps: OmoRememberDeps) {
           messageID: result.messageID,
           durationMs: result.durationMs,
           contentLength: args.content.length,
+          deliveryStatus,
         },
       }
     },
@@ -526,7 +591,10 @@ export function buildOmoRememberTool(deps: OmoRememberDeps) {
 // ---------------------------------------------------------------------------
 
 export interface OmoRecallMcpDeps {
-
+  /** Optional callback invoked after a successful prompt dispatch.
+   *  Used by the plugin to register the pending delivery in the registry
+   *  so the bridge tool can verify the LLM actually called the MCP tool. */
+  onDispatch?: (input: { sessionID: string; mcpTool: string; mcpArgs: Record<string, unknown> }) => void
 }
 
 /**
@@ -575,11 +643,15 @@ export function buildOmoRecallMcpTool(deps: OmoRecallMcpDeps) {
           metadata: { tool: "omo_recall_mcp", ok: false, durationMs: result.durationMs },
         }
       }
+      deps.onDispatch?.({ sessionID, mcpTool: "agentmemory_memory_smart_search", mcpArgs })
+      const deliveryStatus = await verifyDelivery(sessionID, "agentmemory_memory_smart_search")
       return {
-        title: "omo_recall_mcp: dispatched",
+        title: `omo_recall_mcp: ${deliveryStatus}`,
         output:
-          `Dispatched search to AgentMemory (messageID: ${result.messageID ?? "pending"}). ` +
-          `The LLM will call agentmemory_memory_smart_search with args: ${JSON.stringify(mcpArgs)}. ` +
+          `Search to AgentMemory ${deliveryStatus === "delivered" ? "verified" : "dispatched"} ` +
+          `(messageID: ${result.messageID ?? "pending"}). ` +
+          `LLM call to agentmemory_memory_smart_search ${deliveryStatus === "delivered" ? "was observed" : "not yet observed (will happen on next turn)"} ` +
+          `with args: ${JSON.stringify(mcpArgs)}. ` +
           `Results will appear in the next assistant message.`,
         metadata: {
           tool: "omo_recall_mcp",
@@ -587,6 +659,7 @@ export function buildOmoRecallMcpTool(deps: OmoRecallMcpDeps) {
           messageID: result.messageID,
           durationMs: result.durationMs,
           query: args.query,
+          deliveryStatus,
         },
       }
     },
@@ -598,7 +671,10 @@ export function buildOmoRecallMcpTool(deps: OmoRecallMcpDeps) {
 // ---------------------------------------------------------------------------
 
 export interface OmoRuleDeps {
-
+  /** Optional callback invoked after a successful prompt dispatch.
+   *  Used by the plugin to register the pending delivery in the registry
+   *  so the bridge tool can verify the LLM actually called the MCP tool. */
+  onDispatch?: (input: { sessionID: string; mcpTool: string; mcpArgs: Record<string, unknown> }) => void
 }
 
 /**
@@ -669,7 +745,10 @@ export function buildOmoRuleTool(deps: OmoRuleDeps) {
 // ---------------------------------------------------------------------------
 
 export interface OmoHistoryDeps {
-
+  /** Optional callback invoked after a successful prompt dispatch.
+   *  Used by the plugin to register the pending delivery in the registry
+   *  so the bridge tool can verify the LLM actually called the MCP tool. */
+  onDispatch?: (input: { sessionID: string; mcpTool: string; mcpArgs: Record<string, unknown> }) => void
 }
 
 /**
@@ -737,7 +816,10 @@ export function buildOmoHistoryTool(deps: OmoHistoryDeps) {
 // ---------------------------------------------------------------------------
 
 export interface OmoNoteDeps {
-
+  /** Optional callback invoked after a successful prompt dispatch.
+   *  Used by the plugin to register the pending delivery in the registry
+   *  so the bridge tool can verify the LLM actually called the MCP tool. */
+  onDispatch?: (input: { sessionID: string; mcpTool: string; mcpArgs: Record<string, unknown> }) => void
 }
 
 /**
