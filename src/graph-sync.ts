@@ -18,6 +18,7 @@
 import { execSync, spawn } from "node:child_process"
 import { access, stat } from "node:fs/promises"
 import { resolve } from "node:path"
+import { homedir } from "node:os"
 import { constants } from "node:fs"
 
 // ─── GraphSync config ──────────────────────────────────────────────
@@ -685,12 +686,11 @@ export async function triggerCodegraphSync(projectDir: string): Promise<GraphSyn
   // We have an index — run `codegraph sync -q <projectDir>` in the background
   // so we don't block the tool.execute.after hook
   try {
-    const child = execSync("npx --yes codegraph sync -q", {
+    execSync("npx --yes codegraph sync -q", {
       cwd: projectDir,
       stdio: "ignore",
       timeout: 30_000,
     })
-    void child
     codes.push("codegraph-already-exists") // re-uses existing code
     void logToFile("info", `codegraph sync -q completed for ${projectDir}`)
   } catch (err) {
@@ -779,8 +779,6 @@ export interface UpgradeCache {
 }
 
 export function getDefaultUpgradeCachePath(): string {
-  const { resolve } = require("node:path")
-  const { homedir } = require("node:os")
   return resolve(homedir(), ".config", "opencode", "omo-meta-governor-upgrade-check.json")
 }
 

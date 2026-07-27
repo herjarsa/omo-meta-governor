@@ -531,3 +531,46 @@ describe("scoring-engine", () => {
     })
   })
 })
+
+
+describe("score() NaN guard", () => {
+  const baseCtx = (overrides: Partial<Parameters<typeof score>[0]> = {}) => ({
+    oracleVerified: false,
+    noProgress: false,
+    deviations: [],
+    iterationRatio: 0.5,
+    lessonsRelevant: [],
+    slotMemory: {
+      consecutiveStops: 0,
+      lastAction: null,
+      recentToolCalls: [],
+    },
+    ambient: { iteration: 5, maxIterations: 10, sessionID: "test" },
+    ...overrides,
+  })
+
+  it("returns neutral continue when iterationRatio is NaN", () => {
+    const result = score(baseCtx({ iterationRatio: NaN }))
+    expect(result.rawScore).toBe(0)
+    expect(result.decision.score).toBe(0)
+    expect(result.decision.action).toBe("continue")
+    expect(result.decision.reasoning).toContain("NaN")
+  })
+
+  it("returns neutral continue when ambient.iteration is NaN", () => {
+    const result = score(baseCtx({
+      ambient: { iteration: NaN, maxIterations: 10, sessionID: "test" },
+    }))
+    expect(result.rawScore).toBe(0)
+    expect(result.decision.action).toBe("continue")
+  })
+
+  it("returns neutral continue when ambient.maxIterations is NaN", () => {
+    const result = score(baseCtx({
+      ambient: { iteration: 5, maxIterations: NaN, sessionID: "test" },
+    }))
+    expect(result.rawScore).toBe(0)
+    expect(result.decision.action).toBe("continue")
+  })
+})
+

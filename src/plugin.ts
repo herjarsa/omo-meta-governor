@@ -1,4 +1,5 @@
 import type { Hooks, Plugin, PluginInput, PluginOptions } from "@opencode-ai/plugin"
+import { randomUUID as crypto_randomUUID } from "node:crypto"
 import type {
   AgentmemoryWriteBackend,
   DecisionHandlerOutput,
@@ -10,7 +11,7 @@ import {
   trackSession,
   untrackSession,
   isGitCommitCommand,
-  triggerCodegraphSync,
+  triggerReindex,
 } from "./graph-sync"
 import { runMetaGovernor } from "./orchestrator"
 import { getDefaultSqliteBackend } from "./sqlite-backend"
@@ -73,7 +74,7 @@ export interface MetaGovernorPluginDeps {
 
 // - Helpers
 
-const ACTION_SEVERITY: Record<string, number> = {
+const ACTION_SEVERITY: Record<DecisionHandlerOutput["action"], number> = {
   continue: 0,
   warn: 1,
   escalate: 2,
@@ -87,10 +88,8 @@ function meetsMinAction(
   return ACTION_SEVERITY[action] >= ACTION_SEVERITY[minAction]
 }
 
-let idCounter = 0
 function generateID(): string {
-  idCounter++
-  return `mg-${Date.now()}-${idCounter}`
+  return `mg-${crypto_randomUUID()}`
 }
 
 /**
@@ -150,13 +149,7 @@ export function createMetaGovernorPlugin(
   const omoOutlineTool = buildOmoOutlineTool({ cwd })
   const omoCheckpointTool = buildOmoCheckpointTool({})
   const omoUndoTool = buildOmoUndoTool({})
-  const projectHasCodegraph = (() => {
-    try { return statSync(`${cwd}/.codegraph`).isDirectory() } catch { return false }
-})()
 
-  const projectHasGraphify = (() => {
-    try { return statSync(`${cwd}/graphify-out`).isDirectory() } catch { return false }
-  })()
 
   // Initialise graphSync when the module loads
   const graphSyncEnabled = config.graphSync?.enabled !== false
@@ -175,8 +168,8 @@ export function createMetaGovernorPlugin(
   logToFile("info", "MetaGovernor plugin loaded", {
     version: DEFAULT_VERSION,
     cwd,
-    projectHasCodegraph,
-    projectHasGraphify,
+    projectHasCodegraph: graphRetrieval.hasCodegraphDir(cwd),
+    projectHasGraphify: graphRetrieval.hasGraphifyDir(cwd),
   })
 
   const plugin: Plugin = async (
@@ -331,8 +324,8 @@ export function createMetaGovernorPlugin(
         if (!state) {
           state = {
             memoryToolsUsed: [],
-            hasCodegraphDir: projectHasCodegraph,
-            hasGraphifyDir: projectHasGraphify,
+            hasCodegraphDir: graphRetrieval.hasCodegraphDir(cwd),
+            hasGraphifyDir: graphRetrieval.hasGraphifyDir(cwd),
             oracleInvoked: false,
             filesChanged: 0,
             emptyRecall: false,
@@ -643,9 +636,11 @@ export function createMetaGovernorPlugin(
                 command: cmd ?? "",
                 sessionID: toolInput.sessionID,
               })
-// Fire and forget — don't block the tool call
-void triggerCodegraphSync(cwd).catch((err) => {
-logToFile("warn", `codegraph sync failed: ${String(err)}`)
+// Fire and forget — don't block the tool call.
+// v0.16.0: triggerReindex (was triggerCodegraphSync) — reindexes both
+// codegraph and graphify, not just codegraph.
+void triggerReindex(cwd).catch((err) => {
+  logToFile("warn", `codegraph sync failed: ${String(err)}`)
 })
 }
 }
@@ -770,8 +765,8 @@ logToFile("warn", `codegraph sync failed: ${String(err)}`)
         if (!curState) {
           curState = {
             memoryToolsUsed: [],
-            hasCodegraphDir: projectHasCodegraph,
-            hasGraphifyDir: projectHasGraphify,
+            hasCodegraphDir: graphRetrieval.hasCodegraphDir(cwd),
+            hasGraphifyDir: graphRetrieval.hasGraphifyDir(cwd),
             oracleInvoked: false,
             filesChanged: 0,
             emptyRecall: false,

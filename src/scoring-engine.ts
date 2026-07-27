@@ -12,12 +12,34 @@
  * - Paralysis prevention: N consecutive stops → force continue with warning
  * - Cite-or-abstain: evidence required when action !== "continue" silently
  *
- * Score ranges (default thresholds):
- *   >= +0.3  → continue silently
- *   [-0.3, +0.3] → continue with log
- *   [-0.6, -0.3] → warn
- *   [-0.8, -0.6] → escalate
- *   < -0.8   → stop
+ * ─── SCORE FORMULA ─────────────────────────────────────────────────
+ *
+ * raw_score = Σ (rawScore_i × weight_i)        for i ∈ {6 evidence sources}
+ *
+ *   clamped:  clamped_score = clamp(raw_score, -1, +1)
+ *
+ *   Evidence sources (raw_score_i ∈ [-1, +1], weight_i ∈ [0, 1]):
+ *     1. oracle-verified     (w=0.25)  raw ∈ {0, +0.6}
+ *     2. no-progress-detector(w=0.20)  raw ∈ {0, -0.8}
+ *     3. deviation-detector  (w=0.20)  raw ∈ [-0.9, 0]  (severity-weighted)
+ *     4. iteration-budget    (w=0.15)  raw ∈ [-0.8, 0]  (linear ramp on ratio)
+ *     5. lesson-recall       (w=0.10)  raw ∈ [-0.7, +0.3] per lesson
+ *     6. token-predictor     (w=0.10)  reserved (informational only)
+ *
+ *   Σ weights must sum to ≈ 1.0 (default = 1.000).
+ *
+ *   Threshold mapping (default thresholds):
+ *     score ≥ +0.3            → continue silently
+ *     -0.3 ≤ score < +0.3     → continue with log
+ *     -0.6 ≤ score < -0.3     → warn
+ *     -0.8 ≤ score < -0.6     → escalate
+ *     score < -0.8            → stop
+ *
+ *   Paralysis override: 3+ consecutive stops AND score ≤ -warnThreshold
+ *                       → force continue with warning (anti-thrash).
+ *
+ *   NaN guard: if any input cause NaN propagation (e.g., malformed
+ *              iterationRatio), default to 0.0 (neutral continue).
  */
 
 import type {
@@ -242,6 +264,28 @@ export function score(
   config?: Partial<ScoringConfig>,
 ): ScoringResult {
   const resolvedConfig = { ...defaultScoringConfig(), ...config }
+
+  // 0. NaN guard: if any input produced NaN, default to neutral to avoid
+  //    silently regressing to "continue" via the clamped-score fallback.
+  if (
+    !Number.isFinite(ctx.iterationRatio) ||
+    !Number.isFinite(ctx.ambient.iteration) ||
+    !Number.isFinite(ctx.ambient.maxIterations)
+  ) {
+    return {
+      decision: {
+        action: "continue",
+        score: 0,
+        reasoning: "Score neutral: NaN detected in input(s); defaulting to continue.",
+        evidence: [],
+        shouldEscalateTo: null,
+      },
+      contributions: [],
+      rawScore: 0,
+      paralysisOverride: false,
+      computedAtISO: new Date().toISOString(),
+    }
+  }
 
   // 1. Compute per-signal contributions
   const contributions = scoreSignals(ctx)

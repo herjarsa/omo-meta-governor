@@ -70,6 +70,11 @@ function extractConcepts(deviations: readonly Deviation[]): string[] {
   for (const d of deviations) {
     concepts.add(d.category)
     concepts.add(d.severity)
+    if (d.filePath) {
+      // Index the basename for FTS lookup by tool/file name
+      const basename = d.filePath.split("/").pop() ?? d.filePath
+      concepts.add(basename)
+    }
   }
   return [...concepts]
 }
