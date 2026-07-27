@@ -8,6 +8,7 @@
  */
 
 import { describe, test, expect, beforeEach } from "bun:test"
+import { buildEscalationPrompt } from "./session-bridge"
 import {
   setSessionClient,
   hasSessionClient,
@@ -183,6 +184,53 @@ describe("SessionBridge", () => {
       expect(capturedText).toContain("Save this durable ARCHITECTURE rule")
       expect(capturedText).toContain("ctx_memory")
       expect(capturedText).toContain('"category": "ARCHITECTURE"')
+    })
+  })
+
+  describe("#buildEscalationPrompt (F5.1)", () => {
+    test("ESC1: oracle target includes task tool with subagent_type=oracle", () => {
+      const prompt = buildEscalationPrompt({
+        reasoning: "score -0.65: 2 deviations detected",
+        target: "oracle",
+        evidenceCount: 2,
+        sessionID: "ses-abc",
+      })
+      expect(prompt).toContain("subagent_type=oracle")
+      expect(prompt).toContain("task")
+      expect(prompt).toContain("score -0.65")
+      expect(prompt).toContain("2 evidence unit")
+    })
+
+    test("ESC2: user target asks for user input, not Oracle", () => {
+      const prompt = buildEscalationPrompt({
+        reasoning: "grave deviation: data loss without backup",
+        target: "user",
+        evidenceCount: 3,
+        sessionID: "ses-xyz",
+      })
+      expect(prompt).toContain("user")
+      expect(prompt).toContain("grave deviation")
+      expect(prompt).not.toContain("subagent_type=oracle")
+    })
+
+    test("ESC3: includes the reasoning verbatim", () => {
+      const prompt = buildEscalationPrompt({
+        reasoning: "ESC_TOKEN_REPLACE_ME",
+        target: "oracle",
+        evidenceCount: 1,
+        sessionID: "ses-1",
+      })
+      expect(prompt).toContain("ESC_TOKEN_REPLACE_ME")
+    })
+
+    test("ESC4: handles singular evidence count phrasing", () => {
+      const prompt = buildEscalationPrompt({
+        reasoning: "1 deviation",
+        target: "oracle",
+        evidenceCount: 1,
+        sessionID: "ses-1",
+      })
+      expect(prompt).toContain("1 evidence unit")
     })
   })
 })

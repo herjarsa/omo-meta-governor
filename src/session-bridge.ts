@@ -221,3 +221,33 @@ function raceWithTimeout<T>(promise: Promise<T>, ms: number, label: string): Pro
 
 // Re-export existsSync for the plugin factory to detect a project context
 export { existsSync, join }
+
+// ─── v0.17.0 (F5.1): escalation prompt builder ──────────────────
+
+/**
+ * Build the prompt that instructs the LLM to invoke Oracle (or escalate
+ * to the user) when the MetaGovernor decision is "escalate".
+ *
+ * Pure function — testable in isolation.
+ */
+export function buildEscalationPrompt(options: {
+  reasoning: string
+  target: "oracle" | "user"
+  evidenceCount: number
+  sessionID: string
+}): string {
+  if (options.target === "oracle") {
+    return (
+      `[MetaGovernor] Escalation triggered. Reason: ${options.reasoning}\n\n` +
+      `Please invoke the \`task\` tool with \`subagent_type=oracle\` to ` +
+      `perform a verification pass on the current session state. ` +
+      `Decision context: ${options.evidenceCount} evidence unit(s). ` +
+      `After Oracle returns, you should continue with the recommended action.`
+    )
+  }
+  return (
+    `[MetaGovernor] Escalation to user required. Reason: ${options.reasoning}\n\n` +
+    `Present a clear summary to the user with the deviation(s) detected and ` +
+    `your recommended next steps. Wait for explicit user input before proceeding.`
+  )
+}
