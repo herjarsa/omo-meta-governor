@@ -156,6 +156,17 @@ export async function observeAndLearn(
       detail: e.value,
     }))
 
+  // v0.17.0 (F5.4): enforce maxLessonsPerSession cap.
+  // Cap is inclusive — when currentLessonCount >= cap, skip the lesson save.
+  const currentLessonCount = input.currentLessonCount ?? 0
+  if (currentLessonCount >= config.maxLessonsPerSession) {
+    return {
+      lessonSaved: null,
+      decisionSaved,
+      reason: `maxLessonsPerSession cap reached (${currentLessonCount} >= ${config.maxLessonsPerSession})`,
+    }
+  }
+
   if (severityMeetsThreshold(deviationsFromEvidence, config.minSeverityToLearn)) {
     const concepts = extractConcepts(deviationsFromEvidence)
     const content = buildLessonContent(decision, deviationsFromEvidence)

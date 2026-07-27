@@ -318,6 +318,8 @@ export interface LearnFromOutcomeInput {
   readonly sessionID: string
   readonly directory: string
   readonly filesChanged: readonly string[]
+  /** v0.17.0 (F5.4): current lesson count for this session. Defaults to 0. */
+  readonly currentLessonCount?: number
 }
 
 /**
@@ -597,6 +599,8 @@ readonly backends: MemoryBackends
   readonly writeBackend: AgentmemoryWriteBackend
   readonly modelLimit?: number
 readonly config?: Partial<OrchestratorConfig>
+  /** v0.17.0 (F5.4): current lesson count for this session. Used to enforce maxLessonsPerSession. */
+  readonly currentLessonCount?: number
 }
 
 /**

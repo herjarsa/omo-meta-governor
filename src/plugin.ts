@@ -33,7 +33,9 @@ import {
   buildOmoUndoTool,
 } from "./custom-tools"
 import { getMCPClient } from "./mcp-client"
-import { setSessionClient } from "./session-bridge"
+import { setSessionClient, promptAgent, hasSessionClient, buildEscalationPrompt } from "./session-bridge"
+import { PendingDeliveryRegistry } from "./delivery-registry"
+import { setPendingDeliveryRegistry } from "./custom-tools"
 import { LOG_PATH, logToFile } from "./file-logger"
 import { resolve } from "node:path"
 import { homedir } from "node:os"
@@ -124,6 +126,11 @@ export function createMetaGovernorPlugin(
   // time before async runGraphSync() could create the directories.
   // The booleans below remain for backwards-compat with AuditContext.
   const graphRetrieval = getDefaultGraphRetrieval()
+  // v0.17.0 (F3.6): track bridge tool dispatches and verify delivery.
+  const deliveryRegistry = new PendingDeliveryRegistry()
+  // Inject the registry into the custom-tools module so bridge tools
+  // can register pending dispatches + poll for delivery.
+  setPendingDeliveryRegistry(deliveryRegistry as unknown as Parameters<typeof setPendingDeliveryRegistry>[0])
   const cwd = process.cwd()
 
   // v0.13.1: initialize custom tools for the LLM to call.
@@ -139,11 +146,31 @@ export function createMetaGovernorPlugin(
   const omoFindTool = buildOmoFindTool({ cwd })
   const omoImpactTool = buildOmoImpactTool({ cwd })
   // v0.14.0: Opción A pivot — tools that bridge to MCP servers via session.prompt()
-  const omoRememberTool = buildOmoRememberTool({})
-  const omoRecallMcpTool = buildOmoRecallMcpTool({})
-  const omoRuleTool = buildOmoRuleTool({})
-  const omoHistoryTool = buildOmoHistoryTool({})
-  const omoNoteTool = buildOmoNoteTool({})
+  const omoRememberTool = buildOmoRememberTool({
+  onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
+    deliveryRegistry.register({ sessionID, mcpTool, mcpArgs })
+  },
+})
+  const omoRecallMcpTool = buildOmoRecallMcpTool({
+  onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
+    deliveryRegistry.register({ sessionID, mcpTool, mcpArgs })
+  },
+})
+  const omoRuleTool = buildOmoRuleTool({
+  onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
+    deliveryRegistry.register({ sessionID, mcpTool, mcpArgs })
+  },
+})
+  const omoHistoryTool = buildOmoHistoryTool({
+  onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
+    deliveryRegistry.register({ sessionID, mcpTool, mcpArgs })
+  },
+})
+  const omoNoteTool = buildOmoNoteTool({
+  onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
+    deliveryRegistry.register({ sessionID, mcpTool, mcpArgs })
+  },
+})
   const omoPathTool = buildOmoPathTool({ cwd })
   const omoExplainTool = buildOmoExplainTool({ cwd })
   const omoOutlineTool = buildOmoOutlineTool({ cwd })
@@ -280,6 +307,8 @@ export function createMetaGovernorPlugin(
       planCompleteSignal: boolean
       interventionCount: number
       interventionDisabled: boolean
+      /** v0.17.0 (F5.4): count of lessons saved this session. Used to enforce maxLessonsPerSession. */
+      lessonCount: number
     }
     // v0.16.0: replaced unbounded Map with TTL+LRU-bounded AuditStateCache.
     // Capped at 100 sessions, 1h TTL. Prevents the C1/H16 memory leak.
@@ -341,6 +370,7 @@ export function createMetaGovernorPlugin(
             planCompleteSignal: false,
             interventionCount: 0,
             interventionDisabled: false,
+            lessonCount: 0,
           }
           auditSessions.set(toolInput.sessionID, state)
         }
@@ -410,6 +440,19 @@ export function createMetaGovernorPlugin(
         toolOutput: { title: string; output: string; metadata: unknown },
       ): Promise<void> => {
         if (!mergedConfig.enabled) return
+
+        // v0.17.0 (F3.6): when the LLM calls an MCP tool that was previously
+        // dispatched via session-bridge, mark the pending delivery as
+        // verified. This lets bridge tools report actual delivery status.
+        try {
+          deliveryRegistry.markDelivered({
+            sessionID: toolInput.sessionID,
+            mcpTool: toolInput.tool,
+            mcpArgs: toolInput.args,
+          })
+        } catch {
+          // best-effort
+        }
 
         const sessionState = auditSessions.get(toolInput.sessionID)
         if (sessionState) {
@@ -555,6 +598,38 @@ export function createMetaGovernorPlugin(
 
         try {
           const output = await runMetaGovernor(orchestratorInput)
+
+          // v0.17.0 (F5.4): increment lesson count when a lesson was actually saved
+          if (output.lessonSaved?.lessonSaved && sessionState) {
+            sessionState.lessonCount++
+          }
+
+          // v0.17.0 (F5.1): wire escalate action to fire a session.prompt
+          // that instructs the LLM to invoke Oracle (or user). Pure prompt
+          // builder is testable; the actual session.prompt is best-effort.
+          if (
+            output.decision.action === "escalate" &&
+            toolInput.sessionID &&
+            hasSessionClient()
+          ) {
+            const decisionRef = output.decision.historyEntry.decision
+            const evidenceCount = decisionRef.evidence.length
+            const target = decisionRef.shouldEscalateTo ?? "oracle"
+            const instruction = buildEscalationPrompt({
+              reasoning: decisionRef.reasoning,
+              target,
+              evidenceCount,
+              sessionID: toolInput.sessionID,
+            })
+            void promptAgent(toolInput.sessionID, {
+              toolName: "meta_governor_escalate",
+              mcpTool: "task",
+              mcpArgs: { subagent_type: target },
+              preamble: instruction,
+            }).catch((err) => {
+              logToFile("warn", `escalation prompt failed: ${String(err)}`)
+            })
+          }
 
           if (mergedConfig.intervention.mode !== "silent" && sessionState) {
             const decision = output.decision
@@ -782,6 +857,7 @@ void triggerReindex(cwd).catch((err) => {
             planCompleteSignal: false,
             interventionCount: 0,
             interventionDisabled: false,
+            lessonCount: 0,
           }
           auditSessions.set(currentSessionID, curState)
         }

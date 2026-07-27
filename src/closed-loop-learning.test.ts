@@ -210,4 +210,64 @@ describe("closed-loop-learning", () => {
       expect(SEVERITY_ORDER.media).toBeLessThan(SEVERITY_ORDER.grave)
     })
   })
+
+  // F5.4 (v0.17.0): enforce maxLessonsPerSession
+  describe("maxLessonsPerSession enforcement", () => {
+    test("MLPS1: skips lesson save when currentLessonCount >= maxLessonsPerSession", async () => {
+      // given
+      const backend = makeBackend()
+      const cfg = { ...defaultClosedLoopConfig(), maxLessonsPerSession: 5 }
+      const input = makeInput({ config: cfg, currentLessonCount: 5 })
+
+      // when
+      const result = await observeAndLearn(input, backend)
+
+      // then
+      expect(result.lessonSaved).toBeNull()
+      expect(result.reason).toContain("maxLessonsPerSession")
+      expect(backend.saveLesson).toHaveBeenCalledTimes(0)
+    })
+
+    test("MLPS2: saves lesson when currentLessonCount < maxLessonsPerSession", async () => {
+      const backend = makeBackend()
+      const cfg = { ...defaultClosedLoopConfig(), maxLessonsPerSession: 5 }
+      const input = makeInput({ config: cfg, currentLessonCount: 4 })
+
+      const result = await observeAndLearn(input, backend)
+
+      expect(result.lessonSaved).not.toBeNull()
+      expect(backend.saveLesson).toHaveBeenCalledTimes(1)
+    })
+
+    test("MLPS3: cap is inclusive — equal to cap is rejected", async () => {
+      const backend = makeBackend()
+      const cfg = { ...defaultClosedLoopConfig(), maxLessonsPerSession: 3 }
+      const input = makeInput({ config: cfg, currentLessonCount: 3 })
+
+      const result = await observeAndLearn(input, backend)
+
+      expect(result.lessonSaved).toBeNull()
+    })
+
+    test("MLPS4: undefined currentLessonCount defaults to 0 (no cap applied)", async () => {
+      const backend = makeBackend()
+      const input = makeInput()  // currentLessonCount undefined
+
+      const result = await observeAndLearn(input, backend)
+
+      expect(result.lessonSaved).not.toBeNull()
+    })
+
+    test("MLPS5: decision save is NOT affected by maxLessonsPerSession (only lessons)", async () => {
+      const backend = makeBackend()
+      const cfg = { ...defaultClosedLoopConfig(), maxLessonsPerSession: 0 }
+      const input = makeInput({ config: cfg, currentLessonCount: 100 })
+
+      const result = await observeAndLearn(input, backend)
+
+      // lesson is blocked but decision is still saved
+      expect(result.lessonSaved).toBeNull()
+      expect(result.decisionSaved).not.toBeNull()
+    })
+  })
 })

@@ -254,6 +254,7 @@ export async function runMetaGovernor(
           sessionID: input.sessionID,
           directory: ".",
           filesChanged: [],
+          currentLessonCount: input.currentLessonCount,
         },
         input.writeBackend,
       )
