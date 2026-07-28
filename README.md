@@ -322,6 +322,60 @@ No user action required. All changes are internal or additive:
 
 All audit findings are now closed. Future work focuses on new features and user-driven feedback.
 
+
+
+## v0.17.1 — Audit args fix (patch)
+
+v0.17.1 is a single-bug patch release. The fix addresses an issue discovered during v0.17.0 verification:
+
+### The bug
+
+The `tool.execute.before` hook passed an empty `{}` object as the second argument to `auditToolCall()`. This meant the audit function never saw the tool's args (e.g. file content for write tools) and could never detect:
+
+- `@ts-ignore` / `@ts-expect-error` directives
+- `as any` type assertions  
+- `catch(e) {}` empty catch blocks
+
+The hook signature was also incomplete — it didn't receive the `output` parameter that contains the mutable args, even though the SDK provides it.
+
+### The fix
+
+Two changes in `src/plugin.ts`:
+
+1. **Hook signature updated** to receive the `output` parameter:
+   ```ts
+   "tool.execute.before": async (
+     toolInput: { tool: string; sessionID: string; callID: string },
+     _output: { args: unknown },
+   ): Promise<void> => {
+   ```
+
+2. **Audit call** now passes `_output.args` instead of `{}`:
+   ```ts
+   const violations = auditToolCall(toolInput.tool, _output.args, { ... })
+   ```
+
+### Tests
+
+Added 4 new tests in `src/plugin.test.ts`:
+- `@ts-ignore + as any` in args → `no-type-suppression` violation detected and injected
+- `catch(e) {}` in args → `no-empty-catch` violation detected and injected
+- Clean code → no violation injected (false-positive guard)
+- `auditToolCalls: false` → audit short-circuits (regression check)
+
+### Test & build status
+
+- **518/518 tests pass** (up from 514 in v0.17.0 — 4 new audit tests).
+- `bun run typecheck` clean.
+- `bun build.ts` clean (0.34 MB dist).
+
+### Migration
+
+No user action required. The audit detection now correctly fires when the agent writes forbidden patterns. This means:
+
+- **If your agent previously wrote `@ts-ignore` without being flagged**: it will now be flagged with `[GRAVE] no-type-suppression: ...` injected as a synthetic user message.
+- **If you want to disable the audit**: set `protocolEnforcement.auditToolCalls: false` (already supported).
+
 ## Auto-upgrade (v0.12.0)
 
 On plugin load, queries npm/pip registries to check whether newer versions

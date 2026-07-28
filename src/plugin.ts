@@ -342,8 +342,10 @@ export function createMetaGovernorPlugin(
 
     return {
       // - Tool execute before (protocol audit)
+      // v0.17.1: also receive output so we can audit tool args (was {} before).
       "tool.execute.before": async (
         toolInput: { tool: string; sessionID: string; callID: string },
+        _output: { args: unknown },
       ): Promise<void> => {
         if (!mergedConfig.enabled) return
         if (!mergedConfig.protocolEnforcement.auditToolCalls) return
@@ -379,7 +381,9 @@ export function createMetaGovernorPlugin(
           console.log("[meta-governor] protocol loaded, system injection ready")
         }
 
-        const violations = auditToolCall(toolInput.tool, {}, {
+        // v0.17.1: pass _output.args (was {}) so the audit actually sees
+        // file content for type-suppression and empty-catch detection.
+        const violations = auditToolCall(toolInput.tool, _output.args, {
           memoryToolsUsed: state.memoryToolsUsed,
           hasCodegraphDir: state.hasCodegraphDir,
           hasGraphifyDir: state.hasGraphifyDir,

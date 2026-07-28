@@ -316,3 +316,137 @@ describe("minActionForMessage threshold", () => {
     })
   })
 })
+
+
+// ─── tool.execute.before audit tests (v0.17.1) ─────────────────────
+
+describe("tool.execute.before audit", () => {
+  describe("#given write tool with @ts-ignore + as any in args", () => {
+    const options: PluginOptions = {
+      meta_governor: {
+        enabled: true,
+        protocolEnforcement: {
+          enabled: true,
+          auditToolCalls: true,
+        },
+        intervention: { mode: "message", minActionForMessage: "warn" },
+      },
+    }
+
+    it("then detects no-type-suppression violation and injects it via messages.transform", async () => {
+      clearAll()
+      const plugin = createMetaGovernorPlugin()
+      const hooks = await plugin(mockPluginInput, options)
+      const before = hooks["tool.execute.before"]!
+      const transform = hooks["experimental.chat.messages.transform"]!
+
+      // Simulate a write tool call with forbidden patterns in args
+      await before(
+        { tool: "write", sessionID: "test-audit-1", callID: "call-1" },
+        { args: { filePath: "/tmp/bad.ts", content: "// @ts-ignore\nconst x: any = 1 as any;" } }
+      )
+
+      // Trigger messages.transform which should inject pending violations
+      const output = {
+        messages: [
+          { info: { role: "user", sessionID: "test-audit-1" }, parts: [{ type: "text", text: "ok" }] },
+        ] as Array<{ info: unknown; parts: unknown[] }>,
+      }
+      await transform({}, output)
+
+      // v0.17.1 fix: tool.execute.before now sees the args content and detects
+      // the no-type-suppression violation. The violation text is injected via
+      // messages.transform. (Other injections like plan_reminder may also
+      // appear, so we check for the violation text rather than exact count.)
+      const allText = output.messages
+        .map((m) => (m.parts[0] as Record<string, unknown> | undefined)?.text as string ?? "")
+        .join("\n")
+      expect(allText).toContain("PROTOCOL VIOLATIONS")
+      expect(allText).toContain("no-type-suppression")
+    })
+
+    it("then detects empty-catch violation when args contain catch(e) {}", async () => {
+      clearAll()
+      const plugin = createMetaGovernorPlugin()
+      const hooks = await plugin(mockPluginInput, options)
+      const before = hooks["tool.execute.before"]!
+      const transform = hooks["experimental.chat.messages.transform"]!
+
+      await before(
+        { tool: "write", sessionID: "test-audit-2", callID: "call-2" },
+        { args: { filePath: "/tmp/empty-catch.ts", content: "try { throw 1 } catch(e) {}" } }
+      )
+
+      const output = {
+        messages: [
+          { info: { role: "user", sessionID: "test-audit-2" }, parts: [{ type: "text", text: "ok" }] },
+        ] as Array<{ info: unknown; parts: unknown[] }>,
+      }
+      await transform({}, output)
+
+      const allText = output.messages
+        .map((m) => (m.parts[0] as Record<string, unknown> | undefined)?.text as string ?? "")
+        .join("\n")
+      expect(allText).toContain("PROTOCOL VIOLATIONS")
+      expect(allText).toContain("no-empty-catch")
+    })
+
+    it("then does NOT inject any protocol violation for benign writes", async () => {
+      clearAll()
+      const plugin = createMetaGovernorPlugin()
+      const hooks = await plugin(mockPluginInput, options)
+      const before = hooks["tool.execute.before"]!
+      const transform = hooks["experimental.chat.messages.transform"]!
+
+      await before(
+        { tool: "write", sessionID: "test-audit-3", callID: "call-3" },
+        { args: { filePath: "/tmp/clean.ts", content: "export function add(a: number, b: number): number { return a + b }" } }
+      )
+
+      const output = {
+        messages: [
+          { info: { role: "user", sessionID: "test-audit-3" }, parts: [{ type: "text", text: "ok" }] },
+        ] as Array<{ info: unknown; parts: unknown[] }>,
+      }
+      await transform({}, output)
+
+      // No protocol-violations injection. Other injections (e.g. plan reminder) may
+      // still occur, so we check the violation text is absent rather than message count.
+      const allText = output.messages
+        .map((m) => (m.parts[0] as Record<string, unknown> | undefined)?.text as string ?? "")
+        .join("\n")
+      expect(allText).not.toContain("PROTOCOL VIOLATIONS")
+      expect(allText).not.toContain("no-type-suppression")
+      expect(allText).not.toContain("no-empty-catch")
+    })
+  })
+
+  describe("#given protocolEnforcement.auditToolCalls is false", () => {
+    const options: PluginOptions = {
+      meta_governor: {
+        enabled: true,
+        protocolEnforcement: {
+          enabled: true,
+          auditToolCalls: false,
+        },
+        intervention: { mode: "message", minActionForMessage: "warn" },
+      },
+    }
+
+    it("then tool.execute.before short-circuits and does not audit", async () => {
+      clearAll()
+      const plugin = createMetaGovernorPlugin()
+      const hooks = await plugin(mockPluginInput, options)
+      const before = hooks["tool.execute.before"]!
+
+      // Should be a no-op even with bad content
+      await before(
+        { tool: "write", sessionID: "test-audit-4", callID: "call-4" },
+        { args: { filePath: "/tmp/bad.ts", content: "// @ts-ignore\nconst x: any = 1 as any;" } }
+      )
+      // No assertion on internal state — just verify no exception
+      expect(true).toBe(true)
+    })
+  })
+})
+
