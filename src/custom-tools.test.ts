@@ -8,7 +8,9 @@
  * before the execute() function is called, so we test execute() with
  * pre-validated args (the runtime path is verified by integration).
  */
-import { describe, expect, it } from "bun:test"
+import { describe, expect, it, beforeEach } from "bun:test"
+import { setPendingDeliveryRegistry, verifyDelivery } from "./custom-tools"
+import { PendingDeliveryRegistry } from "./delivery-registry"
 import {
   buildOmoSearchTool,
   buildOmoRecallTool,
@@ -358,5 +360,54 @@ describe("tool argument validation", () => {
       expect(t.args).toBeDefined()
       expect(typeof t.execute).toBe("function")
     }
+  })
+})
+
+
+// ─── Gap I fix: pollForDelivery returns "expired" (v0.17.3) ────────
+
+describe("verifyDelivery (Gap I — deliveryStatus=expired)", () => {
+  beforeEach(() => {
+    setPendingDeliveryRegistry(null as unknown as Parameters<typeof setPendingDeliveryRegistry>[0])
+  })
+
+  it("then returns 'expired' when registry times out without delivery", async () => {
+    const registry = new PendingDeliveryRegistry()
+    registry.register({
+      sessionID: "test-session",
+      mcpTool: "test-tool",
+      mcpArgs: { foo: "bar" },
+      ttlMs: 10_000,
+    })
+    setPendingDeliveryRegistry(registry as unknown as Parameters<typeof setPendingDeliveryRegistry>[0])
+
+    // Poll with 100ms timeout — entry exists (TTL 10s), so it expires
+    const status = await verifyDelivery("test-session", "test-tool", 100)
+    expect(status).toBe("expired")
+  })
+
+  it("then returns 'delivered' when markDelivered fires before timeout", async () => {
+    const registry = new PendingDeliveryRegistry()
+    registry.register({
+      sessionID: "test-session",
+      mcpTool: "test-tool",
+      mcpArgs: { foo: "bar" },
+    })
+    // Mark as delivered before polling
+    registry.markDelivered({
+      sessionID: "test-session",
+      mcpTool: "test-tool",
+      mcpArgs: { foo: "bar" },
+    })
+    setPendingDeliveryRegistry(registry as unknown as Parameters<typeof setPendingDeliveryRegistry>[0])
+
+    const status = await verifyDelivery("test-session", "test-tool", 100)
+    expect(status).toBe("delivered")
+  })
+
+  it("then returns 'pending' when no registry is configured", async () => {
+    // pendingRegistryRef is null (set by beforeEach)
+    const status = await verifyDelivery("test-session", "test-tool", 100)
+    expect(status).toBe("pending")
   })
 })

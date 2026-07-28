@@ -457,6 +457,63 @@ No user action required. Two behavior changes:
 | v0.17.1 | ✅ | Audit args fix |
 | v0.17.2 | ✅ | Gap C (escalation live), Q (file paths), D (config fields), I (delivery expired) |
 
+
+
+## v0.17.3 — Fix Gap I properly (patch)
+
+v0.17.3 is a single-bug patch. During live verification of v0.17.2, Gap I was found to be incompletely fixed.
+
+### The bug (v0.17.2 cosmetic fix)
+
+The `verifyDelivery` export signature was widened to include `"expired"` in v0.17.2, and the bridge tools' title/output text was updated to handle it. **BUT the underlying `pollForDelivery` helper was still collapsing `"expired"` → `"pending"` silently:**
+
+```ts
+// v0.17.2 (BUG):
+return status === "delivered" ? "delivered" : "pending"
+```
+
+So bridge tools could never report `"expired"` to the user, even though the registry correctly tracked it. Live verification confirmed: `deliveryStatus` always showed `"pending"`.
+
+### The fix (v0.17.3)
+
+```ts
+// v0.17.3:
+return await pendingRegistryRef.awaitDelivery({ sessionID, mcpTool, timeoutMs })
+```
+
+Now the actual status from the registry propagates through. `"expired"` flows end-to-end to the bridge tool's `metadata.deliveryStatus` and title.
+
+### Tests
+
+Added 3 RED tests in `src/custom-tools.test.ts`:
+- Returns `"expired"` when registry entry exists past timeout (real registry instance)
+- Returns `"delivered"` when `markDelivered` fires before timeout
+- Returns `"pending"` when no registry is configured
+
+### Test & build status
+
+- **525/525 tests pass** (up from 522 in v0.17.2 — 3 new tests for pollForDelivery).
+- `bun run typecheck` clean.
+- `bun build.ts` clean (0.34 MB dist).
+
+### Migration
+
+No user action required. Bridge tools will now correctly distinguish all three delivery states:
+- `"delivered"` — LLM's MCP tool call was observed within 1.5s
+- `"expired"` — TTL elapsed without delivery (entry expires after 10s, but bridge tool sees this immediately as "expired" when polling times out at 1.5s)
+- `"pending"` — no registry configured (graceful degradation for tests/mocks)
+
+### Audit roadmap (status as of v0.17.3)
+
+| Release | Status | Scope |
+|---------|--------|-------|
+| v0.15.1 → v0.17.2 | ✅ | All audit findings + 5 gap fixes |
+| v0.17.3 | ✅ | Gap I real fix (pollForDelivery returns "expired") |
+
+Two remaining gaps documented but require SDK support to fix:
+- `recentTurnTokens: []` — token-predictor signal dead (10% of score); needs per-turn token counts from OpenCode SDK
+- `agentName` defaults to `"unknown"` — cosmetic, no functional impact
+
 ## Auto-upgrade (v0.12.0)
 
 On plugin load, queries npm/pip registries to check whether newer versions

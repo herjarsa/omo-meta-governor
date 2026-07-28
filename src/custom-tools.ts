@@ -55,18 +55,23 @@ try {
  * The actual polling lives in the registry (set by the plugin's
  * tool.execute.after hook). Here we just check after a short wait.
  */
+/**
+ * v0.17.3: Return type widened to "delivered" | "pending" | "expired".
+ * Previously this collapsed "expired" to "pending" silently, which
+ * meant bridge tools could never surface the "TTL elapsed without
+ * delivery" state (Gap I fix was cosmetic in v0.17.2).
+ */
 async function pollForDelivery(
   sessionID: string,
   mcpTool: string,
   timeoutMs: number = 1500,
-): Promise<"delivered" | "pending"> {
+): Promise<"delivered" | "pending" | "expired"> {
   if (!pendingRegistryRef) return "pending"
-  const status = await pendingRegistryRef.awaitDelivery({
+  return await pendingRegistryRef.awaitDelivery({
     sessionID,
     mcpTool,
     timeoutMs,
   })
-  return status === "delivered" ? "delivered" : "pending"
 }
 
 /**
