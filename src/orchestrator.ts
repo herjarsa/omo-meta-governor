@@ -253,7 +253,7 @@ export async function runMetaGovernor(
           config: { ...defaultClosedLoopConfig(), ...mergedConfig.closedLoop },
           sessionID: input.sessionID,
           directory: ".",
-          filesChanged: [],
+          filesChanged: input.filePaths ?? [],
           currentLessonCount: input.currentLessonCount,
         },
         input.writeBackend,

@@ -69,8 +69,13 @@ const DEFAULT_WEIGHTS: Record<string, number> = {
 export const defaultScoringConfig = (): ScoringConfig => ({
   continueThreshold: 0.3,
   warnThreshold: 0.3,
-  escalateThreshold: 0.6,
-  stopThreshold: 0.8,
+  // v0.17.2: lowered thresholds so signals can actually reach these
+  // action bands given the current weights. With weights summing to 1.0
+  // and max raw scores capped at ±1.0, worst-case weighted sum is ~-0.55.
+  // escalateThreshold 0.45 / stopThreshold 0.55 makes escalation reachable
+  // when multiple signals fire simultaneously.
+  escalateThreshold: 0.45,
+  stopThreshold: 0.55,
   paralysisThreshold: 3,
   defaultEscalationTarget: "oracle",
 })

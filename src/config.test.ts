@@ -44,8 +44,9 @@ describe("loadOrchestratorConfig", () => {
     it("then scoring has default thresholds", () => {
       expect(result.scoring.continueThreshold).toBe(0.3)
       expect(result.scoring.warnThreshold).toBe(0.3)
-      expect(result.scoring.escalateThreshold).toBe(0.6)
-      expect(result.scoring.stopThreshold).toBe(0.8)
+      // v0.17.2: thresholds lowered so signals can actually reach action bands
+      expect(result.scoring.escalateThreshold).toBe(0.45)
+      expect(result.scoring.stopThreshold).toBe(0.55)
     })
 
     it("then decision has default history limit (50)", () => {

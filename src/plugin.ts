@@ -292,7 +292,22 @@ export function createMetaGovernorPlugin(
       aftUsed: boolean
       recentToolCalls: string[]
       recentWriteContents: string[]
+      /** v0.17.2: file paths from recent write tools. Used by Gap Q to
+       *  populate LearnFromOutcomeInput.filesChanged so lesson extraction
+       *  indexes file basenames for FTS lookup. */
+      recentWriteFilePaths: string[]
       memorySaved: boolean
+      /** v0.17.2: accumulated protocol violations. Populated by the audit
+       *  in tool.execute.before and threaded into MetaGovernorInput.deviations
+       *  so the deviation-detector signal actually fires in production
+       *  (Gap C fix). Decay applied each turn. Shape matches Deviation
+       *  (category is the rule name from protocol-enforcer). */
+      accumulatedDeviations: { severity: "leve" | "media" | "grave"; category: string; detail: string; filePath?: string }[]
+      /** v0.17.2: rolling window of recent intervention texts. Populated
+       *  by messages.transform when intervention fires. Surfaced back into
+       *  the LLM context on subsequent interventions when
+       *  intervention.includeDecisionHistory is true (Gap D fix). */
+      recentInterventionTexts: string[]
       batchCompletions: number
       /** v0.10.0: kept for legacy readers. Set by `<promise>DONE</promise>`
        *  (with optional `!`). In v0.15.0 phase-aware mode this is NOT used
@@ -365,7 +380,10 @@ export function createMetaGovernorPlugin(
             aftUsed: false,
             recentToolCalls: [],
             recentWriteContents: [],
+            recentWriteFilePaths: [],
             memorySaved: false,
+            accumulatedDeviations: [],
+            recentInterventionTexts: [],
             batchCompletions: 0,
             taskDoneSignal: false,
             phaseCompleteSignal: false,
@@ -409,6 +427,17 @@ export function createMetaGovernorPlugin(
             items: existing,
             expiresAtMs: Date.now() + PENDING_TTL_MS,
           })
+          // v0.17.2 (Gap C): accumulate violations in state so the
+          // deviation-detector signal actually fires downstream. Decay the
+          // window to the last 5 violations per session so a single bad
+          // day doesn't poison scoring forever. Convert ProtocolViolation
+          // → Deviation shape (rule → category).
+          const newDeviations = violations.map((v) => ({
+            severity: v.severity,
+            category: v.rule,
+            detail: v.detail,
+          }))
+          state.accumulatedDeviations = [...state.accumulatedDeviations, ...newDeviations].slice(-5)
         } else {
           logToFile("info", `audit OK on tool ${toolInput.tool}`)
         }
@@ -474,6 +503,15 @@ export function createMetaGovernorPlugin(
             sessionState.recentWriteContents = [content].concat(
               sessionState.recentWriteContents,
             ).slice(0, 3)
+            // v0.17.2 (Gap Q): capture file path so lesson extraction
+            // can index file basenames for FTS lookup.
+            const args = toolInput.args as Record<string, unknown> | undefined
+            const filePath = args?.filePath ?? args?.path
+            if (typeof filePath === "string" && filePath.length > 0) {
+              sessionState.recentWriteFilePaths = [filePath].concat(
+                sessionState.recentWriteFilePaths,
+              ).slice(0, 10)
+            }
           }
 
           const memoryTools = [
@@ -548,6 +586,21 @@ export function createMetaGovernorPlugin(
           return
         }
 
+        // v0.17.2 (Gap C): derive noProgress from real signals.
+        // Heuristic: no progress if last 5 tool calls had no write/edit/oracle
+        // (i.e. the agent is reading/grepping without producing artifacts).
+        const recentCalls = sessionState?.recentToolCalls ?? []
+        const recentProgressTools = recentCalls.slice(0, 5).filter((t) =>
+          ["write", "edit", "edit_block",
+           "desktop-commander_write_file", "desktop-commander_edit_block",
+           "task"].includes(t),
+        )
+        const noProgress = sessionState ? recentProgressTools.length === 0 : false
+
+        // v0.17.2 (Gap C): accumulate protocol violations as Deviations so
+        // the deviation-detector signal in scoring-engine actually fires.
+        const deviations = sessionState?.accumulatedDeviations ?? []
+
         const orchestratorInput: MetaGovernorInput = {
           sessionID: toolInput.sessionID,
           toolName: toolInput.tool,
@@ -555,10 +608,13 @@ export function createMetaGovernorPlugin(
           iteration: 0,
           maxIterations: 10,
           oracleVerified: sessionState?.oracleInvoked ?? false,
-          noProgress: false,
+          noProgress,
           filesChanged: sessionState?.filesChanged ?? 0,
           recentTurnTokens: [],
-          deviations: [],
+          deviations,
+          // v0.17.2 (Gap Q): pass recent write file paths so lesson extraction
+          // can index file basenames for FTS lookup.
+          filePaths: sessionState?.recentWriteFilePaths ?? [],
           // v0.13.0: default backends are real SQLite (was: no-op stubs).
           // The user can still override via `deps.backends` / `deps.writeBackend`.
           // If SQLite init fails (non-Bun runtime, no permissions, etc.) we
@@ -856,7 +912,10 @@ void triggerReindex(cwd).catch((err) => {
             aftUsed: false,
             recentToolCalls: [],
             recentWriteContents: [],
+            recentWriteFilePaths: [],
             memorySaved: false,
+            accumulatedDeviations: [],
+            recentInterventionTexts: [],
             batchCompletions: 0,
             taskDoneSignal: false,
             phaseCompleteSignal: false,
@@ -877,9 +936,25 @@ void triggerReindex(cwd).catch((err) => {
         }
         curState.interventionCount++
 
+        // v0.17.2 (Gap D): when includeDecisionHistory is true, prepend
+        // recent intervention texts so the model sees its history of decisions.
+        // Capped at maxHistoryMessages (default 5).
+        const includeHistory = mergedConfig.intervention.includeDecisionHistory !== false
+        const maxHistory = mergedConfig.intervention.maxHistoryMessages ?? 5
+        const historyTexts = (curState.recentInterventionTexts ?? []).slice(-maxHistory)
+        let messageText = `[MetaGovernor] ${decision.message}`
+        if (includeHistory && historyTexts.length > 0) {
+          const historyBlock = historyTexts
+            .map((t, i) => `${i + 1}. ${t}`)
+            .join("\n")
+          messageText = `[MetaGovernor] Recent decisions in this session:\n${historyBlock}\n\n---\n\nCurrent decision: ${decision.message}`
+        }
+        // Track this intervention for future history inclusion.
+        curState.recentInterventionTexts = [...historyTexts, `[${decision.action}] ${decision.message}`].slice(-maxHistory)
+
         const textPart = {
           type: "text",
-          text: `[MetaGovernor] ${decision.message}`,
+          text: messageText,
           synthetic: true,
         }
 

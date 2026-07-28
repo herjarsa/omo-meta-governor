@@ -88,14 +88,18 @@ export function setPendingDeliveryRegistry(registry: typeof pendingRegistryRef):
 }
 
 /**
- * v0.17.0 (F3.6): After a successful prompt dispatch, briefly poll for
- * actual delivery. Returns "delivered" if the LLM's MCP tool call was
- * observed within the timeout, "pending" otherwise.
+ * v0.17.2 (Gap I): Updated return type to include "expired" so the bridge
+ * tools can distinguish between "LLM hasn't called yet" (pending) and
+ * "TTL elapsed without delivery" (expired).
  *
- * This is best-effort — the LLM may still call the MCP tool on a later
- * turn even if the poll times out.
+ * Returns "delivered" if the LLM's MCP tool call was observed within the
+ * timeout, "expired" if the pending entry's TTL elapsed without delivery,
+ * "pending" otherwise (poll still active, no result yet).
  */
-async function verifyDelivery(sessionID: string, mcpTool: string): Promise<"delivered" | "pending"> {
+export async function verifyDelivery(
+  sessionID: string,
+  mcpTool: string,
+): Promise<"delivered" | "pending" | "expired"> {
   return await pollForDelivery(sessionID, mcpTool)
 }
 
@@ -563,12 +567,12 @@ export function buildOmoRememberTool(deps: OmoRememberDeps) {
       // v0.17.0 (F3.6): register pending delivery + briefly poll for actual
       // MCP tool call. Fast deliveries are detected within ~1.5s.
       deps.onDispatch?.({ sessionID, mcpTool: "agentmemory_memory_save", mcpArgs })
-      const deliveryStatus = await pollForDelivery(sessionID, "agentmemory_memory_save")
-      const titleSuffix = deliveryStatus === "delivered" ? "delivered" : "dispatched"
+      const deliveryStatus = await verifyDelivery(sessionID, "agentmemory_memory_save")
+      const titleSuffix = deliveryStatus
       return {
         title: `omo_remember: ${titleSuffix}`,
         output:
-          `Save to AgentMemory ${deliveryStatus === "delivered" ? "verified" : "dispatched"} ` +
+          `Save to AgentMemory ${deliveryStatus === "delivered" ? "verified" : deliveryStatus === "expired" ? "not delivered within TTL" : "dispatched"} ` +
           `(messageID: ${result.messageID ?? "pending"}). ` +
           `LLM call to agentmemory_memory_save ${deliveryStatus === "delivered" ? "was observed" : "not yet observed (will happen on next turn)"} ` +
           `with args: ${JSON.stringify(mcpArgs)}. ` +

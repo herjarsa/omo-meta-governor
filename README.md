@@ -376,6 +376,76 @@ No user action required. The audit detection now correctly fires when the agent 
 - **If your agent previously wrote `@ts-ignore` without being flagged**: it will now be flagged with `[GRAVE] no-type-suppression: ...` injected as a synthetic user message.
 - **If you want to disable the audit**: set `protocolEnforcement.auditToolCalls: false` (already supported).
 
+
+
+## v0.17.2 — Fix escalation dead code + 4 audit gaps
+
+v0.17.2 closes 4 gaps discovered during live verification of v0.17.0/v0.17.1. The most important: F5.1 (escalate → Oracle) was effectively dead in production due to two compounding bugs.
+
+### Highlights
+
+#### Gap C (CRITICAL) — Escalation now actually fires
+
+The score formula's `noProgress` and `deviations` inputs were hardcoded as `false` and `[]` in the plugin. This meant the `no-progress-detector` (weight 0.20) and `deviation-detector` (weight 0.20) signals always contributed 0. Combined with default thresholds, the maximum possible score was -0.55 — never reaching `escalateThreshold: 0.6` or `stopThreshold: 0.8`.
+
+**Fix:**
+1. **Derive `noProgress`** from the recent tool call window. If the last 5 tool calls contain no `write`/`edit`/`task` (i.e. the agent is only reading/grepping without producing artifacts), `noProgress = true`.
+2. **Derive `deviations`** from accumulated protocol violations. The audit hook now stores violations in `state.accumulatedDeviations` (capped at 5 per session); the orchestrator input reads them.
+3. **Lower default thresholds** to match the new worst-case math:
+   - `escalateThreshold`: 0.6 → 0.45
+   - `stopThreshold`: 0.8 → 0.55
+
+Now worst-case state (no oracle, no progress, 2 grave deviations, iteration at limit, stop-advice lessons) produces score ≈ -0.55 → `stop` action fires.
+
+#### Gap Q (HIGH) — File paths threaded through pipeline
+
+`orchestrator.ts` was hardcoding `filesChanged: []` instead of `input.filePaths`. This meant lesson extraction never saw the actual changed files, so F7.5's file-basename FTS indexing was empty.
+
+**Fix:**
+1. Track `recentWriteFilePaths` in AuditState (alongside existing `recentWriteContents`).
+2. Capture `filePath` from `toolInput.args` on write/edit tool calls.
+3. New `MetaGovernorInput.filePaths?: readonly string[]` passed through to `observeAndLearn`.
+
+#### Gap D (HIGH) — Three config fields now actually do something
+
+Three fields were in the schema and config projection but NEVER consulted by the logic:
+
+- `closedLoop.saveLessons` — parallel to `saveDecisions`. When `false`, lessons are skipped (decision records still save).
+- `intervention.includeDecisionHistory` — when `true`, `messages.transform` prepends recent intervention texts (capped at `maxHistoryMessages`) so the LLM sees its history of decisions.
+- `intervention.maxHistoryMessages` — limit for the above (default 5).
+
+**Fix:** All three fields now control behavior. Track `recentInterventionTexts` in AuditState, format them into the injection text.
+
+#### Gap I (MEDIUM) — `verifyDelivery` return type includes "expired"
+
+The TypeScript signature was `Promise<"delivered" | "pending">` but the registry could return `"expired"`. The expired case leaked through as `"pending"` silently.
+
+**Fix:** Signature updated to `Promise<"delivered" | "pending" | "expired">`. Bridge tools now distinguish: `"delivered"` (verified), `"pending"` (still polling), `"expired"` (TTL elapsed).
+
+### Test & build status
+
+- **521/521 tests pass** (up from 518 — 3 new tests for the v0.17.2 fixes).
+- `bun run typecheck` clean.
+- `bun build.ts` clean (0.34 MB dist).
+- `npm pack --dry-run` validated.
+
+### Migration
+
+No user action required. Two behavior changes:
+
+1. **Escalation now fires more aggressively.** If your agent has been producing violations and not making progress, expect to see escalate → Oracle prompts more often. This is the intended behavior; v0.17.0 was incorrectly silent.
+2. **`includeDecisionHistory` and `maxHistoryMessages` are now functional.** If you set them in v0.17.0 expecting them to work, they will now actually take effect.
+
+### Audit roadmap (status as of v0.17.2)
+
+| Release | Status | Scope |
+|---------|--------|-------|
+| v0.15.1 (F0) | ✅ | Hotfix self-dep |
+| v0.16.0 (F1-F7) | ✅ | Memory hygiene, dead code, tool coverage, CI |
+| v0.17.0 | ✅ | F5.1 escalate, F5.4 cap, F3.6 delivery verify |
+| v0.17.1 | ✅ | Audit args fix |
+| v0.17.2 | ✅ | Gap C (escalation live), Q (file paths), D (config fields), I (delivery expired) |
+
 ## Auto-upgrade (v0.12.0)
 
 On plugin load, queries npm/pip registries to check whether newer versions

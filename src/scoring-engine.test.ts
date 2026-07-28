@@ -142,28 +142,27 @@ describe("scoring-engine", () => {
 
     // ─── Escalate range ─────────────────────────────────────────
 
-    it("returns escalate for strong negative signals", () => {
-      // given
+    it("returns escalate for moderately negative signals", () => {
+      // given — moderate negative: no progress + bad lessons + 1 deviation + iteration near limit
       const ctx: DecisionContext = {
         ...baseContext,
         oracleVerified: false,
         noProgress: true,
         deviations: [
-          { severity: "grave", category: "test", detail: "critical failure" },
-          { severity: "grave", category: "test", detail: "another critical" },
+          { severity: "grave", category: "test", detail: "critical" },
+          { severity: "grave", category: "test", detail: "second critical" },
         ],
         iterationRatio: 1.0,
         lessonsRelevant: [
-          { id: "l1", title: "stop now", advice: "stop", confidence: 1.0, concepts: ["test"] },
-          { id: "l2", title: "stop again", advice: "stop", confidence: 1.0, concepts: ["test"] },
+          { id: "l1", title: "warn", advice: "warn", confidence: 1.0, concepts: ["test"] },
         ],
       }
 
       // when
-      const result = score(ctx, { escalateThreshold: 0.4 })
+      const result = score(ctx)
 
       // then
-      expect(result.decision.score).toBeLessThan(-0.4)
+      expect(result.decision.score).toBeLessThanOrEqual(-0.45)
       expect(result.decision.action).toBe("escalate")
     })
 

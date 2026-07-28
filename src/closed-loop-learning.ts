@@ -167,7 +167,13 @@ export async function observeAndLearn(
     }
   }
 
-  if (severityMeetsThreshold(deviationsFromEvidence, config.minSeverityToLearn)) {
+  // v0.17.2 (Gap D): when saveLessons is explicitly false, skip lesson save.
+  // Default is true (lesson saves unless explicitly disabled).
+  const saveLessonsEnabled = config.saveLessons !== false
+  if (
+    saveLessonsEnabled &&
+    severityMeetsThreshold(deviationsFromEvidence, config.minSeverityToLearn)
+  ) {
     const concepts = extractConcepts(deviationsFromEvidence)
     const content = buildLessonContent(decision, deviationsFromEvidence)
 
@@ -199,7 +205,9 @@ export async function observeAndLearn(
   if (decisionSaved) reasons.push("decision saved")
   if (lessonSaved) reasons.push("lesson saved")
   if (!decisionSaved && !lessonSaved) {
-    if (!severityMeetsThreshold(deviationsFromEvidence, config.minSeverityToLearn)) {
+    if (!saveLessonsEnabled) {
+      reasons.push("saveLessons disabled")
+    } else if (!severityMeetsThreshold(deviationsFromEvidence, config.minSeverityToLearn)) {
       reasons.push("severity below threshold")
     } else {
       reasons.push("no saveable content")
@@ -222,6 +230,9 @@ export function defaultClosedLoopConfig(): ClosedLoopConfig {
     minSeverityToLearn: "media",
     maxLessonsPerSession: 20,
     saveDecisions: true,
+    // v0.17.2: saveLessons default true. Set to false to disable lesson writes
+    // while keeping decision records.
+    saveLessons: true,
   }
 }
 

@@ -239,6 +239,9 @@ export interface ClosedLoopConfig {
   readonly maxLessonsPerSession: number
   /** Whether to save decision records (lighter than lessons). Default true. */
   readonly saveDecisions: boolean
+  /** v0.17.2: whether to save lessons. Default true. Independent of saveDecisions
+   *  so users can disable lessons while keeping decision records, or vice versa. */
+  readonly saveLessons?: boolean
 }
 
 /**
@@ -594,6 +597,10 @@ export interface MetaGovernorInput {
   readonly filesChanged: number
   readonly recentTurnTokens: readonly number[]
   readonly deviations: readonly Deviation[]
+  /** v0.17.2 (Gap Q): file paths from recent write tools. Used by
+   *  observeAndLearn to populate lesson extraction concepts with
+   *  file basenames for FTS lookup. */
+  readonly filePaths?: readonly string[]
 readonly consecutiveStops?: number
 readonly backends: MemoryBackends
   readonly writeBackend: AgentmemoryWriteBackend
