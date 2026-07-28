@@ -416,6 +416,17 @@ Three fields were in the schema and config projection but NEVER consulted by the
 
 **Fix:** All three fields now control behavior. Track `recentInterventionTexts` in AuditState, format them into the injection text.
 
+#### Bonus — iteration-budget signal wired (Oracle finding)
+
+Oracle flagged a pre-existing gap alongside Gap C: `iteration` was hardcoded `0` in the orchestrator input, making the `iteration-budget` signal (weight 0.15) effectively dead.
+
+Fix:
+- Added `iteration: number` to `AuditState`, incremented per tool call.
+- Threaded `iteration: sessionState?.iteration ?? 0` into `MetaGovernorInput`.
+- `maxIterations` now reads from config instead of being hardcoded.
+
+Worst-case score math updated: with iteration at 100% (-0.12), all signals bad, no oracle → score = -0.65 → `stop` action fires.
+
 #### Gap I (MEDIUM) — `verifyDelivery` return type includes "expired"
 
 The TypeScript signature was `Promise<"delivered" | "pending">` but the registry could return `"expired"`. The expired case leaked through as `"pending"` silently.
