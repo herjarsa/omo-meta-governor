@@ -63,9 +63,14 @@ function severityMeetsThreshold(
 }
 
 /**
- * Extract concepts from deviations for the lesson.
+ * Extract concepts from deviations for the lesson. Optionally include file
+ * basenames from the broader filePaths list so FTS indexing covers all
+ * recently changed files (Gap Q completeness, v0.17.2).
  */
-function extractConcepts(deviations: readonly Deviation[]): string[] {
+function extractConcepts(
+  deviations: readonly Deviation[],
+  filesChanged: readonly string[] = [],
+): string[] {
   const concepts = new Set<string>()
   for (const d of deviations) {
     concepts.add(d.category)
@@ -75,6 +80,11 @@ function extractConcepts(deviations: readonly Deviation[]): string[] {
       const basename = d.filePath.split("/").pop() ?? d.filePath
       concepts.add(basename)
     }
+  }
+  // v0.17.2: also index file basenames from broader file change set
+  for (const filePath of filesChanged) {
+    const basename = filePath.split("/").pop() ?? filePath
+    if (basename) concepts.add(basename)
   }
   return [...concepts]
 }
@@ -174,7 +184,7 @@ export async function observeAndLearn(
     saveLessonsEnabled &&
     severityMeetsThreshold(deviationsFromEvidence, config.minSeverityToLearn)
   ) {
-    const concepts = extractConcepts(deviationsFromEvidence)
+    const concepts = extractConcepts(deviationsFromEvidence, filesChanged)
     const content = buildLessonContent(decision, deviationsFromEvidence)
 
     try {

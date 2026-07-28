@@ -146,3 +146,41 @@ describe("includeDecisionHistory (Gap D)", () => {
     expect(allText).toContain("MetaGovernor")
   })
 })
+
+// Gap Q completeness: extractConcepts includes file basenames from filesChanged
+describe("extractConcepts (Gap Q completeness)", () => {
+  it("lesson concepts include file basenames from filesChanged for FTS lookup", async () => {
+    const { observeAndLearn, defaultClosedLoopConfig } = await import("./closed-loop-learning")
+    const backend = {
+      saveMemory: async () => ({ id: "mem" }),
+      saveLesson: async () => ({ id: "les" }),
+    }
+    const r = await observeAndLearn(
+      {
+        decision: {
+          action: "stop",
+          score: -0.7,
+          reasoning: "test",
+          evidence: [{ source: "deviation-detector", value: "test", confidence: 0.5, weight: 0.2 }],
+          shouldEscalateTo: null,
+        },
+        memoryRead: {
+          query: "test",
+          timestampISO: new Date().toISOString(),
+          agentmemory: { available: true, lessons: [] },
+          magicContext: { available: true, slots: [] },
+          boulderState: { available: true, tasks: [], planProgress: 0 },
+          degradedSources: [],
+        },
+        config: { ...defaultClosedLoopConfig(), minSeverityToLearn: "leve" },
+        sessionID: "ses-test",
+        directory: "/tmp",
+        filesChanged: ["/home/user/src/auth/login.ts", "/home/user/src/auth/session.ts"],
+      },
+      backend,
+    )
+    expect(r.lessonSaved).not.toBeNull()
+    expect(r.lessonSaved!.concepts).toContain("login.ts")
+    expect(r.lessonSaved!.concepts).toContain("session.ts")
+  })
+})

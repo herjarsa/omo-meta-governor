@@ -322,6 +322,11 @@ export function createMetaGovernorPlugin(
       planCompleteSignal: boolean
       interventionCount: number
       interventionDisabled: boolean
+      /** v0.17.2: per-session iteration counter. Incremented on each tool call
+       *  so the iteration-budget signal in scoring can fire. Previously this
+       *  was always 0 in the orchestrator input, making the 0.15-weight
+       *  iteration-budget signal dead. */
+      iteration: number
       /** v0.17.0 (F5.4): count of lessons saved this session. Used to enforce maxLessonsPerSession. */
       lessonCount: number
     }
@@ -391,6 +396,7 @@ export function createMetaGovernorPlugin(
             interventionCount: 0,
             interventionDisabled: false,
             lessonCount: 0,
+            iteration: 0,
           }
           auditSessions.set(toolInput.sessionID, state)
         }
@@ -489,6 +495,9 @@ export function createMetaGovernorPlugin(
 
         const sessionState = auditSessions.get(toolInput.sessionID)
         if (sessionState) {
+          // v0.17.2: increment per-session iteration so the iteration-budget
+          // signal (weight 0.15) actually fires downstream.
+          sessionState.iteration++
           sessionState.recentToolCalls = [toolInput.tool].concat(
             sessionState.recentToolCalls,
           ).slice(0, 20)
@@ -605,8 +614,10 @@ export function createMetaGovernorPlugin(
           sessionID: toolInput.sessionID,
           toolName: toolInput.tool,
           toolOutput: toolOutput.output,
-          iteration: 0,
-          maxIterations: 10,
+          // v0.17.2: thread per-session iteration so the iteration-budget
+          // signal (weight 0.15) actually fires downstream.
+          iteration: sessionState?.iteration ?? 0,
+          maxIterations: mergedConfig.closedLoop.maxLessonsPerSession ?? 10,
           oracleVerified: sessionState?.oracleInvoked ?? false,
           noProgress,
           filesChanged: sessionState?.filesChanged ?? 0,
@@ -923,6 +934,7 @@ void triggerReindex(cwd).catch((err) => {
             interventionCount: 0,
             interventionDisabled: false,
             lessonCount: 0,
+            iteration: 0,
           }
           auditSessions.set(currentSessionID, curState)
         }
