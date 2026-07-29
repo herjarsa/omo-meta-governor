@@ -130,27 +130,34 @@ export type MetricsCollector = {
   reset(): void
 }
 
-export function createMetricsCollector(config: MetricsCollectorConfig): MetricsCollector {
+export function createMetricsCollector(config?: Partial<MetricsCollectorConfig>): MetricsCollector {
+  // v0.18.0: accept optional config — defaults are safe.
+  const safeConfig = config ?? {}
   const counters: Record<MetricEvent, MetricBucket> = emptyCounters()
   const startedAtISO = new Date().toISOString()
-  const version = config.version ?? DEFAULT_VERSION
-  const useGlobal = config.global === true
+  const version = safeConfig.version ?? DEFAULT_VERSION
+  const useGlobal = safeConfig.global === true
 
   return {
     inc(event: MetricEvent): void {
+      // v0.18.0: guard against unknown event names (was crashing on bucket.count++)
       const bucket = counters[event]
+      if (!bucket) return
       bucket.count++
       bucket.lastOccurrenceISO = new Date().toISOString()
       if (useGlobal) {
         const g = globalCounters[event]
-        g.count++
-        g.lastOccurrenceISO = bucket.lastOccurrenceISO
+        if (g) {
+          g.count++
+          g.lastOccurrenceISO = bucket.lastOccurrenceISO
+        }
       }
     },
     getMetrics(): MetricsSnapshot {
       return {
         version,
-        sessionID: config.sessionID,
+        // v0.18.0: sessionID is optional — was crashing when config was undefined
+        sessionID: safeConfig.sessionID ?? "",
         startedAtISO,
         uptimeMs: Date.now() - new Date(startedAtISO).getTime(),
         counters: { ...counters },

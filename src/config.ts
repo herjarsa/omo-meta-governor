@@ -17,11 +17,19 @@ export interface MetaGovernorPluginConfig {
   decision?: {
     maxHistoryPerSession?: number
     forceContinueAfterStops?: number
+    /** v0.18.0: custom warning message template. */
+    warnMessageTemplate?: string
+    /** v0.18.0: custom escalation message template. */
+    escalateMessageTemplate?: string
+    /** v0.18.0: custom stop message template. */
+    stopMessageTemplate?: string
   }
 
   /** Memory aggregator (PR 2) */
   memory?: {
     agentmemoryTimeoutMs?: number
+    /** v0.18.0: alias for agentmemoryTimeoutMs (was the only name projected). */
+    timeoutMs?: number
     magicContextTimeoutMs?: number
     boulderStateTimeoutMs?: number
     query?: string
@@ -41,10 +49,17 @@ export interface MetaGovernorPluginConfig {
     warnThreshold?: number
     escalateThreshold?: number
     stopThreshold?: number
+    /** v0.18.0: was silently dropped by loadOrchestratorConfig */
+    paralysisThreshold?: number
+    /** v0.18.0: was silently dropped by loadOrchestratorConfig */
+    defaultEscalationTarget?: "oracle" | "user"
   }
 
   /** Closed-loop learning (PR 3) */
   closedLoop?: {
+    enabled?: boolean
+    minSeverityToLearn?: "leve" | "media" | "grave"
+    maxLessonsPerSession?: number
     saveDecisions?: boolean
     saveLessons?: boolean
   }
@@ -101,10 +116,11 @@ export function loadOrchestratorConfig(
 
   return {
     enabled: full.enabled === true,
+    // v0.18.0: support both `timeoutMs` and `agentmemoryTimeoutMs` (alias for back-compat)
     memory: {
       enabled: true,
       query: full.memory?.query ?? "meta_governor_context",
-      timeoutMs: full.memory?.agentmemoryTimeoutMs ?? 2000,
+      timeoutMs: full.memory?.timeoutMs ?? full.memory?.agentmemoryTimeoutMs ?? 2000,
     },
     tokenPredictor: {
       compactBurnRateThreshold:
@@ -116,6 +132,8 @@ export function loadOrchestratorConfig(
       delegateConsecutiveHighBurn:
         full.tokenPredictor?.delegateConsecutiveHighBurn ?? 5,
     },
+    // v0.18.0: project ALL scoring fields. Previously paralysisThreshold
+    // and defaultEscalationTarget were silently dropped.
     scoring: {
       ...baseScoring,
       ...(full.scoring?.continueThreshold !== undefined
@@ -130,13 +148,35 @@ export function loadOrchestratorConfig(
       ...(full.scoring?.stopThreshold !== undefined
         ? { stopThreshold: full.scoring.stopThreshold }
         : {}),
+      ...(full.scoring?.paralysisThreshold !== undefined
+        ? { paralysisThreshold: full.scoring.paralysisThreshold }
+        : {}),
+      ...(full.scoring?.defaultEscalationTarget !== undefined
+        ? { defaultEscalationTarget: full.scoring.defaultEscalationTarget }
+        : {}),
     },
+    // v0.18.0: project all closedLoop fields, not just saveDecisions.
+    // Previously maxLessonsPerSession, enabled, minSeverityToLearn, and
+    // saveLessons were silently dropped.
     closedLoop: {
       ...baseClosedLoop,
+      ...(full.closedLoop?.enabled !== undefined
+        ? { enabled: full.closedLoop.enabled }
+        : {}),
+      ...(full.closedLoop?.minSeverityToLearn !== undefined
+        ? { minSeverityToLearn: full.closedLoop.minSeverityToLearn }
+        : {}),
+      ...(full.closedLoop?.maxLessonsPerSession !== undefined
+        ? { maxLessonsPerSession: full.closedLoop.maxLessonsPerSession }
+        : {}),
       ...(full.closedLoop?.saveDecisions !== undefined
         ? { saveDecisions: full.closedLoop.saveDecisions }
         : {}),
+      ...(full.closedLoop?.saveLessons !== undefined
+        ? { saveLessons: full.closedLoop.saveLessons }
+        : {}),
     },
+    // v0.18.0: project all decision fields, including message templates.
     decision: {
       ...baseDecision,
       ...(full.decision?.maxHistoryPerSession !== undefined
@@ -144,6 +184,15 @@ export function loadOrchestratorConfig(
         : {}),
       ...(full.decision?.forceContinueAfterStops !== undefined
         ? { forceContinueAfterStops: full.decision.forceContinueAfterStops }
+        : {}),
+      ...(full.decision?.warnMessageTemplate !== undefined
+        ? { warnMessageTemplate: full.decision.warnMessageTemplate }
+        : {}),
+      ...(full.decision?.escalateMessageTemplate !== undefined
+        ? { escalateMessageTemplate: full.decision.escalateMessageTemplate }
+        : {}),
+      ...(full.decision?.stopMessageTemplate !== undefined
+        ? { stopMessageTemplate: full.decision.stopMessageTemplate }
         : {}),
     },
     modelOverride: full.modelOverride
@@ -188,9 +237,14 @@ export function loadOrchestratorConfig(
  * Check whether the MetaGovernor is enabled. Returns false if config is undefined.
  */
 export function isMetaGovernorEnabled(
-  config: MetaGovernorPluginConfig | undefined,
+  config: Partial<MetaGovernorPluginConfig> | undefined,
 ): boolean {
-  return config?.enabled === true
+  // v0.18.0: support both `enabled` at top level and the wrapped
+  // `meta_governor.enabled` shape that OpenCode uses in opencode.jsonc.
+  if (!config) return false
+  if (config.enabled === true) return true
+  const mg = (config as unknown as { meta_governor?: { enabled?: boolean } }).meta_governor
+  return mg?.enabled === true
 }
 
 /**

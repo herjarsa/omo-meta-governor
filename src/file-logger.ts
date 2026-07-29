@@ -50,16 +50,33 @@ function redactValue(value: string): string {
   return result
 }
 
-function redactData(data: unknown): unknown {
+/**
+ * v0.17.4: Added circular reference guard. Previously a circular object
+ * would blow the stack in `Object.entries` recursion before the
+ * try/catch around `JSON.stringify` could protect the caller.
+ */
+function redactData(data: unknown, seen: WeakSet<object> = new WeakSet()): unknown {
   if (typeof data === "string") return redactValue(data)
-  if (Array.isArray(data)) return data.map(redactData)
+  if (Array.isArray(data)) {
+    if (seen.has(data)) return "[Circular]"
+    seen.add(data)
+    return data.map((v) => redactData(v, seen))
+  }
   if (data && typeof data === "object") {
-    const obj: Record<string, unknown> = { ...data as Record<string, unknown> }
-    for (const [k, v] of Object.entries(obj)) {
+    if (seen.has(data as object)) return "[Circular]"
+    seen.add(data as object)
+    const obj: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(data as Record<string, unknown>)) {
       if (SECRET_KEYS.test(k)) {
         obj[k] = "[REDACTED]"
       } else {
-        obj[k] = redactData(v)
+        try {
+          obj[k] = redactData(v, seen)
+        } catch {
+          // v0.17.4: defensive — redactData should never throw, but
+          // protect against any unexpected edge case (e.g. proxy traps)
+          obj[k] = "[unserializable]"
+        }
       }
     }
     return obj

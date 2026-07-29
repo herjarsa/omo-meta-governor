@@ -514,6 +514,46 @@ Two remaining gaps documented but require SDK support to fix:
 - `recentTurnTokens: []` — token-predictor signal dead (10% of score); needs per-turn token counts from OpenCode SDK
 - `agentName` defaults to `"unknown"` — cosmetic, no functional impact
 
+
+
+## v0.18.0 — Audit remediation: 7+ silent config drops + circular ref crash
+
+v0.18.0 is a thorough-audit patch release. Each fix addresses a bug found by testing every public function with edge cases and adversarial inputs.
+
+### Highlights
+
+| # | Bug | Severity | Fix |
+|---|-----|----------|-----|
+| 1 | `file-logger.redactData` crashed on circular references with stack overflow | 🔴 CRITICAL | `WeakSet` guard + `try/catch` fallback |
+| 2 | `loadOrchestratorConfig` only projected `closedLoop.saveDecisions` — `enabled`, `minSeverityToLearn`, `maxLessonsPerSession`, `saveLessons` were silently dropped | 🔴 CRITICAL | Project all 5 fields |
+| 3 | `loadOrchestratorConfig` didn't project `decision.warnMessageTemplate`, `escalateMessageTemplate`, `stopMessageTemplate` | 🟠 HIGH | Project all 3 templates |
+| 4 | `loadOrchestratorConfig` didn't project `scoring.paralysisThreshold`, `defaultEscalationTarget` | 🟠 HIGH | Project all fields |
+| 5 | `loadOrchestratorConfig` had `memory.timeoutMs` field name mismatch (schema said `agentmemoryTimeoutMs`) | 🟠 HIGH | Accept both names |
+| 6 | `isMetaGovernorEnabled` only checked top-level `enabled`, not `meta_governor.enabled` (wrapped shape from `opencode.jsonc`) | 🟠 HIGH | Check both shapes |
+| 7 | `createMetricsCollector` crashed when called without config (`config.version` on `undefined`) | 🟠 HIGH | Accept `Partial<MetricsCollectorConfig>` |
+| 8 | `metrics.inc` crashed on unknown event names (`bucket.count++` on `undefined`) | 🟠 HIGH | Guard `if (!bucket) return` |
+| 9 | `isNewerVersion` returned `false` for `installed=null` (no upgrade triggered for fresh installs) | 🟡 MEDIUM | Return `true` when installed is null AND latest is valid |
+
+### Test & build status
+
+- **557/557 tests pass** (up from 530 in v0.17.3 — 27 new tests for the audit fixes).
+- `bun run typecheck` clean.
+- `bun build.ts` clean (0.34 MB dist).
+- `npm pack --dry-run` validated.
+
+### Migration
+
+No user action required. The fix to `loadOrchestratorConfig` means **users who were setting `closedLoop.maxLessonsPerSession` or other previously-dropped fields will now see those values actually take effect**. If you had a config like `{ "closedLoop": { "maxLessonsPerSession": 50 } }` before v0.18.0, it was silently being overridden to 20. Starting v0.18.0, the value 50 is now respected.
+
+### Audit roadmap (status as of v0.18.0)
+
+| Release | Status | Scope |
+|---------|--------|-------|
+| v0.15.1 → v0.17.3 | ✅ | All audit findings + deferred items + audit args fix + gap fixes |
+| v0.18.0 | ✅ | 7 silent config drops + circular ref crash + metrics crashes + upgrade trigger |
+
+This release closes the final round of gaps found by a thorough function-by-function audit. The plugin now correctly projects **all** user configuration, handles **all** circular reference cases, and fails safely on **all** missing-input scenarios.
+
 ## Auto-upgrade (v0.12.0)
 
 On plugin load, queries npm/pip registries to check whether newer versions

@@ -740,11 +740,18 @@ export async function logToFile(level: LogLevel, msg: string): Promise<void> {
  * triggering a network call.
  */
 export function isNewerVersion(installed: string | null | undefined, latest: string | null | undefined): boolean {
-if (!installed || !latest) return false
-  if (installed === latest) return false
+  // v0.18.0: distinguish "not installed" (null/undefined) from
+  // "malformed input" (empty string, non-semver).
+  //   null/undefined installed → treat as "anything older" → upgrade
+  //   empty string installed → malformed → don't upgrade
+  if (installed == null && latest) return true
+  if (!latest) return false
+  const i = installed as string
+  const l = latest
+  if (!i || i === l) return false
   // Defensive: reject non-semver strings instead of treating them as 0.0.0
   const SEMVER_RE = /^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/
-  if (!SEMVER_RE.test(installed) || !SEMVER_RE.test(latest)) return false
+  if (!SEMVER_RE.test(i) || !SEMVER_RE.test(l)) return false
   // Strip pre-release suffix for base comparison
   const parseBase = (v: string): [number, number, number, string] => {
     const [base = "", pre = ""] = v.split("-", 2)
@@ -755,8 +762,8 @@ if (!installed || !latest) return false
     const [maj = 0, min = 0, pat = 0] = parts
     return [maj, min, pat, pre]
   }
-  const [iMaj, iMin, iPat, iPre] = parseBase(installed)
-  const [lMaj, lMin, lPat, lPre] = parseBase(latest)
+  const [iMaj, iMin, iPat, iPre] = parseBase(i)
+  const [lMaj, lMin, lPat, lPre] = parseBase(l)
   if (lMaj !== iMaj) return lMaj > iMaj
   if (lMin !== iMin) return lMin > iMin
   if (lPat !== iPat) return lPat > iPat
