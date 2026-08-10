@@ -1,4 +1,3 @@
-import type { PluginModule } from "@opencode-ai/plugin"
 import { createMetaGovernorPlugin } from "./plugin"
 
 /**
@@ -20,12 +19,14 @@ import { createMetaGovernorPlugin } from "./plugin"
  * }
  * ```
  */
-const pluginModule: PluginModule = {
-  id: "omo-meta-governor",
-  server: createMetaGovernorPlugin(),
-}
-
-export default pluginModule
+// v0.19.3 fix: export the plugin factory directly as the default export.
+// The previous `PluginModule` form ({ id, server }) is not reliably
+// invoked by `opencode serve` (the OpenChamber-managed runtime): the
+// module loads ("MetaGovernor plugin loaded") but `server(input, options)`
+// is never called, so no hooks are registered and the plugin silently
+// does nothing. The classic function default export is the path used by
+// every other working plugin in this environment.
+export default createMetaGovernorPlugin()
 
 export { createMetaGovernorPlugin, type MetaGovernorPluginDeps } from "./plugin"
 export { logToFile } from "./file-logger"

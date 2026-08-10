@@ -108,7 +108,9 @@ describe("cross-session decision scoping", () => {
         },
       }
 
-      const plugin = createMetaGovernorPlugin()
+      const plugin = createMetaGovernorPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
       const hooks = await plugin(mockPluginInput, options)
       const transform = hooks["experimental.chat.messages.transform"]!
 
@@ -150,7 +152,9 @@ describe("cross-session decision scoping", () => {
         },
       }
 
-      const plugin = createMetaGovernorPlugin()
+      const plugin = createMetaGovernorPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
       const hooks = await plugin(mockPluginInput, options)
       const transform = hooks["experimental.chat.messages.transform"]!
 
@@ -194,7 +198,9 @@ describe("explicit warn threshold (regression)", () => {
         },
       }
 
-      const plugin = createMetaGovernorPlugin()
+      const plugin = createMetaGovernorPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
       const hooks = await plugin(mockPluginInput, options)
       const transform = hooks["experimental.chat.messages.transform"]!
 
@@ -238,7 +244,9 @@ describe("max interventions per session", () => {
         },
       }
 
-      const plugin = createMetaGovernorPlugin()
+      const plugin = createMetaGovernorPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
       const hooks = await plugin(mockPluginInput, options)
       const transform = hooks["experimental.chat.messages.transform"]!
 

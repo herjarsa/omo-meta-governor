@@ -13,6 +13,7 @@ import {
   setSessionClient,
   hasSessionClient,
   promptAgent,
+  persistSessionMessage,
   type OpencodeClientLike,
 } from "./session-bridge"
 
@@ -184,6 +185,90 @@ describe("SessionBridge", () => {
       expect(capturedText).toContain("Save this durable ARCHITECTURE rule")
       expect(capturedText).toContain("ctx_memory")
       expect(capturedText).toContain('"category": "ARCHITECTURE"')
+    })
+  })
+
+  describe("#persistSessionMessage (v0.19.0)", () => {
+    beforeEach(() => {
+      setSessionClient(null)
+    })
+
+    test("PSM1: returns ok:false when no client is set", async () => {
+      const result = await persistSessionMessage("test-session", "[MetaGovernor] hello")
+      expect(result.ok).toBe(false)
+      expect(result.messageID).toBeNull()
+      expect(result.error).toMatch(/no OpenCode client/)
+      expect(result.durationMs).toBe(0)
+    })
+
+    test("PSM2: returns ok:false when sessionID is empty", async () => {
+      const mockClient: OpencodeClientLike = {
+        session: { prompt: async () => ({ data: null }) },
+      }
+      setSessionClient(mockClient)
+      const result = await persistSessionMessage("", "[MetaGovernor] hello")
+      expect(result.ok).toBe(false)
+      expect(result.error).toMatch(/sessionID/)
+    })
+
+    test("PSM3: returns ok:false when text is empty", async () => {
+      const mockClient: OpencodeClientLike = {
+        session: { prompt: async () => ({ data: null }) },
+      }
+      setSessionClient(mockClient)
+      const result = await persistSessionMessage("sess-abc", "")
+      expect(result.ok).toBe(false)
+      expect(result.error).toMatch(/text/)
+    })
+
+    test("PSM4: sends the raw text verbatim as a single text part (no tool instruction)", async () => {
+      let capturedArgs: unknown = null
+      const mockClient: OpencodeClientLike = {
+        session: {
+          prompt: async (args) => {
+            capturedArgs = args
+            return { data: { info: { id: "msg-456" } } }
+          },
+        },
+      }
+      setSessionClient(mockClient)
+      const text = "[MetaGovernor] [WARN] score -0.5: deviation detected"
+      const result = await persistSessionMessage("sess-abc", text)
+      expect(result.ok).toBe(true)
+      expect(result.messageID).toBe("msg-456")
+      const args = capturedArgs as {
+        sessionID: string
+        body: { parts: Array<{ type: string; text: string }> }
+      }
+      expect(args.sessionID).toBe("sess-abc")
+      expect(args.body.parts.length).toBe(1)
+      expect(args.body.parts[0]?.type).toBe("text")
+      // Verbatim — persistSessionMessage must NOT add tool-call instructions
+      expect(args.body.parts[0]?.text).toBe(text)
+    })
+
+    test("PSM5: returns ok:false when session.prompt throws", async () => {
+      const mockClient: OpencodeClientLike = {
+        session: {
+          prompt: async () => {
+            throw new Error("persist network error")
+          },
+        },
+      }
+      setSessionClient(mockClient)
+      const result = await persistSessionMessage("sess-abc", "[MetaGovernor] hello")
+      expect(result.ok).toBe(false)
+      expect(result.error).toBe("persist network error")
+    })
+
+    test("PSM6: handles null response gracefully", async () => {
+      const mockClient: OpencodeClientLike = {
+        session: { prompt: async () => null },
+      }
+      setSessionClient(mockClient)
+      const result = await persistSessionMessage("sess-abc", "[MetaGovernor] hello")
+      expect(result.ok).toBe(true)
+      expect(result.messageID).toBeNull()
     })
   })
 

@@ -103,7 +103,9 @@ describe("createMetaGovernorPlugin", () => {
 
     it("then returns hooks with all 3 handlers", async () => {
       clearAll()
-      const plugin = createMetaGovernorPlugin()
+      const plugin = createMetaGovernorPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
       const hooks = await plugin(mockPluginInput, options)
       expect(hooks["tool.execute.after"]).toBeDefined()
       expect(hooks["experimental.chat.messages.transform"]).toBeDefined()
@@ -121,7 +123,9 @@ describe("createMetaGovernorPlugin", () => {
 
     it("then hooks still include all 3 handlers", async () => {
       clearAll()
-      const plugin = createMetaGovernorPlugin()
+      const plugin = createMetaGovernorPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
       const hooks = await plugin(mockPluginInput, options)
       expect(hooks["experimental.chat.messages.transform"]).toBeDefined()
       expect(hooks["experimental.chat.system.transform"]).toBeDefined()
@@ -144,7 +148,9 @@ describe("experimental.chat.messages.transform", () => {
       clearAll()
       storeDecision("test-session", makeDecision("warn"))
 
-      const plugin = createMetaGovernorPlugin()
+      const plugin = createMetaGovernorPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
       const hooks = await plugin(mockPluginInput, options)
       const transform = hooks["experimental.chat.messages.transform"]!
 
@@ -172,7 +178,9 @@ describe("experimental.chat.messages.transform", () => {
       clearAll()
       storeDecision("test-session", makeDecision("continue"))
 
-      const plugin = createMetaGovernorPlugin()
+      const plugin = createMetaGovernorPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
       const hooks = await plugin(mockPluginInput, options)
       const transform = hooks["experimental.chat.messages.transform"]!
 
@@ -195,7 +203,9 @@ describe("experimental.chat.messages.transform", () => {
       clearAll()
       storeDecision("test-session", makeDecision("stop"))
 
-      const plugin = createMetaGovernorPlugin()
+      const plugin = createMetaGovernorPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
       const hooks = await plugin(mockPluginInput, options)
       const transform = hooks["experimental.chat.messages.transform"]!
 
@@ -222,7 +232,9 @@ describe("experimental.chat.system.transform", () => {
       clearAll()
       storeDecision("test-session", makeDecision("stop"))
 
-      const plugin = createMetaGovernorPlugin()
+      const plugin = createMetaGovernorPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
       const hooks = await plugin(mockPluginInput, options)
       const transform = hooks["experimental.chat.system.transform"]!
 
@@ -240,6 +252,10 @@ describe("experimental.chat.system.transform", () => {
       meta_governor: {
         enabled: true,
         intervention: { mode: "message", minActionForMessage: "warn" },
+        // v0.19.3: user config enables protocolEnforcement by default;
+        // disable it explicitly so this test asserts ONLY the decision-
+        // injection path (not the protocol path).
+        protocolEnforcement: { enabled: false },
       },
     }
 
@@ -247,7 +263,9 @@ describe("experimental.chat.system.transform", () => {
       clearAll()
       storeDecision("test-session", makeDecision("stop"))
 
-      const plugin = createMetaGovernorPlugin()
+      const plugin = createMetaGovernorPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
       const hooks = await plugin(mockPluginInput, options)
       const transform = hooks["experimental.chat.system.transform"]!
 
@@ -275,7 +293,9 @@ describe("minActionForMessage threshold", () => {
       clearAll()
       storeDecision("test-session", makeDecision("warn"))
 
-      const plugin = createMetaGovernorPlugin()
+      const plugin = createMetaGovernorPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
       const hooks = await plugin(mockPluginInput, options)
       const transform = hooks["experimental.chat.messages.transform"]!
 
@@ -298,7 +318,9 @@ describe("minActionForMessage threshold", () => {
       clearAll()
       storeDecision("test-session", makeDecision("stop"))
 
-      const plugin = createMetaGovernorPlugin()
+      const plugin = createMetaGovernorPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
       const hooks = await plugin(mockPluginInput, options)
       const transform = hooks["experimental.chat.messages.transform"]!
 
@@ -335,7 +357,9 @@ describe("tool.execute.before audit", () => {
 
     it("then detects no-type-suppression violation and injects it via messages.transform", async () => {
       clearAll()
-      const plugin = createMetaGovernorPlugin()
+      const plugin = createMetaGovernorPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
       const hooks = await plugin(mockPluginInput, options)
       const before = hooks["tool.execute.before"]!
       const transform = hooks["experimental.chat.messages.transform"]!
@@ -367,7 +391,9 @@ describe("tool.execute.before audit", () => {
 
     it("then detects empty-catch violation when args contain catch(e) {}", async () => {
       clearAll()
-      const plugin = createMetaGovernorPlugin()
+      const plugin = createMetaGovernorPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
       const hooks = await plugin(mockPluginInput, options)
       const before = hooks["tool.execute.before"]!
       const transform = hooks["experimental.chat.messages.transform"]!
@@ -393,7 +419,9 @@ describe("tool.execute.before audit", () => {
 
     it("then does NOT inject any protocol violation for benign writes", async () => {
       clearAll()
-      const plugin = createMetaGovernorPlugin()
+      const plugin = createMetaGovernorPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
       const hooks = await plugin(mockPluginInput, options)
       const before = hooks["tool.execute.before"]!
       const transform = hooks["experimental.chat.messages.transform"]!
@@ -435,7 +463,9 @@ describe("tool.execute.before audit", () => {
 
     it("then tool.execute.before short-circuits and does not audit", async () => {
       clearAll()
-      const plugin = createMetaGovernorPlugin()
+      const plugin = createMetaGovernorPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
       const hooks = await plugin(mockPluginInput, options)
       const before = hooks["tool.execute.before"]!
 

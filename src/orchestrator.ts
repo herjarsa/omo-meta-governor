@@ -62,6 +62,8 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
     // preserves v0.10.0–v0.14.x behavior. Will flip to true in v0.16.0
     // once migration is documented (see types.ts).
     phaseAwareDoneSignal: false,
+    // v0.19.0: persist interventions to the session (TUI-visible).
+    persistToSession: true,
   },
   protocolEnforcement: {
 enabled: false,

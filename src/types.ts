@@ -380,6 +380,14 @@ export interface InterventionConfig {
   /** Max number of recent decision history entries to include. */
   readonly maxHistoryMessages: number
   /**
+   * v0.19.0: when true (default), intervention messages are ALSO persisted
+   * to the session via session.prompt() (session-bridge) so they appear in
+   * the OpenCode TUI and session DB. The messages.transform push alone
+   * reaches the model but is never persisted (no write path in 1.18.x),
+   * making interventions invisible to the user.
+   */
+  readonly persistToSession: boolean
+  /**
    * Max number of times a single session may receive an intervention
    * before the plugin auto-disables intervention for that session.
    * v0.10.0: prevents infinite instruction loops. Default: 3.

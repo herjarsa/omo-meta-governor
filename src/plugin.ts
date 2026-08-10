@@ -33,7 +33,7 @@ import {
   buildOmoUndoTool,
 } from "./custom-tools"
 import { getMCPClient } from "./mcp-client"
-import { setSessionClient, promptAgent, hasSessionClient, buildEscalationPrompt } from "./session-bridge"
+import { setSessionClient, promptAgent, hasSessionClient, buildEscalationPrompt, persistSessionMessage } from "./session-bridge"
 import { PendingDeliveryRegistry } from "./delivery-registry"
 import { setPendingDeliveryRegistry } from "./custom-tools"
 import { LOG_PATH, logToFile } from "./file-logger"
@@ -42,6 +42,7 @@ import { homedir } from "node:os"
 import { describeLogFile } from "./health"
 import { createMetricsCollector } from "./metrics"
 import { loadOrchestratorConfig, type MetaGovernorPluginConfig } from "./config"
+import { loadMetaGovernorConfig } from "./config-file"
 import { storeDecision, takeDecision } from "./decision-store"
 import { GraphRetrieval, getDefaultGraphRetrieval } from "./graph-retrieval"
 import { AuditStateCache } from "./audit-state-cache"
@@ -194,6 +195,7 @@ export function createMetaGovernorPlugin(
   // Log startup so the user can see the plugin is loaded
   logToFile("info", "MetaGovernor plugin loaded", {
     version: DEFAULT_VERSION,
+    build: "0.19.3-instr",
     cwd,
     projectHasCodegraph: graphRetrieval.hasCodegraphDir(cwd),
     projectHasGraphify: graphRetrieval.hasGraphifyDir(cwd),
@@ -203,7 +205,13 @@ export function createMetaGovernorPlugin(
     _input: PluginInput,
     options?: PluginOptions,
   ): Promise<Hooks> => {
-    // v0.14.0: capture OpenCode server client for MCP tool access (AgentMemory,
+    // v0.19.3 debug instrumentation: prove whether opencode invokes the
+    // factory in serve mode and what input it receives.
+    logToFile("info", "factory_invoked", {
+      hasInput: _input != null,
+      inputDir: _input?.directory ?? null,
+      inputKeys: _input ? Object.keys(_input) : [],
+    })
     // Magic Context, AFT). Hydrates the MCPClient singleton on first plugin
     // invocation. Safe to call multiple times — setClient is idempotent.
     // v0.16.0: F3.4 — runtime guard instead of "as never". The cast
@@ -220,12 +228,49 @@ export function createMetaGovernorPlugin(
     getMCPClient().setClient(safeClient as never) // safeClient narrowed to null | valid-shape
     setSessionClient(safeClient as never)
 
-    // 1. Load config from plugin options
+    // 1. Load config from three sources (priority: CLI > project > user).
+    //    The plugin file loader reads ~/.config/opencode/omo-meta-governor.jsonc
+    //    and .opencode/omo-meta-governor.jsonc automatically. Without this call,
+    //    `mergedConfig.enabled` resolves to false unless the user explicitly
+    //    passes config inline via the OpenCode plugin tuple — and most users
+    //    register the plugin as a bare string, so the hooks never fire.
+    //
+    //    v0.18.1 fix: load config file unconditionally. Use _input.directory
+    //    (the OpenCode project root) as the projectDir. Fall back to cwd
+    //    when not provided (for test environments).
+    let fileConfigSource: Awaited<ReturnType<typeof loadMetaGovernorConfig>>
+    try {
+      fileConfigSource = await loadMetaGovernorConfig({
+        projectDir: _input.directory ?? cwd,
+      })
+    } catch (err: unknown) {
+      logToFile("error", "factory_config_load_failed", {
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack?.slice(0, 800) : undefined,
+      })
+      throw err
+    }
     const rawConfig = {
       ...config,
+      ...fileConfigSource.config,
       ...((options?.meta_governor as MetaGovernorPluginConfig) ?? {}),
     }
-    const mergedConfig = loadOrchestratorConfig(rawConfig)
+    let mergedConfig: ReturnType<typeof loadOrchestratorConfig>
+    try {
+      mergedConfig = loadOrchestratorConfig(rawConfig)
+    } catch (err: unknown) {
+      logToFile("error", "factory_orchestrator_config_failed", {
+        message: err instanceof Error ? err.message : String(err),
+      })
+      throw err
+    }
+    if (fileConfigSource.sources.length > 0) {
+      logToFile("info", "config_loaded", {
+        sources: fileConfigSource.sources,
+        effectiveSource: fileConfigSource.effectiveSource,
+        enabled: mergedConfig.enabled,
+      })
+    }
 
     // 2. If disabled, return empty hooks
     // 2. If disabled, still register custom tools (but skip governance hooks)
@@ -359,6 +404,23 @@ export function createMetaGovernorPlugin(
     // in favor of the module-level detectors (detectDoneSignal,
     // detectPhaseCompleteSignal, detectPlanCompleteSignal). See the bottom
     // of this file for the export block.
+
+    // v0.19.0: persist an intervention as a REAL session message via
+    // session.prompt() so it is visible in the TUI and the session DB.
+    // Fire-and-forget, best-effort: never blocks or breaks the transform.
+    const persistIntervention = (sessionID: string, text: string): void => {
+      if (!sessionID || !text) return
+      if (!mergedConfig.intervention.persistToSession) return
+      void persistSessionMessage(sessionID, text).then((res) => {
+        if (!res.ok) {
+          logToFile("warn", `persist intervention failed for ${sessionID}`, {
+            error: res.error,
+          })
+        } else {
+          logToFile("info", `persisted intervention for ${sessionID}`)
+        }
+      })
+    }
 
     return {
       // - Tool execute before (protocol audit)
@@ -866,6 +928,7 @@ void triggerReindex(cwd).catch((err) => {
             parts: [{ type: "text", text: planText, synthetic: true }],
           })
           logToFile("info", `plan_reminder_injected for session ${currentSessionID}`)
+          persistIntervention(currentSessionID, planText)
         }
 
         // 0b. Bot feedback from PR reviewers (v0.11.0)
@@ -883,6 +946,7 @@ void triggerReindex(cwd).catch((err) => {
               "info",
               `injected ${feedback.length} bot feedback line(s) to model for session ${currentSessionID}`,
             )
+            persistIntervention(currentSessionID, feedbackText)
           }
         }
         // 1. Inject pending protocol violations so the model sees them
@@ -897,6 +961,7 @@ void triggerReindex(cwd).catch((err) => {
             })
             pendingViolations.delete(currentSessionID)
             logToFile("info", `injected ${violations.length} violation(s) to model`)
+            persistIntervention(currentSessionID, violationText)
           }
         }
 
@@ -974,6 +1039,7 @@ void triggerReindex(cwd).catch((err) => {
           info: { role: "user", agent: "meta-governor" },
           parts: [textPart],
         })
+        persistIntervention(currentSessionID, messageText)
       },
 
       // - System transform (protocol injection + system intervention mode)

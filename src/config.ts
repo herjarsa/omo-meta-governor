@@ -77,9 +77,11 @@ export interface MetaGovernorPluginConfig {
     maxInterventionsPerSession?: number
     /** v0.10.0: stop injecting after <promise>DONE</promise> + Oracle verified. */
     respectDoneSignal?: boolean
-  /** v0.15.0: split per-phase hint from terminal signal. See types.ts. */
+    /** v0.15.0: split per-phase hint from terminal signal. See types.ts. */
     phaseAwareDoneSignal?: boolean
-}
+    /** v0.19.0: persist intervention messages to the session (TUI-visible). */
+    persistToSession?: boolean
+  }
 
   /** Sisyphus protocol enforcement config. */
   protocolEnforcement?: {
@@ -223,6 +225,10 @@ export function loadOrchestratorConfig(
       // Default false (preserves v0.10.0–v0.14.x behavior). Users with
       // multi-phase plans opt in to phase-aware DONE gating.
       phaseAwareDoneSignal: full.intervention?.phaseAwareDoneSignal ?? false,
+      // v0.19.0: persist interventions to the session so the user sees
+      // them in the TUI. The transform push reaches the model but is never
+      // persisted in OpenCode 1.18.x (no write path for synthetic messages).
+      persistToSession: full.intervention?.persistToSession ?? true,
     } as InterventionConfig,
     protocolEnforcement: {
       enabled: full.protocolEnforcement?.enabled ?? false,

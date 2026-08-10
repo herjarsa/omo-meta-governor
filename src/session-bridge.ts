@@ -207,6 +207,67 @@ export async function promptAgent(
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Persist a plain-text message into the session via session.prompt() so it
+ * becomes a REAL user message: visible in the OpenCode TUI and stored in
+ * the session DB. Unlike promptAgent, this does NOT instruct the LLM to
+ * call a tool — it just records text.
+ *
+ * v0.19.0: used by messages.transform to make MetaGovernor interventions
+ * (plan reminders, violations, decisions) visible to the user. The transform
+ * push alone reaches the model but is never persisted in OpenCode 1.18.x.
+ *
+ * NOTE: session.prompt() queues the message for the LLM's next turn — it
+ * returns when queued, not when processed. Best-effort: never throws;
+ * returns ok:false with error when the client is unavailable.
+ */
+export async function persistSessionMessage(
+  sessionID: string,
+  text: string,
+  timeoutMs = 10_000,
+): Promise<PromptResult> {
+  const start = Date.now()
+  const client = _sessionStore.getStore() ?? _fallbackClient
+  if (!client) {
+    return {
+      ok: false,
+      messageID: null,
+      error: "SessionBridge: no OpenCode client captured (plugin not initialized?)",
+      durationMs: 0,
+    }
+  }
+  if (!sessionID || !text) {
+    return {
+      ok: false,
+      messageID: null,
+      error: "SessionBridge: sessionID and text are required",
+      durationMs: 0,
+    }
+  }
+  const part = { type: "text", text }
+  try {
+    const result = await raceWithTimeout(
+      client.session.prompt({ sessionID, body: { parts: [part] } }),
+      timeoutMs,
+      `session.prompt persist for ${sessionID}`,
+    )
+    const messageID = (result as { data?: { info?: { id?: string } } | null })?.data?.info?.id ?? null
+    return {
+      ok: true,
+      messageID,
+      error: null,
+      durationMs: Date.now() - start,
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      messageID: null,
+      error: err instanceof Error ? err.message : String(err),
+      durationMs: Date.now() - start,
+    }
+  }
+}
+
 function raceWithTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {

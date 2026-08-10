@@ -106,7 +106,9 @@ describe("includeDecisionHistory (Gap D)", () => {
       },
     })
 
-    const plugin = createMetaGovernorPlugin()
+    const plugin = createMetaGovernorPlugin({
+      graphSync: { enabled: false, autoInstall: false },
+    })
     const hooks = await plugin(
       {
         client: null,
