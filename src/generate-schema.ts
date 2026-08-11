@@ -268,11 +268,36 @@ export function generateSchema(): JsonSchema {
             default: 5,
             minimum: 1,
           },
-          minActionForMessage: {
+minActionForMessage: {
             type: "string",
             description: "Minimum action: 'warn' (all non-continue), 'escalate', or 'stop'.",
             enum: ["warn", "escalate", "stop"],
             default: "warn",
+          },
+          persistToSession: {
+            type: "boolean",
+            description:
+              "v0.19.0: when true (default), intervention messages are ALSO persisted to the session via session.prompt() so they appear in the OpenCode TUI and session DB. The messages.transform push alone reaches the model but is never persisted in OpenCode 1.18.x.",
+            default: true,
+          },
+          maxInterventionsPerSession: {
+            type: "integer",
+            description:
+              "Hard cap on interventions per session before the plugin auto-disables intervention. v0.10.0: prevents infinite instruction loops.",
+            default: 3,
+            minimum: 1,
+          },
+          respectDoneSignal: {
+            type: "boolean",
+            description:
+              "When true, the plugin stops injecting once the agent emits a terminal completion signal AND Oracle has verified the work.",
+            default: true,
+          },
+          phaseAwareDoneSignal: {
+            type: "boolean",
+            description:
+              "v0.15.0: split per-phase hint from terminal signal. When true, <promise>PLAN-COMPLETE</promise> is the only terminal marker (DONE / PHASE-N-COMPLETE are per-phase hints).",
+            default: false,
           },
         },
       },

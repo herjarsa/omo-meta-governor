@@ -77,7 +77,7 @@ describe("generateSchema", () => {
       expect(sc.stopThreshold.default).toBe(0.8)
     })
 
-    it("then has intervention with enum constraints", () => {
+it("then has intervention with enum constraints", () => {
       expect(props.intervention).toBeDefined()
       const iv = props.intervention.properties!
       expect(iv.mode.enum).toEqual(["silent", "message", "system"])
@@ -86,6 +86,26 @@ describe("generateSchema", () => {
       expect(iv.minActionForMessage.default).toBe("warn")
       expect(iv.includeDecisionHistory.default).toBe(true)
       expect(iv.maxHistoryMessages.default).toBe(5)
+    })
+
+    it("then has intervention with all v0.10–v0.19 fields", () => {
+      const iv = props.intervention.properties!
+      // v0.19.0
+      expect(iv.persistToSession).toBeDefined()
+      expect(iv.persistToSession.type).toBe("boolean")
+      expect(iv.persistToSession.default).toBe(true)
+      // v0.10.0
+      expect(iv.maxInterventionsPerSession).toBeDefined()
+      expect(iv.maxInterventionsPerSession.type).toBe("integer")
+      expect(iv.maxInterventionsPerSession.default).toBe(3)
+      // v0.10.0/0.15.0
+      expect(iv.respectDoneSignal).toBeDefined()
+      expect(iv.respectDoneSignal.type).toBe("boolean")
+      expect(iv.respectDoneSignal.default).toBe(true)
+      // v0.15.0
+      expect(iv.phaseAwareDoneSignal).toBeDefined()
+      expect(iv.phaseAwareDoneSignal.type).toBe("boolean")
+      expect(iv.phaseAwareDoneSignal.default).toBe(false)
     })
 
     it("then has modelOverride with all sub-fields", () => {
