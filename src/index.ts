@@ -29,7 +29,30 @@ import { createMetaGovernorPlugin } from "./plugin"
 const _plugin = createMetaGovernorPlugin()
 ;( _plugin as unknown as { id: string; server: typeof _plugin } ).id = "omo-meta-governor"
 ;( _plugin as unknown as { id: string; server: typeof _plugin } ).server = _plugin
-export default _plugin
+
+/**
+ * Dual-shape export for opencode plugin loader compatibility.
+ *
+ * The default export is simultaneously:
+ * - a Plugin function: `default(input, options) => Promise<Hooks>`
+ * - a PluginModule: `default.id`, `default.server(input, options)`
+ *
+ * `.server` points to the same callable as the default, so whichever
+ * shape the opencode loader resolves, the factory fires exactly once.
+ */
+export const _pluginDual: Plugin & { id: string; server: Plugin } = _plugin as unknown as Plugin & {
+  id: string
+  server: Plugin
+}
+
+export default _pluginDual
+
+/**
+ * Named alias of the dual-shape export. Some opencode plugin loaders
+ * resolve plugins by named export rather than default — exposing both
+ * covers that third hypothetical path with zero cost.
+ */
+export const plugin = _pluginDual
 
 export { createMetaGovernorPlugin, type MetaGovernorPluginDeps } from "./plugin"
 export { logToFile } from "./file-logger"

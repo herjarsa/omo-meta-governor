@@ -112,7 +112,7 @@ function extractQueryFromArgs(toolInput: { tool: string; args?: unknown }): stri
   return null
 }
 
-// Module-level metrics collector — shared across all invocations of the plugin
+// Module-level metrics collector â€” shared across all invocations of the plugin
 const metricsCollector = createMetricsCollector({ sessionID: "__global__", global: true, version: DEFAULT_VERSION })
 const healthFilePath = resolve(homedir(), ".config", "opencode", "meta-governor-health.json")
 
@@ -146,7 +146,7 @@ export function createMetaGovernorPlugin(
   // v0.14.0: extended tools (CodeGraph sub-commands)
   const omoFindTool = buildOmoFindTool({ cwd })
   const omoImpactTool = buildOmoImpactTool({ cwd })
-  // v0.14.0: Opción A pivot — tools that bridge to MCP servers via session.prompt()
+  // v0.14.0: OpciÃ³n A pivot â€” tools that bridge to MCP servers via session.prompt()
   const omoRememberTool = buildOmoRememberTool({
   onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
     deliveryRegistry.register({ sessionID, mcpTool, mcpArgs })
@@ -195,7 +195,7 @@ export function createMetaGovernorPlugin(
   // Log startup so the user can see the plugin is loaded
   logToFile("info", "MetaGovernor plugin loaded", {
     version: DEFAULT_VERSION,
-    build: "0.19.4-instr",
+    build: "0.19.5-instr",
     cwd,
     projectHasCodegraph: graphRetrieval.hasCodegraphDir(cwd),
     projectHasGraphify: graphRetrieval.hasGraphifyDir(cwd),
@@ -213,8 +213,8 @@ export function createMetaGovernorPlugin(
       inputKeys: _input ? Object.keys(_input) : [],
     })
     // Magic Context, AFT). Hydrates the MCPClient singleton on first plugin
-    // invocation. Safe to call multiple times — setClient is idempotent.
-    // v0.16.0: F3.4 — runtime guard instead of "as never". The cast
+    // invocation. Safe to call multiple times â€” setClient is idempotent.
+    // v0.16.0: F3.4 â€” runtime guard instead of "as never". The cast
     // hid incompatibilities between OpenCode plugin API versions; the
     // guard makes failures visible (we skip hydration) instead of
     // silently feeding the wrong shape to setClient.
@@ -232,7 +232,7 @@ export function createMetaGovernorPlugin(
     //    The plugin file loader reads ~/.config/opencode/omo-meta-governor.jsonc
     //    and .opencode/omo-meta-governor.jsonc automatically. Without this call,
     //    `mergedConfig.enabled` resolves to false unless the user explicitly
-    //    passes config inline via the OpenCode plugin tuple — and most users
+    //    passes config inline via the OpenCode plugin tuple â€” and most users
     //    register the plugin as a bare string, so the hooks never fire.
     //
     //    v0.18.1 fix: load config file unconditionally. Use _input.directory
@@ -499,7 +499,7 @@ export function createMetaGovernorPlugin(
           // deviation-detector signal actually fires downstream. Decay the
           // window to the last 5 violations per session so a single bad
           // day doesn't poison scoring forever. Convert ProtocolViolation
-          // → Deviation shape (rule → category).
+          // â†’ Deviation shape (rule â†’ category).
           const newDeviations = violations.map((v) => ({
             severity: v.severity,
             category: v.rule,
@@ -511,7 +511,7 @@ export function createMetaGovernorPlugin(
         }
 
         // v0.13.0: actually invoke codegraph/graphify when the agent is about
-        // to do a search. This is the C2 fix — previously the plugin only
+        // to do a search. This is the C2 fix â€” previously the plugin only
         // told the agent to use graph tools via prompt text. Now it runs them
         // and caches the result for system.transform to inject.
         if (
@@ -652,7 +652,7 @@ export function createMetaGovernorPlugin(
           }
         }
 
-        // v0.10.0: hard break — if intervention already disabled, skip orchestrator
+        // v0.10.0: hard break â€” if intervention already disabled, skip orchestrator
         if (sessionState?.interventionDisabled) {
           return
         }
@@ -709,7 +709,7 @@ export function createMetaGovernorPlugin(
                 writeBackend: userWrite ?? sqlite,
               }
             } catch {
-              // SQLite init failed (no Bun, no permissions, etc.) — degrade silently
+              // SQLite init failed (no Bun, no permissions, etc.) â€” degrade silently
               return {
                 backends: userBackends ?? {
                   agentmemory: { smartSearch: async () => ({ lessons: [], crystals: [] }) },
@@ -846,8 +846,8 @@ export function createMetaGovernorPlugin(
                 command: cmd ?? "",
                 sessionID: toolInput.sessionID,
               })
-// Fire and forget — don't block the tool call.
-// v0.16.0: triggerReindex (was triggerCodegraphSync) — reindexes both
+// Fire and forget â€” don't block the tool call.
+// v0.16.0: triggerReindex (was triggerCodegraphSync) â€” reindexes both
 // codegraph and graphify, not just codegraph.
 void triggerReindex(cwd).catch((err) => {
   logToFile("warn", `codegraph sync failed: ${String(err)}`)
@@ -914,7 +914,7 @@ void triggerReindex(cwd).catch((err) => {
           return
         }
 
-        // 0. Plan reminder (v0.11.0) — nudge the agent to make a plan
+        // 0. Plan reminder (v0.11.0) â€” nudge the agent to make a plan
         //    before code changes, but only once per session.
         if (
           state &&
@@ -965,7 +965,7 @@ void triggerReindex(cwd).catch((err) => {
           }
         }
 
-        // 2. Inject MetaGovernor decision — SCOPED to current session
+        // 2. Inject MetaGovernor decision â€” SCOPED to current session
         const decision = takeDecision(currentSessionID)
         if (!decision) return
         if (decision.action === "continue") return
@@ -1102,7 +1102,7 @@ void triggerReindex(cwd).catch((err) => {
         }
       },
 
-      // v0.13.1: custom tool registration — the LLM can call these explicitly
+      // v0.13.1: custom tool registration â€” the LLM can call these explicitly
       tool: {
         omo_search: omoSearchTool,
         omo_recall: omoRecallTool,
@@ -1164,7 +1164,7 @@ void triggerReindex(cwd).catch((err) => {
 
   return plugin
 }
-// ─── v0.11.0: helpers ────────────────────────────────────────────
+// â”€â”€â”€ v0.11.0: helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Detect whether a shell command is a `git commit` invocation.
@@ -1175,7 +1175,7 @@ export { isGitCommitCommand } from "./graph-sync"
 /**
  * Extract bot feedback lines from `gh pr checks` output.
  * Returns an array of human-readable notes like:
- *   "pr-42 · claude-code-review: CodeRabbit found issues: missing test for X"
+ *   "pr-42 Â· claude-code-review: CodeRabbit found issues: missing test for X"
  * Only "fail" status is reported; "pass" and "pending" are ignored.
  */
 export function extractBotFeedbackFromGhOutput(
@@ -1192,7 +1192,7 @@ export function extractBotFeedbackFromGhOutput(
     if (match) {
       const name = match[1]!.trim()
       const details = match[3]!.trim()
-      feedback.push(`${prIdentifier} · ${name}: ${details}`)
+      feedback.push(`${prIdentifier} Â· ${name}: ${details}`)
     }
   }
   return feedback
@@ -1239,11 +1239,11 @@ export function shouldInjectPlanReminder(
   return true
 }
 
-// ─── v0.15.0 completion-signal detectors (module-level exports for testing) ───
+// â”€â”€â”€ v0.15.0 completion-signal detectors (module-level exports for testing) â”€â”€â”€
 
 /**
  * v0.10.0 legacy detector. Matches `<promise>DONE</promise>` (with optional
- * trailing `!`) and nothing else. Retained for backwards compatibility —
+ * trailing `!`) and nothing else. Retained for backwards compatibility â€”
  * new code should prefer {@link detectPhaseCompleteSignal} for per-phase
  * hints or {@link detectPlanCompleteSignal} for the terminal marker.
  */
