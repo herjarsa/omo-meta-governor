@@ -195,7 +195,7 @@ export function createMetaGovernorPlugin(
   // Log startup so the user can see the plugin is loaded
   logToFile("info", "MetaGovernor plugin loaded", {
     version: DEFAULT_VERSION,
-    build: "0.19.3-instr",
+    build: "0.19.4-instr",
     cwd,
     projectHasCodegraph: graphRetrieval.hasCodegraphDir(cwd),
     projectHasGraphify: graphRetrieval.hasGraphifyDir(cwd),
