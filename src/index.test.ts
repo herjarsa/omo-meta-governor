@@ -17,7 +17,8 @@
  * can't silently regress the opencode serve invocation path.
  */
 import { describe, expect, test } from "bun:test"
-import pluginModule, { createMetaGovernorPlugin, plugin } from "./index"
+import pluginModule from "./index"
+import { createMetaGovernorPlugin } from "./lib"
 
 describe("default export (v0.19.4 dual-shape)", () => {
   test("is a callable function (Plugin path)", () => {
@@ -36,13 +37,16 @@ describe("default export (v0.19.4 dual-shape)", () => {
 })
 
 describe("named exports still work", () => {
-  test("createMetaGovernorPlugin is exported", () => {
+  test("createMetaGovernorPlugin is exported from lib", () => {
     expect(typeof createMetaGovernorPlugin).toBe("function")
   })
 
-  test("named plugin export is the same dual-shape object (v0.19.5)", () => {
-    expect(plugin).toBe(pluginModule)
-    expect((plugin as unknown as { server: unknown }).server).toBe(pluginModule)
-    expect((plugin as unknown as { id: string }).id).toBe("omo-meta-governor")
+  test("calling the default fires the factory and returns hooks", async () => {
+    const hooks = await pluginModule(
+      { client: null, project: null, directory: "", worktree: "", experimental_workspace: { register: () => {} }, serverUrl: new URL("http://localhost"), $: null } as never,
+      {},
+    )
+    expect(typeof hooks["tool.execute.after"]).toBe("function")
+    expect(typeof hooks["experimental.session.compacting"]).toBe("function")
   })
 })

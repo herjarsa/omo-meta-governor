@@ -19,7 +19,7 @@ import {
   type OrchestratorConfig,
   runMetaGovernor,
   defaultOrchestratorConfig,
-} from "./index"
+} from "./lib"
 import type {
   AggregateReadInput,
   AggregateReadResult,
