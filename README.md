@@ -602,6 +602,75 @@ still respected.
 
 ---
 
+## v0.19.7 — Fix npm-published package.json: restore `import` condition in `exports` (patch)
+
+v0.19.6 shipped a single callable default export with the dual-shape contract (memory #1126) but the published tarball's `package.json` had the `exports` map regenerated to contain only the `types` condition — no `import`/`default`/`require` runtime condition. Under opencode 1.18.16's plugin loader, that caused the npm-package plugin to load the module (module scope ran, `MetaGovernor plugin loaded` logged) but **never invoke the factory** (`factory_invoked` was 0). v0.19.4 had empirically verified the dual-shape fix for `opencode serve`; v0.19.6 on `opencode run` with the same dual-shape bundle in the npm cache was silently broken for the same reason.
+
+### The bug
+
+`package.json` in the v0.19.6 tarball (read from the installed package in `~/.cache/opencode/packages/@herjarsa/omo-meta-governor@latest/...`):
+
+```json
+"exports": {
+    ".": { "types": "./dist/index.d.ts" },
+    "./lib": { "types": "./dist/lib.d.ts" }
+}
+```
+
+vs. the repo's source `package.json` (correct, with `import` condition for runtime resolution):
+
+```json
+"exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./lib": { "types": "./dist/lib.d.ts", "import": "./dist/lib.js" }
+}
+```
+
+The published manifest lost the `import` condition (and `peerDependencies: {"@opencode-ai/plugin": ">=1.0.0"}`, `publishConfig`, `repository.url`, `devDependencies.typescript`, `files` README entry, `scripts.test`). When opencode's plugin installer resolves the entry via `exports`, only `"types"` is offered — no runtime condition matches → the loader imports the bundle by `main` fallback but the export contract that uk() (`opencode.util.createPlugin`) inspects isn't satisfied, so the plugin is loaded but never invoked.
+
+### How the bug was reproduced
+
+Cheap-shape probes (`@herjarsa/omg-shape-probe2` … `probe7`) with byte-identical Bun-bundles from `dist/index.js` were published to npm and tested under `opencode run` with XDG-isolated config. All probes with `exports."."` containing `"import"` or `"default"` invoked the factory. The probe replicating the exact published shape (types-only exports) failed to invoke. Bundle SHA-256 identical between probes and the real published package:
+```
+E737C676FCC74B6CBA771616058BC5620C1F0364089B1B8626246E96FF02ED69
+```
+
+### The fix
+
+No source/bundle changes — the bundle was correct all along. The malformed published `package.json` was restored from the repo (`git show HEAD:package.json` has the canonical full exports map with `import`) and only the version was bumped to `0.19.7`. Rebuild with `bun build.ts` (bakes version into the bundle), published, verified.
+
+### Verification
+
+XDG-isolated opencode run (`opencode run` with custom config pointing at `@herjarsa/omo-meta-governor@latest`):
+
+- v0.19.6 (cache populated): log shows `MetaGovernor plugin loaded` only — **no `factory_invoked`**, intervention never runs.
+- v0.19.7 (cache cleared, reinstalled): log shows full chain:
+  ```
+  [meta-governor] MetaGovernor plugin loaded
+  [meta-governor] factory_invoked
+  [meta-governor] SessionBridge: OpenCode client hydrated — session.prompt() available
+  [meta-governor] config_loaded
+  ```
+
+Updated `~/.cache/opencode/packages/@herjarsa/omo-meta-governor@latest/node_modules/@herjarsa/omo-meta-governor/package.json` now reads `exports."."` = `{ types: "./dist/index.d.ts", import: "./dist/index.js" }` and `peerDependencies` = `{ "@opencode-ai/plugin": ">=1.0.0" }`.
+
+### Test & build status
+
+- `bun run typecheck` clean.
+- `bun build.ts` clean (0.34 MB dist, version 0.19.7 baked in).
+- `npm publish` to registry OK.
+- Empirical harness verification: factory_invoked + config_logged restored.
+
+### Migration
+
+No user action required. If you were running v0.19.6 and the plugin appeared silent (no interventions, no metrics), delete your opencode cache:
+```bash
+rm -rf ~/.cache/opencode/packages/@herjarsa/omo-meta-governor@latest
+```
+Then restart opencode — it will reinstall v0.19.7 from the registry and the pipeline will fire normally.
+
+---
+
 ## v0.19.3 — opencode serve factory invocation + persistSessionMessage wiring
 
 This release closes the persistSessionMessage wiring arc (memory #999) and
