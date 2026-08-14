@@ -83,7 +83,8 @@ describe("graphSync init placement", () => {
     await plugin(makeInput(undefined as unknown as string), {})
     expect(seen.length).toBe(1)
     // Must be an absolute path (resolve() applied), not the empty string.
-    expect(seen[0]).toMatch(/^[A-Za-z]:[\\/]/)
+    // Portable across OSes: Windows drive paths (D:\\...) and POSIX (/home/...).
+    expect(seen[0]).toMatch(/^([A-Za-z]:[\\/]|\/)/)
   })
 
   it("does NOT fire when graphSync.enabled is false", async () => {
