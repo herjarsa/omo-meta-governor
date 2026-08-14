@@ -85,6 +85,7 @@ All source files live flat in `src/` — no subdirectories. Files are organized 
 | File | Purpose |
 |------|---------|
 | `generate-schema.ts` | JSON Schema generator for `omo-meta-governor.jsonc` config |
+| `proc-guard.ts` | Process-zombie safeguards: kill-tree (taskkill /T /F), guarded spawn, orphan sweep |
 
 ### Test Files
 

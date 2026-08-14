@@ -118,6 +118,18 @@ MetaGovernor wires the plugin into the native git hooks of **codegraph** and
 - **Backup path** (plugin's `tool.execute.after`): detects `git commit` in
   bash commands and runs `codegraph sync -q [path]`.
 
+### Process zombie safeguards (v0.22.0)
+
+Every subprocess the plugin spawns (graphify, codegraph, `aft`, npx, python,
+npm/pip) is guaranteed to die after use — on success, error, AND timeout —
+including its descendant tree. On Windows this uses `taskkill /pid <pid> /T /F`
+(plain `child.kill()` only kills the direct shell, orphaning grandchildren —
+the confirmed cause of the Bun/OpenChamber crashes).
+
+Config: `graphSync.killOrphanedOnInit` (default `true`) — on graph-sync init
+the plugin sweeps orphaned `graphify`/`codegraph`/`aft` processes left by
+previous crashed runs. Set to `false` to disable the sweep.
+
 ## Intervention
 
 MetaGovernor can inject governance decisions into the agent's context.

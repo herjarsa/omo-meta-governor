@@ -146,6 +146,19 @@ On each `git commit`:
 - **Primary path**: native git hook runs `graphify update` in background.
 - **Backup path**: `tool.execute.after` detects `git commit` in bash commands and runs `codegraph sync -q [path]`.
 
+### Process Zombie Safeguards (`proc-guard.ts`, v0.22.0)
+
+`src/proc-guard.ts` guarantees every subprocess the plugin spawns dies after
+use — on success, error, and timeout — including its descendant tree:
+- `killProcessTree(pid)` — win32 `taskkill /pid <pid> /T /F`; POSIX group SIGKILL.
+- `runGuarded` / `runGuardedSync` — spawn wrappers with kill-tree on timeout;
+  used by `spawnWithTimeout` (graph-retrieval), installs, hook install, and
+  reindex triggers (graph-sync). The `runner` DI seam is preserved for hermetic tests.
+- `killOrphanedToolProcesses()` — swept once at graph-sync init when
+  `graphSync.killOrphanedOnInit` (default `true`) is set.
+Watch processes carry an `OMO_MG_WATCH`/`OMO_MG_SPAWN` marker so the sweep can
+identify them via CommandLine.
+
 ### Graph Retrieval (`graph-retrieval.ts`)
 
 Invokes codegraph or graphify CLI and caches results per-session (5min TTL, 10 entries LRU).
