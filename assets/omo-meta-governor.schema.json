@@ -289,6 +289,37 @@
         }
       }
     },
+    "skillPriming": {
+      "type": "object",
+      "description": "Skill priming config (v0.20.0): proactive skill-selection nudge injected once per session.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Master switch for skill priming injection.",
+          "default": false
+        },
+        "trigger": {
+          "type": "string",
+          "description": "When to inject: 'sessionStart' (first transform call) or 'firstImplement' (once implementation work begins).",
+          "enum": [
+            "firstImplement",
+            "sessionStart"
+          ],
+          "default": "firstImplement"
+        },
+        "router": {
+          "type": "string",
+          "description": "Which skill system(s) the directive references: 'aas', 'superpowers', or 'both'.",
+          "enum": [
+            "aas",
+            "superpowers",
+            "both"
+          ],
+          "default": "both"
+        }
+      }
+    },
     "graphSync": {
       "type": "object",
       "description": "Graph synchronization (auto-init codegraph/graphify).",

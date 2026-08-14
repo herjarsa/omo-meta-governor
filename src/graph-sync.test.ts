@@ -14,6 +14,9 @@ import {
   runGraphSync,
   stopWatches,
   resetInitializedProjects,
+  initGraphify,
+  initCodegraph,
+  checkToolAvailability,
   type GraphSyncConfig,
 } from "./graph-sync"
 
@@ -101,6 +104,74 @@ describe("runGraphSync", () => {
       const result = await runGraphSync({ enabled: false, watch: false })
       expect(result.codes).toContain("disabled")
     })
+  })
+})
+
+describe("initGraphify fallback chain (Windows graphify binary)", () => {
+  const projectDir = "/tmp/omo-graphify-fallback"
+
+  it("tries the `graphify` BINARY (not just python3 -m graphify)", async () => {
+    // Simulate a Windows machine where `graphify` binary exists but
+    // `python3 -m graphify` fails (python3 is a WindowsApps stub).
+    const seen: string[] = []
+    const runner = ((cmd: string) => {
+      seen.push(cmd)
+      if (cmd.startsWith("graphify ")) return Buffer.from("ok")
+      throw new Error("command failed")
+    }) as typeof import("node:child_process").execSync
+
+    const ok = await initGraphify(projectDir, 5_000, runner)
+    expect(ok).toBe(true)
+    // The binary form must be among the attempted commands.
+    expect(seen.some((c) => c.startsWith("graphify ."))).toBe(true)
+  })
+
+  it("returns false (not undefined) when every candidate fails", async () => {
+    const runner = (() => {
+      throw new Error("all fail")
+    }) as unknown as typeof import("node:child_process").execSync
+
+    const ok = await initGraphify(projectDir, 5_000, runner)
+    expect(ok).toBe(false)
+  })
+})
+
+describe("initCodegraph honest return", () => {
+  const projectDir = "/tmp/omo-codegraph-fallback"
+
+  it("returns true when the init command succeeds", async () => {
+    const runner = (() => Buffer.from("ok")) as unknown as typeof import("node:child_process").execSync
+    const ok = await initCodegraph(projectDir, 5_000, runner)
+    expect(ok).toBe(true)
+  })
+
+  it("returns false when the init command fails", async () => {
+    const runner = (() => {
+      throw new Error("init failed")
+    }) as unknown as typeof import("node:child_process").execSync
+    const ok = await initCodegraph(projectDir, 5_000, runner)
+    expect(ok).toBe(false)
+  })
+})
+
+describe("checkToolAvailability index markers", () => {
+  const projectDir = "/tmp/omo-availability-markers"
+
+  it("reports codegraphIndexExists=false when .codegraph dir is EMPTY (no codegraph.db)", async () => {
+    const fs = await import("node:fs/promises")
+    const path = await import("node:path")
+    await fs.rm(projectDir, { recursive: true, force: true })
+    await fs.mkdir(path.join(projectDir, ".codegraph"), { recursive: true })
+
+    const runner = (() => {
+      throw new Error("not available")
+    }) as unknown as typeof import("node:child_process").execSync
+    const avail = await checkToolAvailability(projectDir, runner)
+    // Empty dir without the marker file must NOT count as initialized.
+    expect(avail.codegraphIndexExists).toBe(false)
+    expect(avail.graphifyIndexExists).toBe(false)
+
+    await fs.rm(projectDir, { recursive: true, force: true })
   })
 })
 

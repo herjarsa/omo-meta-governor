@@ -141,6 +141,9 @@ describe("experimental.chat.messages.transform", () => {
       meta_governor: {
         enabled: true,
         intervention: { mode: "message", minActionForMessage: "warn" },
+        // v0.20.0: user config enables skillPriming; disable it here so
+        // this test asserts ONLY the decision-injection path.
+        skillPriming: { enabled: false },
       },
     }
 
@@ -311,6 +314,9 @@ describe("minActionForMessage threshold", () => {
       meta_governor: {
         enabled: true,
         intervention: { mode: "message", minActionForMessage: "escalate" },
+        // v0.20.0: user config enables skillPriming; disable it here so
+        // this test asserts ONLY the decision-injection path.
+        skillPriming: { enabled: false },
       },
     }
 

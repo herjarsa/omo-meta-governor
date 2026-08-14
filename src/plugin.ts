@@ -1,20 +1,25 @@
-import type { Hooks, Plugin, PluginInput, PluginOptions } from "@opencode-ai/plugin"
-import { randomUUID as crypto_randomUUID } from "node:crypto"
+import type {
+  Hooks,
+  Plugin,
+  PluginInput,
+  PluginOptions,
+} from "@opencode-ai/plugin";
+import { randomUUID as crypto_randomUUID } from "node:crypto";
 import type {
   AgentmemoryWriteBackend,
   DecisionHandlerOutput,
   MemoryBackends,
   MetaGovernorInput,
-} from "./types"
+} from "./types";
 import {
   runGraphSync,
   trackSession,
   untrackSession,
   isGitCommitCommand,
   triggerReindex,
-} from "./graph-sync"
-import { runMetaGovernor } from "./orchestrator"
-import { getDefaultSqliteBackend } from "./sqlite-backend"
+} from "./graph-sync";
+import { runMetaGovernor } from "./orchestrator";
+import { getDefaultSqliteBackend } from "./sqlite-backend";
 import {
   buildOmoSearchTool,
   buildOmoRecallTool,
@@ -31,48 +36,67 @@ import {
   buildOmoOutlineTool,
   buildOmoCheckpointTool,
   buildOmoUndoTool,
-} from "./custom-tools"
-import { getMCPClient } from "./mcp-client"
-import { setSessionClient, promptAgent, hasSessionClient, buildEscalationPrompt, persistSessionMessage } from "./session-bridge"
-import { PendingDeliveryRegistry } from "./delivery-registry"
-import { setPendingDeliveryRegistry } from "./custom-tools"
-import { LOG_PATH, logToFile } from "./file-logger"
-import { resolve } from "node:path"
-import { homedir } from "node:os"
-import { describeLogFile } from "./health"
-import { createMetricsCollector } from "./metrics"
-import { loadOrchestratorConfig, type MetaGovernorPluginConfig } from "./config"
-import { loadMetaGovernorConfig } from "./config-file"
-import { storeDecision, takeDecision } from "./decision-store"
-import { GraphRetrieval, getDefaultGraphRetrieval } from "./graph-retrieval"
-import { AuditStateCache } from "./audit-state-cache"
-import { DEFAULT_VERSION } from "./metrics"
-import { statSync, readFileSync } from "node:fs"
-import { join } from "node:path"
+} from "./custom-tools";
+import { getMCPClient } from "./mcp-client";
+import {
+  setSessionClient,
+  promptAgent,
+  hasSessionClient,
+  buildEscalationPrompt,
+  persistSessionMessage,
+  promptAgentText,
+} from "./session-bridge";
+import { PendingDeliveryRegistry } from "./delivery-registry";
+import { setPendingDeliveryRegistry } from "./custom-tools";
+import { LOG_PATH, logToFile } from "./file-logger";
+import { resolve } from "node:path";
+import { homedir } from "node:os";
+import { describeLogFile } from "./health";
+import { createMetricsCollector } from "./metrics";
+import {
+  loadOrchestratorConfig,
+  type MetaGovernorPluginConfig,
+} from "./config";
+import { loadMetaGovernorConfig } from "./config-file";
+import { storeDecision, takeDecision } from "./decision-store";
+import { GraphRetrieval, getDefaultGraphRetrieval } from "./graph-retrieval";
+import { AuditStateCache } from "./audit-state-cache";
+import { DEFAULT_VERSION } from "./metrics";
+import { statSync, readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+import { join } from "node:path";
 import {
   loadProtocol,
   buildSystemInjection,
   auditToolCall,
   DEFAULT_PROTOCOL_PATH,
-} from "./protocol-enforcer"
+} from "./protocol-enforcer";
+import {
+  buildSkillPrimingMessage,
+  shouldInjectSkillPriming,
+  IMPLEMENTATION_TOOLS,
+} from "./skill-priming";
 
 /**
  * Dependencies required by the MetaGovernor plugin.
  * All are optional - features degrade gracefully when backends are unavailable.
  */
 export interface MetaGovernorPluginDeps {
-  backends?: MemoryBackends
-  writeBackend?: AgentmemoryWriteBackend
-  providerID?: () => string | undefined
-  modelID?: () => string | undefined
+  backends?: MemoryBackends;
+  writeBackend?: AgentmemoryWriteBackend;
+  providerID?: () => string | undefined;
+  modelID?: () => string | undefined;
   // v0.11.0: test-only hooks for hermetic assertions. NOT part of the
   // public contract; used by integration tests to verify the plugin
   // triggered an event without depending on filesystem state.
   __test_onCommitTrigger?: (payload: {
-    projectDir: string
-    command: string
-    sessionID: string
-  }) => void
+    projectDir: string;
+    command: string;
+    sessionID: string;
+  }) => void;
+  /** v0.21.0: test-only hook — asserts runGraphSync is invoked with the
+   * session's projectDir (fix: was module-load cwd under serve). */
+  __test_onGraphSyncInit?: (payload: { projectDir: string }) => void;
 }
 
 // - Helpers
@@ -82,17 +106,17 @@ const ACTION_SEVERITY: Record<DecisionHandlerOutput["action"], number> = {
   warn: 1,
   escalate: 2,
   stop: 3,
-}
+};
 
 function meetsMinAction(
   action: DecisionHandlerOutput["action"],
   minAction: "warn" | "escalate" | "stop",
 ): boolean {
-  return ACTION_SEVERITY[action] >= ACTION_SEVERITY[minAction]
+  return ACTION_SEVERITY[action] >= ACTION_SEVERITY[minAction];
 }
 
 function generateID(): string {
-  return `mg-${crypto_randomUUID()}`
+  return `mg-${crypto_randomUUID()}`;
 }
 
 /**
@@ -100,21 +124,40 @@ function generateID(): string {
  * `pattern` field. For `glob`, the query is the `pattern` field. Returns
  * null if no usable query can be extracted.
  */
-function extractQueryFromArgs(toolInput: { tool: string; args?: unknown }): string | null {
-  const args = (toolInput as { args?: Record<string, unknown> }).args
-  if (!args || typeof args !== "object") return null
+function extractQueryFromArgs(toolInput: {
+  tool: string;
+  args?: unknown;
+}): string | null {
+  const args = (toolInput as { args?: Record<string, unknown> }).args;
+  if (!args || typeof args !== "object") return null;
   // Common arg names for grep/glob across OpenCode versions
-  const candidates = ["pattern", "query", "path", "glob", "regex", "include_pattern"]
+  const candidates = [
+    "pattern",
+    "query",
+    "path",
+    "glob",
+    "regex",
+    "include_pattern",
+  ];
   for (const key of candidates) {
-    const v = (args as Record<string, unknown>)[key]
-    if (typeof v === "string" && v.trim().length > 0) return v.trim()
+    const v = (args as Record<string, unknown>)[key];
+    if (typeof v === "string" && v.trim().length > 0) return v.trim();
   }
-  return null
+  return null;
 }
 
 // Module-level metrics collector â€” shared across all invocations of the plugin
-const metricsCollector = createMetricsCollector({ sessionID: "__global__", global: true, version: DEFAULT_VERSION })
-const healthFilePath = resolve(homedir(), ".config", "opencode", "meta-governor-health.json")
+const metricsCollector = createMetricsCollector({
+  sessionID: "__global__",
+  global: true,
+  version: DEFAULT_VERSION,
+});
+const healthFilePath = resolve(
+  homedir(),
+  ".config",
+  "opencode",
+  "meta-governor-health.json",
+);
 
 // - Plugin factory
 
@@ -126,71 +169,61 @@ export function createMetaGovernorPlugin(
   // This fixes the race condition where static booleans were set at load
   // time before async runGraphSync() could create the directories.
   // The booleans below remain for backwards-compat with AuditContext.
-  const graphRetrieval = getDefaultGraphRetrieval()
+  const graphRetrieval = getDefaultGraphRetrieval();
   // v0.17.0 (F3.6): track bridge tool dispatches and verify delivery.
-  const deliveryRegistry = new PendingDeliveryRegistry()
+  const deliveryRegistry = new PendingDeliveryRegistry();
   // Inject the registry into the custom-tools module so bridge tools
   // can register pending dispatches + poll for delivery.
-  setPendingDeliveryRegistry(deliveryRegistry as unknown as Parameters<typeof setPendingDeliveryRegistry>[0])
-  const cwd = process.cwd()
+  setPendingDeliveryRegistry(
+    deliveryRegistry as unknown as Parameters<
+      typeof setPendingDeliveryRegistry
+    >[0],
+  );
+  const cwd = process.cwd();
 
   // v0.13.1: initialize custom tools for the LLM to call.
-  const sqlite = getDefaultSqliteBackend()
-  const omoSearchTool = buildOmoSearchTool({ graphRetrieval, cwd })
-  const omoRecallTool = buildOmoRecallTool({ sqlite })
+  const sqlite = getDefaultSqliteBackend();
+  const omoSearchTool = buildOmoSearchTool({ graphRetrieval, cwd });
+  const omoRecallTool = buildOmoRecallTool({ sqlite });
   const omoHealthTool = buildOmoHealthTool({
     metrics: metricsCollector,
     logFilePath: LOG_PATH,
     healthFilePath: healthFilePath,
-  })
+  });
   // v0.14.0: extended tools (CodeGraph sub-commands)
-  const omoFindTool = buildOmoFindTool({ cwd })
-  const omoImpactTool = buildOmoImpactTool({ cwd })
+  const omoFindTool = buildOmoFindTool({ cwd });
+  const omoImpactTool = buildOmoImpactTool({ cwd });
   // v0.14.0: OpciÃ³n A pivot â€” tools that bridge to MCP servers via session.prompt()
   const omoRememberTool = buildOmoRememberTool({
-  onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
-    deliveryRegistry.register({ sessionID, mcpTool, mcpArgs })
-  },
-})
+    onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
+      deliveryRegistry.register({ sessionID, mcpTool, mcpArgs });
+    },
+  });
   const omoRecallMcpTool = buildOmoRecallMcpTool({
-  onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
-    deliveryRegistry.register({ sessionID, mcpTool, mcpArgs })
-  },
-})
+    onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
+      deliveryRegistry.register({ sessionID, mcpTool, mcpArgs });
+    },
+  });
   const omoRuleTool = buildOmoRuleTool({
-  onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
-    deliveryRegistry.register({ sessionID, mcpTool, mcpArgs })
-  },
-})
+    onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
+      deliveryRegistry.register({ sessionID, mcpTool, mcpArgs });
+    },
+  });
   const omoHistoryTool = buildOmoHistoryTool({
-  onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
-    deliveryRegistry.register({ sessionID, mcpTool, mcpArgs })
-  },
-})
+    onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
+      deliveryRegistry.register({ sessionID, mcpTool, mcpArgs });
+    },
+  });
   const omoNoteTool = buildOmoNoteTool({
-  onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
-    deliveryRegistry.register({ sessionID, mcpTool, mcpArgs })
-  },
-})
-  const omoPathTool = buildOmoPathTool({ cwd })
-  const omoExplainTool = buildOmoExplainTool({ cwd })
-  const omoOutlineTool = buildOmoOutlineTool({ cwd })
-  const omoCheckpointTool = buildOmoCheckpointTool({})
-  const omoUndoTool = buildOmoUndoTool({})
-
-
-  // Initialise graphSync when the module loads
-  const graphSyncEnabled = config.graphSync?.enabled !== false
-  if (graphSyncEnabled) {
-    runGraphSync({
-      enabled: true,
-      watch: config.graphSync?.watch ?? false,
-      autoInstall: config.graphSync?.autoInstall ?? true,
-      installTimeoutMs: config.graphSync?.installTimeoutMs ?? 60_000,
-      projectDir: cwd,
-    }).catch(() => {})
-    trackSession(cwd)
-  }
+    onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
+      deliveryRegistry.register({ sessionID, mcpTool, mcpArgs });
+    },
+  });
+  const omoPathTool = buildOmoPathTool({ cwd });
+  const omoExplainTool = buildOmoExplainTool({ cwd });
+  const omoOutlineTool = buildOmoOutlineTool({ cwd });
+  const omoCheckpointTool = buildOmoCheckpointTool({});
+  const omoUndoTool = buildOmoUndoTool({});
 
   // Log startup so the user can see the plugin is loaded
   logToFile("info", "MetaGovernor plugin loaded", {
@@ -199,7 +232,7 @@ export function createMetaGovernorPlugin(
     cwd,
     projectHasCodegraph: graphRetrieval.hasCodegraphDir(cwd),
     projectHasGraphify: graphRetrieval.hasGraphifyDir(cwd),
-  })
+  });
 
   const plugin: Plugin = async (
     _input: PluginInput,
@@ -211,22 +244,22 @@ export function createMetaGovernorPlugin(
       hasInput: _input != null,
       inputDir: _input?.directory ?? null,
       inputKeys: _input ? Object.keys(_input) : [],
-    })
+    });
     // Magic Context, AFT). Hydrates the MCPClient singleton on first plugin
     // invocation. Safe to call multiple times â€” setClient is idempotent.
     // v0.16.0: F3.4 â€” runtime guard instead of "as never". The cast
     // hid incompatibilities between OpenCode plugin API versions; the
     // guard makes failures visible (we skip hydration) instead of
     // silently feeding the wrong shape to setClient.
-    const clientCandidate = _input.client
+    const clientCandidate = _input.client;
     const safeClient =
       clientCandidate != null &&
       typeof clientCandidate === "object" &&
       "tool" in clientCandidate
         ? clientCandidate
-        : null
-    getMCPClient().setClient(safeClient as never) // safeClient narrowed to null | valid-shape
-    setSessionClient(safeClient as never)
+        : null;
+    getMCPClient().setClient(safeClient as never); // safeClient narrowed to null | valid-shape
+    setSessionClient(safeClient as never);
 
     // 1. Load config from three sources (priority: CLI > project > user).
     //    The plugin file loader reads ~/.config/opencode/omo-meta-governor.jsonc
@@ -238,38 +271,91 @@ export function createMetaGovernorPlugin(
     //    v0.18.1 fix: load config file unconditionally. Use _input.directory
     //    (the OpenCode project root) as the projectDir. Fall back to cwd
     //    when not provided (for test environments).
-    let fileConfigSource: Awaited<ReturnType<typeof loadMetaGovernorConfig>>
+    let fileConfigSource: Awaited<ReturnType<typeof loadMetaGovernorConfig>>;
     try {
       fileConfigSource = await loadMetaGovernorConfig({
         projectDir: _input.directory ?? cwd,
-      })
+      });
     } catch (err: unknown) {
       logToFile("error", "factory_config_load_failed", {
         message: err instanceof Error ? err.message : String(err),
         stack: err instanceof Error ? err.stack?.slice(0, 800) : undefined,
-      })
-      throw err
+      });
+      throw err;
     }
     const rawConfig = {
       ...config,
       ...fileConfigSource.config,
       ...((options?.meta_governor as MetaGovernorPluginConfig) ?? {}),
-    }
-    let mergedConfig: ReturnType<typeof loadOrchestratorConfig>
+    };
+    let mergedConfig: ReturnType<typeof loadOrchestratorConfig>;
     try {
-      mergedConfig = loadOrchestratorConfig(rawConfig)
+      mergedConfig = loadOrchestratorConfig(rawConfig);
     } catch (err: unknown) {
       logToFile("error", "factory_orchestrator_config_failed", {
         message: err instanceof Error ? err.message : String(err),
-      })
-      throw err
+      });
+      throw err;
     }
     if (fileConfigSource.sources.length > 0) {
       logToFile("info", "config_loaded", {
         sources: fileConfigSource.sources,
         effectiveSource: fileConfigSource.effectiveSource,
         enabled: mergedConfig.enabled,
-      })
+      });
+    }
+
+    // v0.21.0 (post-wave W6): startup warning when the user disabled the
+    // done-signal latch (respectDoneSignal=false) but enabled the post-wave
+    // gate — the two are conceptually related but independent: post-wave
+    // directives fire on `oracleInvoked && PHASE-N-COMPLETE` regardless of
+    // whether intervention is being latched (Oracle note N3, 14/08/2026).
+    if (
+      mergedConfig.postWave?.enabled === true &&
+      mergedConfig.intervention.respectDoneSignal === false
+    ) {
+      logToFile("info", "post_wave_warning", {
+        message:
+          "postWave.enabled=true but intervention.respectDoneSignal=false: post-wave " +
+          "directives still fire on Oracle-verified PHASE-N-COMPLETE, but the done-signal " +
+          "latch is off (intervention is not auto-disabled at plan end).",
+      });
+    }
+
+    // v0.21.0: graphSync init runs at FACTORY INVOCATION with the session's
+    // project directory, not at module load with process.cwd() (which under
+    // `opencode serve` is the SERVER's cwd — the bug that left session
+    // projects uninitialized). The initializedProjects Set in graph-sync.ts
+    // keeps it once-per-project. graphSync is tool infrastructure, so it must
+    // run even when governance is disabled — hence BEFORE the early return.
+    //
+    // Precedence for graphSync settings: config arg (opencode.jsonc / tests)
+    // > dedicated file config > CLI options. The generic rawConfig spread
+    // gives the file config priority over the plugin arg, which would make
+    // tests that pass graphSync:{enabled:false} (and users who disable it
+    // inline) unexpectedly run real autoInstall when a user-level file config
+    // enables it — so graphSync reads config.graphSync first.
+    const sessionProjectDir = _input.directory
+      ? resolve(_input.directory)
+      : cwd;
+    const rawGraphSync =
+      config.graphSync ??
+      (fileConfigSource.config as MetaGovernorPluginConfig | undefined)
+        ?.graphSync ??
+      (options?.meta_governor as MetaGovernorPluginConfig | undefined)
+        ?.graphSync;
+    const graphSyncEnabledAtInvocation = rawGraphSync?.enabled !== false;
+    if (graphSyncEnabledAtInvocation) {
+      // Test-only hook: assert placement without executing real CLI commands.
+      deps.__test_onGraphSyncInit?.({ projectDir: sessionProjectDir });
+      runGraphSync({
+        enabled: true,
+        watch: rawGraphSync?.watch ?? false,
+        autoInstall: rawGraphSync?.autoInstall ?? true,
+        installTimeoutMs: rawGraphSync?.installTimeoutMs ?? 60_000,
+        projectDir: sessionProjectDir,
+      }).catch(() => {});
+      trackSession(sessionProjectDir);
     }
 
     // 2. If disabled, return empty hooks
@@ -293,88 +379,114 @@ export function createMetaGovernorPlugin(
           omo_checkpoint: omoCheckpointTool,
           omo_undo: omoUndoTool,
         },
-      }
+      };
     }
 
     // 3. Resolve model settings from override or session
     const getProviderID = (): string | undefined =>
-      mergedConfig.modelOverride?.providerID ?? deps.providerID?.()
+      mergedConfig.modelOverride?.providerID ?? deps.providerID?.();
     const getModelID = (): string | undefined =>
-      mergedConfig.modelOverride?.modelID ?? deps.modelID?.()
+      mergedConfig.modelOverride?.modelID ?? deps.modelID?.();
     const getModelLimit = (): number =>
-      mergedConfig.modelOverride?.modelLimit ?? 200_000
+      mergedConfig.modelOverride?.modelLimit ?? 200_000;
 
-    const providerID = getProviderID() ?? "unknown"
-    const modelID = getModelID() ?? "unknown"
+    const providerID = getProviderID() ?? "unknown";
+    const modelID = getModelID() ?? "unknown";
 
     // 4. Load protocol text (best-effort, cached once)
-    let systemInjection: string | undefined
+    let systemInjection: string | undefined;
     // v0.16.0: eagerly await protocol load + gate on a readiness flag.
     // Previously the load was fire-and-forget, so system.transform could
     // fire before systemInjection was set, silently skipping injection.
-    if (mergedConfig.protocolEnforcement.enabled || mergedConfig.protocolEnforcement.injectIntoSystem) {
-      const protocolPath = mergedConfig.protocolEnforcement.path ?? DEFAULT_PROTOCOL_PATH
+    if (
+      mergedConfig.protocolEnforcement.enabled ||
+      mergedConfig.protocolEnforcement.injectIntoSystem
+    ) {
+      const protocolPath =
+        mergedConfig.protocolEnforcement.path ?? DEFAULT_PROTOCOL_PATH;
       try {
-        const text = await loadProtocol(protocolPath)
-        systemInjection = buildSystemInjection(text)
+        const text = await loadProtocol(protocolPath);
+        systemInjection = buildSystemInjection(text);
       } catch (err: unknown) {
-        if (typeof console !== "undefined" && mergedConfig.modelOverride?.verbosity !== "silent") {
-          console.warn("[meta-governor] could not load protocol:", err instanceof Error ? err.message : err)
+        if (
+          typeof console !== "undefined" &&
+          mergedConfig.modelOverride?.verbosity !== "silent"
+        ) {
+          console.warn(
+            "[meta-governor] could not load protocol:",
+            err instanceof Error ? err.message : err,
+          );
         }
       }
     }
 
     // 5. Per-session audit state (v0.10.0: adds DONE tracking + intervention cap)
     type AuditState = {
-      memoryToolsUsed: string[]
-      hasCodegraphDir: boolean
-      hasGraphifyDir: boolean
-      oracleInvoked: boolean
-      filesChanged: number
-      emptyRecall: boolean
-      escalationAttempted: boolean
-      aftAvailable: boolean
-      aftUsed: boolean
-      recentToolCalls: string[]
-      recentWriteContents: string[]
+      memoryToolsUsed: string[];
+      hasCodegraphDir: boolean;
+      hasGraphifyDir: boolean;
+      oracleInvoked: boolean;
+      filesChanged: number;
+      emptyRecall: boolean;
+      escalationAttempted: boolean;
+      aftAvailable: boolean;
+      aftUsed: boolean;
+      recentToolCalls: string[];
+      recentWriteContents: string[];
       /** v0.17.2: file paths from recent write tools. Used by Gap Q to
        *  populate LearnFromOutcomeInput.filesChanged so lesson extraction
        *  indexes file basenames for FTS lookup. */
-      recentWriteFilePaths: string[]
-      memorySaved: boolean
+      recentWriteFilePaths: string[];
+      memorySaved: boolean;
       /** v0.17.2: accumulated protocol violations. Populated by the audit
        *  in tool.execute.before and threaded into MetaGovernorInput.deviations
        *  so the deviation-detector signal actually fires in production
        *  (Gap C fix). Decay applied each turn. Shape matches Deviation
        *  (category is the rule name from protocol-enforcer). */
-      accumulatedDeviations: { severity: "leve" | "media" | "grave"; category: string; detail: string; filePath?: string }[]
+      accumulatedDeviations: {
+        severity: "leve" | "media" | "grave";
+        category: string;
+        detail: string;
+        filePath?: string;
+      }[];
       /** v0.17.2: rolling window of recent intervention texts. Populated
        *  by messages.transform when intervention fires. Surfaced back into
        *  the LLM context on subsequent interventions when
        *  intervention.includeDecisionHistory is true (Gap D fix). */
-      recentInterventionTexts: string[]
-      batchCompletions: number
+      recentInterventionTexts: string[];
+      batchCompletions: number;
       /** v0.10.0: kept for legacy readers. Set by `<promise>DONE</promise>`
        *  (with optional `!`). In v0.15.0 phase-aware mode this is NOT used
        *  by the gate; see `phaseCompleteSignal` and `planCompleteSignal`. */
-      taskDoneSignal: boolean
+      taskDoneSignal: boolean;
       /** v0.15.0: set by `<promise>DONE</promise>` OR
        *  `<promise>PHASE-N-COMPLETE</promise>`. Per-phase hint only;
        *  only latches intervention in legacy (phaseAwareDoneSignal=false) mode. */
-      phaseCompleteSignal: boolean
+      phaseCompleteSignal: boolean;
       /** v0.15.0: set by `<promise>PLAN-COMPLETE</promise>`. Terminal signal;
        *  always latches intervention (when Oracle has verified). */
-      planCompleteSignal: boolean
-      interventionCount: number
-      interventionDisabled: boolean
+      planCompleteSignal: boolean;
+      interventionCount: number;
+      interventionDisabled: boolean;
       /** v0.17.2: per-session iteration counter. Incremented on each tool call
        *  so the iteration-budget signal in scoring can fire. Previously this
        *  was always 0 in the orchestrator input, making the 0.15-weight
        *  iteration-budget signal dead. */
-      iteration: number
+      iteration: number;
       /** v0.17.0 (F5.4): count of lessons saved this session. Used to enforce maxLessonsPerSession. */
-      lessonCount: number
-    }
+      lessonCount: number;
+      /** v0.22.0 (post-wave W3): post-wave tracking fields. Consumed by the
+       *  wave-gate (W4/W5) — purely additive in this wave; no behavior yet. */
+      postWave: {
+        currentWaveN: number | null;
+        lastInjectedWaveN: number | null;
+        lastInjectedAtMs: number | null;
+        postWaveInjectionsThisWave: number;
+        rulesReadForWave: Record<number, boolean>;
+        oracleAfterPhaseAtMs: Record<number, number>;
+        repoModeResolved: "own" | "third-party" | null;
+      };
+    };
     // v0.16.0: replaced unbounded Map with TTL+LRU-bounded AuditStateCache.
     // Capped at 100 sessions, 1h TTL. Prevents the C1/H16 memory leak.
     //
@@ -386,20 +498,57 @@ export function createMetaGovernorPlugin(
     const auditSessions = new AuditStateCache<AuditState>({
       maxEntries: 100,
       ttlMs: 60 * 60 * 1000,
-    })
+    });
 
     // Pending protocol violations queue
-// Pending protocol violations queue
+    // Pending protocol violations queue
     // v0.16.0: TTL-wrapped queue (F1.3). Items expire after 5 minutes
     // to prevent memory growth if a session ends without consuming its queue.
-    const pendingViolations = new Map<string, { items: string[]; expiresAtMs: number }>()
-    const PENDING_TTL_MS = 5 * 60 * 1000
+    const pendingViolations = new Map<
+      string,
+      { items: string[]; expiresAtMs: number }
+    >();
+    const PENDING_TTL_MS = 5 * 60 * 1000;
 
     // v0.11.0: pending bot feedback (from `gh pr checks` / `gh pr view` output)
-    const pendingBotFeedback = new Map<string, { items: string[]; expiresAtMs: number }>()
+    const pendingBotFeedback = new Map<
+      string,
+      { items: string[]; expiresAtMs: number }
+    >();
 
     // v0.11.0: whether the plan reminder has been injected for this session
-    const planReminderSent = new Set<string>()
+    const planReminderSent = new Set<string>();
+    // v0.20.0: whether the skill-priming nudge has been injected for this session
+    const skillPrimingSent = new Set<string>();
+    // v0.20.0: sessions where an implementation tool (write/edit/apply_patch/...)
+    // was observed, tracked independently of the audit state — the audit state
+    // only exists when protocolEnforcement.auditToolCalls is enabled, but the
+    // firstImplement trigger must work under the default config too.
+    const implementationToolsSeen = new Set<string>();
+    // v0.21.0 (post-wave W6): per-session post-wave gate state, tracked
+    // independently of the audit state (the audit state only exists when
+    // protocolEnforcement.auditToolCalls is enabled, but the wave-gate must
+    // work under the default config too). Shape mirrors the postWave block of
+    // AuditState (plugin.ts:399-409).
+    type PostWaveSessionState = {
+      currentWaveN: number | null;
+      lastInjectedWaveN: number | null;
+      lastInjectedAtMs: number | null;
+      postWaveInjectionsThisWave: number;
+      rulesReadForWave: Record<number, boolean>;
+      oracleAfterPhaseAtMs: Record<number, number>;
+      repoModeResolved: "own" | "third-party" | null;
+    };
+    const createPostWaveSessionState = (): PostWaveSessionState => ({
+      currentWaveN: null,
+      lastInjectedWaveN: null,
+      lastInjectedAtMs: null,
+      postWaveInjectionsThisWave: 0,
+      rulesReadForWave: {},
+      oracleAfterPhaseAtMs: {},
+      repoModeResolved: null,
+    });
+    const postWaveSessions = new Map<string, PostWaveSessionState>();
     // v0.10.0 / legacy detection imported below; closure removed in v0.15.0
     // in favor of the module-level detectors (detectDoneSignal,
     // detectPhaseCompleteSignal, detectPlanCompleteSignal). See the bottom
@@ -409,18 +558,18 @@ export function createMetaGovernorPlugin(
     // session.prompt() so it is visible in the TUI and the session DB.
     // Fire-and-forget, best-effort: never blocks or breaks the transform.
     const persistIntervention = (sessionID: string, text: string): void => {
-      if (!sessionID || !text) return
-      if (!mergedConfig.intervention.persistToSession) return
+      if (!sessionID || !text) return;
+      if (!mergedConfig.intervention.persistToSession) return;
       void persistSessionMessage(sessionID, text).then((res) => {
         if (!res.ok) {
           logToFile("warn", `persist intervention failed for ${sessionID}`, {
             error: res.error,
-          })
+          });
         } else {
-          logToFile("info", `persisted intervention for ${sessionID}`)
+          logToFile("info", `persisted intervention for ${sessionID}`);
         }
-      })
-    }
+      });
+    };
 
     return {
       // - Tool execute before (protocol audit)
@@ -429,11 +578,11 @@ export function createMetaGovernorPlugin(
         toolInput: { tool: string; sessionID: string; callID: string },
         _output: { args: unknown },
       ): Promise<void> => {
-        if (!mergedConfig.enabled) return
-        if (!mergedConfig.protocolEnforcement.auditToolCalls) return
-        if (!toolInput.sessionID) return
+        if (!mergedConfig.enabled) return;
+        if (!mergedConfig.protocolEnforcement.auditToolCalls) return;
+        if (!toolInput.sessionID) return;
 
-        let state = auditSessions.get(toolInput.sessionID)
+        let state = auditSessions.get(toolInput.sessionID);
         if (!state) {
           state = {
             memoryToolsUsed: [],
@@ -459,12 +608,23 @@ export function createMetaGovernorPlugin(
             interventionDisabled: false,
             lessonCount: 0,
             iteration: 0,
-          }
-          auditSessions.set(toolInput.sessionID, state)
+            postWave: {
+              currentWaveN: null,
+              lastInjectedWaveN: null,
+              lastInjectedAtMs: null,
+              postWaveInjectionsThisWave: 0,
+              rulesReadForWave: {},
+              oracleAfterPhaseAtMs: {},
+              repoModeResolved: null,
+            },
+          };
+          auditSessions.set(toolInput.sessionID, state);
         }
 
         if (systemInjection) {
-          console.log("[meta-governor] protocol loaded, system injection ready")
+          console.log(
+            "[meta-governor] protocol loaded, system injection ready",
+          );
         }
 
         // v0.17.1: pass _output.args (was {}) so the audit actually sees
@@ -483,18 +643,25 @@ export function createMetaGovernorPlugin(
           recentWriteContents: state.recentWriteContents,
           memorySaved: state.memorySaved,
           batchCompletions: state.batchCompletions,
-        })
+        });
 
         if (violations.length > 0) {
-          logToFile("warn", `protocol violations on tool ${toolInput.tool}`, violations)
-          const existing = pendingViolations.get(toolInput.sessionID)?.items ?? []
+          logToFile(
+            "warn",
+            `protocol violations on tool ${toolInput.tool}`,
+            violations,
+          );
+          const existing =
+            pendingViolations.get(toolInput.sessionID)?.items ?? [];
           for (const v of violations) {
-            existing.push(`[${v.severity.toUpperCase()}] ${v.rule}: ${v.detail}`)
+            existing.push(
+              `[${v.severity.toUpperCase()}] ${v.rule}: ${v.detail}`,
+            );
           }
           pendingViolations.set(toolInput.sessionID, {
             items: existing,
             expiresAtMs: Date.now() + PENDING_TTL_MS,
-          })
+          });
           // v0.17.2 (Gap C): accumulate violations in state so the
           // deviation-detector signal actually fires downstream. Decay the
           // window to the last 5 violations per session so a single bad
@@ -504,10 +671,13 @@ export function createMetaGovernorPlugin(
             severity: v.severity,
             category: v.rule,
             detail: v.detail,
-          }))
-          state.accumulatedDeviations = [...state.accumulatedDeviations, ...newDeviations].slice(-5)
+          }));
+          state.accumulatedDeviations = [
+            ...state.accumulatedDeviations,
+            ...newDeviations,
+          ].slice(-5);
         } else {
-          logToFile("info", `audit OK on tool ${toolInput.tool}`)
+          logToFile("info", `audit OK on tool ${toolInput.tool}`);
         }
 
         // v0.13.0: actually invoke codegraph/graphify when the agent is about
@@ -516,31 +686,41 @@ export function createMetaGovernorPlugin(
         // and caches the result for system.transform to inject.
         if (
           (toolInput.tool === "grep" || toolInput.tool === "glob") &&
-          (graphRetrieval.hasCodegraphDir(cwd) || graphRetrieval.hasGraphifyDir(cwd))
+          (graphRetrieval.hasCodegraphDir(cwd) ||
+            graphRetrieval.hasGraphifyDir(cwd))
         ) {
-          const query = extractQueryFromArgs(toolInput)
+          const query = extractQueryFromArgs(toolInput);
           if (query) {
             // Fire-and-forget: never block tool.execute.before
             graphRetrieval
               .invoke(cwd, query, { timeoutMs: 5_000 })
               .then((result) => {
                 if (result.result) {
-                  graphRetrieval.cacheContext(toolInput.sessionID, query, result.result)
+                  graphRetrieval.cacheContext(
+                    toolInput.sessionID,
+                    query,
+                    result.result,
+                  );
                 }
               })
               .catch(() => {
                 // Best-effort: silently swallow errors
-              })
+              });
           }
         }
       },
 
       // - Tool execute after (orchestrator + audit state update)
       "tool.execute.after": async (
-        toolInput: { tool: string; sessionID: string; callID: string; args: unknown },
+        toolInput: {
+          tool: string;
+          sessionID: string;
+          callID: string;
+          args: unknown;
+        },
         toolOutput: { title: string; output: string; metadata: unknown },
       ): Promise<void> => {
-        if (!mergedConfig.enabled) return
+        if (!mergedConfig.enabled) return;
 
         // v0.17.0 (F3.6): when the LLM calls an MCP tool that was previously
         // dispatched via session-bridge, mark the pending delivery as
@@ -550,74 +730,106 @@ export function createMetaGovernorPlugin(
             sessionID: toolInput.sessionID,
             mcpTool: toolInput.tool,
             mcpArgs: toolInput.args,
-          })
+          });
         } catch {
           // best-effort
         }
 
-        const sessionState = auditSessions.get(toolInput.sessionID)
+        // v0.20.0: implementation-tool tracking independent of audit state
+        // (see implementationToolsSeen above).
+        if (IMPLEMENTATION_TOOLS.includes(toolInput.tool)) {
+          implementationToolsSeen.add(toolInput.sessionID);
+        }
+
+        const sessionState = auditSessions.get(toolInput.sessionID);
         if (sessionState) {
           // v0.17.2: increment per-session iteration so the iteration-budget
           // signal (weight 0.15) actually fires downstream.
-          sessionState.iteration++
-          sessionState.recentToolCalls = [toolInput.tool].concat(
-            sessionState.recentToolCalls,
-          ).slice(0, 20)
+          sessionState.iteration++;
+          sessionState.recentToolCalls = [toolInput.tool]
+            .concat(sessionState.recentToolCalls)
+            .slice(0, 20);
 
           const writeTools = [
-            "write", "edit", "edit_block",
-            "desktop-commander_write_file", "desktop-commander_edit_block",
-          ]
+            "write",
+            "edit",
+            "edit_block",
+            "desktop-commander_write_file",
+            "desktop-commander_edit_block",
+          ];
           if (writeTools.includes(toolInput.tool)) {
-            sessionState.filesChanged++
-            const content = (toolOutput.output ?? "").slice(0, 500)
-            sessionState.recentWriteContents = [content].concat(
-              sessionState.recentWriteContents,
-            ).slice(0, 3)
+            sessionState.filesChanged++;
+            const content = (toolOutput.output ?? "").slice(0, 500);
+            sessionState.recentWriteContents = [content]
+              .concat(sessionState.recentWriteContents)
+              .slice(0, 3);
             // v0.17.2 (Gap Q): capture file path so lesson extraction
             // can index file basenames for FTS lookup.
-            const args = toolInput.args as Record<string, unknown> | undefined
-            const filePath = args?.filePath ?? args?.path
+            const args = toolInput.args as Record<string, unknown> | undefined;
+            const filePath = args?.filePath ?? args?.path;
             if (typeof filePath === "string" && filePath.length > 0) {
-              sessionState.recentWriteFilePaths = [filePath].concat(
-                sessionState.recentWriteFilePaths,
-              ).slice(0, 10)
+              sessionState.recentWriteFilePaths = [filePath]
+                .concat(sessionState.recentWriteFilePaths)
+                .slice(0, 10);
             }
           }
 
           const memoryTools = [
-            "agentmemory_memory_recall", "agentmemory_memory_smart_search",
-            "agentmemory_memory_save", "ctx_memory", "ctx_search", "ctx_note",
-          ]
-          const isMemoryTool = memoryTools.some((m: string) => toolInput.tool.startsWith(m))
-          if (isMemoryTool && !sessionState.memoryToolsUsed.includes(toolInput.tool)) {
-            sessionState.memoryToolsUsed.push(toolInput.tool)
+            "agentmemory_memory_recall",
+            "agentmemory_memory_smart_search",
+            "agentmemory_memory_save",
+            "ctx_memory",
+            "ctx_search",
+            "ctx_note",
+          ];
+          const isMemoryTool = memoryTools.some((m: string) =>
+            toolInput.tool.startsWith(m),
+          );
+          if (
+            isMemoryTool &&
+            !sessionState.memoryToolsUsed.includes(toolInput.tool)
+          ) {
+            sessionState.memoryToolsUsed.push(toolInput.tool);
           }
 
           if (toolInput.tool.startsWith("ctx_memory")) {
-            const out = toolOutput.output ?? ""
+            const out = toolOutput.output ?? "";
             if (out.includes("saved") || out.includes("written")) {
-              sessionState.memorySaved = true
+              sessionState.memorySaved = true;
             }
           }
 
-          if (toolInput.tool.startsWith("aft_zoom") || toolInput.tool.startsWith("aft_outline")) {
-            sessionState.aftUsed = true
+          if (
+            toolInput.tool.startsWith("aft_zoom") ||
+            toolInput.tool.startsWith("aft_outline")
+          ) {
+            sessionState.aftUsed = true;
           }
 
-          if (toolInput.tool === "task" && (toolOutput.output ?? "").includes("subagent_type=oracle")) {
-            sessionState.oracleInvoked = true
+          if (
+            toolInput.tool === "task" &&
+            (toolOutput.output ?? "").includes("subagent_type=oracle")
+          ) {
+            sessionState.oracleInvoked = true;
           }
 
-          const outLower = (toolOutput.output ?? "").toLowerCase()
-          if (toolInput.tool.includes("recall") && (outLower.includes("returned empty") || outLower.includes("no results"))) {
-            sessionState.emptyRecall = true
+          const outLower = (toolOutput.output ?? "").toLowerCase();
+          if (
+            toolInput.tool.includes("recall") &&
+            (outLower.includes("returned empty") ||
+              outLower.includes("no results"))
+          ) {
+            sessionState.emptyRecall = true;
           }
 
-          if (toolInput.tool === "todowrite" && (toolOutput.output ?? "").includes("completed")) {
-            const matches = (toolOutput.output ?? "").match(/"status":"completed"/g) ?? []
+          if (
+            toolInput.tool === "todowrite" &&
+            (toolOutput.output ?? "").includes("completed")
+          ) {
+            const matches =
+              (toolOutput.output ?? "").match(/"status":"completed"/g) ?? [];
             if (matches.length >= 3) {
-              sessionState.batchCompletions++
+              sessionState.batchCompletions++;
             }
           }
 
@@ -627,50 +839,135 @@ export function createMetaGovernorPlugin(
           const textToScan = [
             typeof toolOutput.output === "string" ? toolOutput.output : "",
             typeof toolInput.args === "string" ? toolInput.args : "",
-          ].join("\n")
+          ].join("\n");
 
           if (!sessionState.taskDoneSignal && detectDoneSignal(textToScan)) {
-            sessionState.taskDoneSignal = true
+            sessionState.taskDoneSignal = true;
             logToFile(
               "info",
               `task_done_signal detected (legacy) for session ${toolInput.sessionID}`,
-            )
+            );
           }
-          if (!sessionState.phaseCompleteSignal && detectPhaseCompleteSignal(textToScan)) {
-            sessionState.phaseCompleteSignal = true
+          if (
+            !sessionState.phaseCompleteSignal &&
+            detectPhaseCompleteSignal(textToScan)
+          ) {
+            sessionState.phaseCompleteSignal = true;
             logToFile(
               "info",
               `phase_complete_signal detected for session ${toolInput.sessionID}`,
-            )
+            );
           }
-          if (!sessionState.planCompleteSignal && detectPlanCompleteSignal(textToScan)) {
-            sessionState.planCompleteSignal = true
+          if (
+            !sessionState.planCompleteSignal &&
+            detectPlanCompleteSignal(textToScan)
+          ) {
+            sessionState.planCompleteSignal = true;
             logToFile(
               "info",
               `plan_complete_signal detected for session ${toolInput.sessionID}`,
-            )
+            );
+          }
+        }
+
+        // v0.21.0 (post-wave W6): wave-gate — independent of auditToolCalls.
+        // The audit state only exists when protocolEnforcement.auditToolCalls
+        // is enabled, but the post-wave gate must work under the default
+        // config too, so it tracks its own per-session state (postWaveSessions).
+        if (mergedConfig.postWave?.enabled) {
+          const pwCfg = mergedConfig.postWave
+          const pwText = [
+            typeof toolOutput.output === "string" ? toolOutput.output : "",
+            typeof toolInput.args === "string" ? toolInput.args : "",
+          ].join("\n")
+          const pwWaveN = parsePhaseWaveN(pwText)
+          const pwOracleCall =
+            toolInput.tool === "task" && pwText.includes("subagent_type=oracle")
+          if (pwWaveN !== null || pwOracleCall) {
+            let pw = postWaveSessions.get(toolInput.sessionID)
+            if (!pw) {
+              pw = createPostWaveSessionState()
+              postWaveSessions.set(toolInput.sessionID, pw)
+            }
+            // Advance the wave when a new PHASE-N-COMPLETE is seen (Oracle N3).
+            if (pwWaveN !== null && pwWaveN !== pw.currentWaveN) {
+              pw.currentWaveN = pwWaveN
+              pw.postWaveInjectionsThisWave = 0
+            }
+            // Record Oracle verification AFTER the phase signal (Oracle N2).
+            if (pwOracleCall && pw.currentWaveN !== null) {
+              pw.oracleAfterPhaseAtMs[pw.currentWaveN] = Date.now()
+            }
+            // Gate: inject the landing directive once per verified wave.
+            const pwNow = Date.now()
+            if (
+              shouldInjectPostWaveDirective(
+                { postWave: pw },
+                pwCfg,
+                pwNow,
+              )
+            ) {
+              const pwMode =
+                pw.repoModeResolved ??
+                resolveRepoMode(
+                  pwCfg.repoMode ?? "auto",
+                  sessionProjectDir,
+                )
+              pw.repoModeResolved = pwMode
+              const pwText2 =
+                pwMode === "third-party"
+                  ? buildThirdPartyDirective(
+                      pwCfg.thirdPartyDirective,
+                      pw.currentWaveN,
+                      pwCfg.aasToolPrefix,
+                    )
+                  : buildOwnRepoDirective(
+                      pwCfg.ownRepoDirective,
+                      pw.currentWaveN,
+                    )
+              pw.lastInjectedWaveN = pw.currentWaveN
+              pw.lastInjectedAtMs = pwNow
+              pw.postWaveInjectionsThisWave++
+              void promptAgentText(toolInput.sessionID, pwText2).then((res) => {
+                if (!res.ok) {
+                  logToFile(
+                    "info",
+                    `post-wave directive delivery failed for ${toolInput.sessionID}: ${res.error ?? "unknown"}`,
+                  )
+                }
+              })
+            }
           }
         }
 
         // v0.10.0: hard break â€” if intervention already disabled, skip orchestrator
         if (sessionState?.interventionDisabled) {
-          return
+          return;
         }
 
         // v0.17.2 (Gap C): derive noProgress from real signals.
         // Heuristic: no progress if last 5 tool calls had no write/edit/oracle
         // (i.e. the agent is reading/grepping without producing artifacts).
-        const recentCalls = sessionState?.recentToolCalls ?? []
-        const recentProgressTools = recentCalls.slice(0, 5).filter((t) =>
-          ["write", "edit", "edit_block",
-           "desktop-commander_write_file", "desktop-commander_edit_block",
-           "task"].includes(t),
-        )
-        const noProgress = sessionState ? recentProgressTools.length === 0 : false
+        const recentCalls = sessionState?.recentToolCalls ?? [];
+        const recentProgressTools = recentCalls
+          .slice(0, 5)
+          .filter((t) =>
+            [
+              "write",
+              "edit",
+              "edit_block",
+              "desktop-commander_write_file",
+              "desktop-commander_edit_block",
+              "task",
+            ].includes(t),
+          );
+        const noProgress = sessionState
+          ? recentProgressTools.length === 0
+          : false;
 
         // v0.17.2 (Gap C): accumulate protocol violations as Deviations so
         // the deviation-detector signal in scoring-engine actually fires.
-        const deviations = sessionState?.accumulatedDeviations ?? []
+        const deviations = sessionState?.accumulatedDeviations ?? [];
 
         const orchestratorInput: MetaGovernorInput = {
           sessionID: toolInput.sessionID,
@@ -693,13 +990,13 @@ export function createMetaGovernorPlugin(
           // If SQLite init fails (non-Bun runtime, no permissions, etc.) we
           // degrade silently to a no-op so the plugin still loads.
           ...((): Pick<MetaGovernorInput, "backends" | "writeBackend"> => {
-            const userBackends = deps.backends
-            const userWrite = deps.writeBackend
+            const userBackends = deps.backends;
+            const userWrite = deps.writeBackend;
             if (userBackends && userWrite) {
-              return { backends: userBackends, writeBackend: userWrite }
+              return { backends: userBackends, writeBackend: userWrite };
             }
             try {
-              const sqlite = getDefaultSqliteBackend()
+              const sqlite = getDefaultSqliteBackend();
               return {
                 backends: userBackends ?? {
                   agentmemory: sqlite,
@@ -707,12 +1004,14 @@ export function createMetaGovernorPlugin(
                   boulderState: sqlite,
                 },
                 writeBackend: userWrite ?? sqlite,
-              }
+              };
             } catch {
               // SQLite init failed (no Bun, no permissions, etc.) â€” degrade silently
               return {
                 backends: userBackends ?? {
-                  agentmemory: { smartSearch: async () => ({ lessons: [], crystals: [] }) },
+                  agentmemory: {
+                    smartSearch: async () => ({ lessons: [], crystals: [] }),
+                  },
                   magicContext: { slotList: async () => [] },
                   boulderState: { boulderRead: async () => [] },
                 },
@@ -720,7 +1019,7 @@ export function createMetaGovernorPlugin(
                   saveMemory: async () => ({ id: "" }),
                   saveLesson: async () => ({ id: "" }),
                 },
-              }
+              };
             }
           })(),
           config: mergedConfig,
@@ -729,14 +1028,14 @@ export function createMetaGovernorPlugin(
           modelLimit: getModelLimit(),
           // v0.17.0 (F5.4): thread current lesson count for maxLessonsPerSession cap
           currentLessonCount: sessionState?.lessonCount ?? 0,
-        }
+        };
 
         try {
-          const output = await runMetaGovernor(orchestratorInput)
+          const output = await runMetaGovernor(orchestratorInput);
 
           // v0.17.0 (F5.4): increment lesson count when a lesson was actually saved
           if (output.lessonSaved?.lessonSaved && sessionState) {
-            sessionState.lessonCount++
+            sessionState.lessonCount++;
           }
 
           // v0.17.0 (F5.1): wire escalate action to fire a session.prompt
@@ -747,27 +1046,27 @@ export function createMetaGovernorPlugin(
             toolInput.sessionID &&
             hasSessionClient()
           ) {
-            const decisionRef = output.decision.historyEntry.decision
-            const evidenceCount = decisionRef.evidence.length
-            const target = decisionRef.shouldEscalateTo ?? "oracle"
+            const decisionRef = output.decision.historyEntry.decision;
+            const evidenceCount = decisionRef.evidence.length;
+            const target = decisionRef.shouldEscalateTo ?? "oracle";
             const instruction = buildEscalationPrompt({
               reasoning: decisionRef.reasoning,
               target,
               evidenceCount,
               sessionID: toolInput.sessionID,
-            })
+            });
             void promptAgent(toolInput.sessionID, {
               toolName: "meta_governor_escalate",
               mcpTool: "task",
               mcpArgs: { subagent_type: target },
               preamble: instruction,
             }).catch((err) => {
-              logToFile("warn", `escalation prompt failed: ${String(err)}`)
-            })
+              logToFile("warn", `escalation prompt failed: ${String(err)}`);
+            });
           }
 
           if (mergedConfig.intervention.mode !== "silent" && sessionState) {
-            const decision = output.decision
+            const decision = output.decision;
 
             // v0.15.0: terminal-signal gate. Latches intervention when:
             //   respectDoneSignal is true (master switch from v0.10.0), AND
@@ -776,7 +1075,7 @@ export function createMetaGovernorPlugin(
             //     b) phaseAwareDoneSignal is false (legacy) and a phase
             //        completion signal was emitted (DONE / PHASE-N-COMPLETE).
             const phaseAwareDone =
-              mergedConfig.intervention.phaseAwareDoneSignal === true
+              mergedConfig.intervention.phaseAwareDoneSignal === true;
             if (
               mergedConfig.intervention.respectDoneSignal &&
               sessionState.oracleInvoked &&
@@ -785,16 +1084,18 @@ export function createMetaGovernorPlugin(
                   (sessionState.taskDoneSignal ||
                     sessionState.phaseCompleteSignal)))
             ) {
-              sessionState.interventionDisabled = true
+              sessionState.interventionDisabled = true;
               const cause = sessionState.planCompleteSignal
                 ? "PLAN-COMPLETE"
-                : (sessionState.taskDoneSignal ? "DONE" : "PHASE-N-COMPLETE")
+                : sessionState.taskDoneSignal
+                  ? "DONE"
+                  : "PHASE-N-COMPLETE";
               logToFile(
                 "info",
                 `task verified (${cause} + Oracle): disabling intervention for session ${toolInput.sessionID}`,
-              )
-              takeDecision(toolInput.sessionID)
-              return
+              );
+              takeDecision(toolInput.sessionID);
+              return;
             }
 
             if (
@@ -808,18 +1109,18 @@ export function createMetaGovernorPlugin(
               const cap = Math.max(
                 0,
                 mergedConfig.intervention.maxInterventionsPerSession ?? 0,
-              )
+              );
               if (cap > 0 && sessionState.interventionCount >= cap) {
-                sessionState.interventionDisabled = true
+                sessionState.interventionDisabled = true;
                 logToFile(
                   "warn",
                   `intervention cap (${cap}) reached for session ${toolInput.sessionID}; disabling further intervention`,
-                )
-                takeDecision(toolInput.sessionID)
-                return
+                );
+                takeDecision(toolInput.sessionID);
+                return;
               }
-              sessionState.interventionCount++
-              storeDecision(toolInput.sessionID, decision)
+              sessionState.interventionCount++;
+              storeDecision(toolInput.sessionID, decision);
             }
           }
         } catch {
@@ -831,87 +1132,124 @@ export function createMetaGovernorPlugin(
         // hook is the primary path; this is the safety net.
         try {
           if (toolInput.tool === "bash") {
-            const args = toolInput.args as { command?: string } | undefined
-            const cmd = args?.command
+            const args = toolInput.args as { command?: string } | undefined;
+            const cmd = args?.command;
             if (isGitCommitCommand(cmd)) {
-              logToFile(
-                "info",
-                "git_commit_reindex_triggered",
-                { sessionID: toolInput.sessionID, command: cmd },
-              )
+              logToFile("info", "git_commit_reindex_triggered", {
+                sessionID: toolInput.sessionID,
+                command: cmd,
+              });
               // v0.11.0: test-only hook so hermetic tests can assert
               // the trigger fired without depending on log file paths.
               deps.__test_onCommitTrigger?.({
-                projectDir: cwd,
+                projectDir: sessionProjectDir,
                 command: cmd ?? "",
                 sessionID: toolInput.sessionID,
-              })
-// Fire and forget â€” don't block the tool call.
-// v0.16.0: triggerReindex (was triggerCodegraphSync) â€” reindexes both
-// codegraph and graphify, not just codegraph.
-void triggerReindex(cwd).catch((err) => {
-  logToFile("warn", `codegraph sync failed: ${String(err)}`)
-})
-}
-}
-} catch {
-// reindex is best-effort, never break a tool call
+              });
+              // Fire and forget â€” don't block the tool call.
+              // v0.16.0: triggerReindex (was triggerCodegraphSync) â€” reindexes both
+              // codegraph and graphify, not just codegraph.
+              // v0.21.0: use the SESSION's projectDir, not module-load cwd (same
+              // serve-mode bug as runGraphSync).
+              void triggerReindex(sessionProjectDir).catch((err) => {
+                logToFile("warn", `codegraph sync failed: ${String(err)}`);
+              });
+            }
+          }
+        } catch {
+          // reindex is best-effort, never break a tool call
         }
 
         // v0.11.0: detect `gh pr ...` output and queue bot feedback
         try {
           if (toolInput.tool === "bash") {
-            const args = toolInput.args as { command?: string } | undefined
-            const cmd = args?.command
+            const args = toolInput.args as { command?: string } | undefined;
+            const cmd = args?.command;
             if (isGhPrCommand(cmd)) {
               const feedback = extractBotFeedbackFromGhOutput(
                 toolOutput.output,
                 toolInput.sessionID,
-              )
+              );
               if (feedback.length > 0) {
-                const existing = pendingBotFeedback.get(toolInput.sessionID)?.items ?? []
-                pendingBotFeedback.set(
-                  toolInput.sessionID,
-                  {
-                    items: existing.concat(feedback),
-                    expiresAtMs: Date.now() + PENDING_TTL_MS,
-                  },
-                )
+                const existing =
+                  pendingBotFeedback.get(toolInput.sessionID)?.items ?? [];
+                pendingBotFeedback.set(toolInput.sessionID, {
+                  items: existing.concat(feedback),
+                  expiresAtMs: Date.now() + PENDING_TTL_MS,
+                });
                 logToFile(
                   "info",
                   `captured ${feedback.length} bot feedback line(s) for session ${toolInput.sessionID}`,
-                )
+                );
               }
             }
           }
         } catch {
           // bot feedback is best-effort
         }
-},
+      },
       // - Messages transform (injects decisions + protocol violations as synthetic user messages)
       "experimental.chat.messages.transform": async (
         _input: {},
         output: { messages: Array<{ info: unknown; parts: unknown[] }> },
       ): Promise<void> => {
-        if (!mergedConfig.enabled) return
-        if (mergedConfig.intervention.mode !== "message") return
+        if (!mergedConfig.enabled) return;
 
         // v0.10.0: derive current sessionID from the LAST message.
         // MUST scope decisions to the current session; never takeAnyDecision().
         // If we cannot derive a sessionID, the safe default is no injection.
+        // v0.20.0: derivation moved BEFORE the intervention-mode gate so the
+        // skill-priming nudge can inject independently of intervention.mode.
         const lastMsg = output.messages[output.messages.length - 1] as
-          | { info?: { sessionID?: string } }
-          | undefined
-        const currentSessionID = lastMsg?.info?.sessionID
+          { info?: { sessionID?: string } } | undefined;
+        const currentSessionID = lastMsg?.info?.sessionID;
         if (!currentSessionID) {
-          return
+          return;
         }
 
         // v0.10.0: respect per-session intervention disable
-        const state = auditSessions.get(currentSessionID)
+        const state = auditSessions.get(currentSessionID);
+
+        // 0a. Skill priming (v0.20.0) — proactive skill-selection nudge.
+        // Independent of intervention mode; once per session. The
+        // "firstImplement" trigger reads the per-session audit state, which
+        // does not exist until the first tool call — on the very first
+        // transform call only "sessionStart" can fire.
+        if (
+          mergedConfig.skillPriming.enabled &&
+          !skillPrimingSent.has(currentSessionID) &&
+          shouldInjectSkillPriming({
+            trigger: mergedConfig.skillPriming.trigger,
+            recentToolCalls: state?.recentToolCalls ?? [],
+            implementationToolSeen:
+              implementationToolsSeen.has(currentSessionID),
+          })
+        ) {
+          skillPrimingSent.add(currentSessionID);
+          output.messages.push({
+            info: { role: "user", agent: "meta-governor", synthetic: true },
+            parts: [
+              {
+                type: "text",
+                text: buildSkillPrimingMessage(
+                  mergedConfig.skillPriming.router,
+                ),
+                synthetic: true,
+              },
+            ],
+          });
+          logToFile(
+            "info",
+            `skill_priming_injected for session ${currentSessionID}`,
+          );
+        }
+
+        if (mergedConfig.intervention.mode !== "message") return;
+
+        // v0.10.0: respect per-session intervention disable
         if (state?.interventionDisabled) {
-          takeDecision(currentSessionID)
-          return
+          takeDecision(currentSessionID);
+          return;
         }
 
         // 0. Plan reminder (v0.11.0) â€” nudge the agent to make a plan
@@ -921,60 +1259,72 @@ void triggerReindex(cwd).catch((err) => {
           !planReminderSent.has(currentSessionID) &&
           shouldInjectPlanReminder(cwd, state.interventionCount)
         ) {
-          planReminderSent.add(currentSessionID)
-          const planText = `[MetaGovernor] Before any code change, create PLAN.md or a \`## Plan\` section in AGENTS.md that enumerates the phases. After each phase, commit (local + fork + upstream). Each commit triggers automatic reindex via the graphify post-commit hook + \`codegraph sync\`.`
+          planReminderSent.add(currentSessionID);
+          const planText = `[MetaGovernor] Before any code change, create PLAN.md or a \`## Plan\` section in AGENTS.md that enumerates the phases. After each phase, commit (local + fork + upstream). Each commit triggers automatic reindex via the graphify post-commit hook + \`codegraph sync\`.`;
           output.messages.push({
             info: { role: "user", agent: "meta-governor", synthetic: true },
             parts: [{ type: "text", text: planText, synthetic: true }],
-          })
-          logToFile("info", `plan_reminder_injected for session ${currentSessionID}`)
-          persistIntervention(currentSessionID, planText)
+          });
+          logToFile(
+            "info",
+            `plan_reminder_injected for session ${currentSessionID}`,
+          );
+          persistIntervention(currentSessionID, planText);
         }
 
         // 0b. Bot feedback from PR reviewers (v0.11.0)
-        const botEntry = pendingBotFeedback.get(currentSessionID)
+        const botEntry = pendingBotFeedback.get(currentSessionID);
         if (botEntry && botEntry.expiresAtMs > Date.now()) {
-          const feedback = botEntry.items
+          const feedback = botEntry.items;
           if (feedback.length > 0) {
-            const feedbackText = `[MetaGovernor PR Reviewer Feedback]\n\n${feedback.map((f, i) => `${i + 1}. ${f}`).join("\n")}\n\nApply these fixes to keep the PR mergeable.`
+            const feedbackText = `[MetaGovernor PR Reviewer Feedback]\n\n${feedback.map((f, i) => `${i + 1}. ${f}`).join("\n")}\n\nApply these fixes to keep the PR mergeable.`;
             output.messages.push({
               info: { role: "user", agent: "meta-governor", synthetic: true },
               parts: [{ type: "text", text: feedbackText, synthetic: true }],
-            })
-            pendingBotFeedback.delete(currentSessionID)
+            });
+            pendingBotFeedback.delete(currentSessionID);
             logToFile(
               "info",
               `injected ${feedback.length} bot feedback line(s) to model for session ${currentSessionID}`,
-            )
-            persistIntervention(currentSessionID, feedbackText)
+            );
+            persistIntervention(currentSessionID, feedbackText);
           }
         }
         // 1. Inject pending protocol violations so the model sees them
-        const violEntry = pendingViolations.get(currentSessionID)
+        const violEntry = pendingViolations.get(currentSessionID);
         if (violEntry && violEntry.expiresAtMs > Date.now()) {
-          const violations = violEntry.items
+          const violations = violEntry.items;
           if (violations.length > 0) {
-            const violationText = `[META-GOVERNOR PROTOCOL VIOLATIONS - YOU MUST COMPLY]\n\n${violations.map((v, i) => `${i + 1}. ${v}`).join("\n")}\n\nRemember: use codegraph/graphify for architecture queries, do not grep without trying AFT/codegraph first, no @ts-ignore/as-any, no empty catch, check memory before asking.`
+            const violationText = `[META-GOVERNOR PROTOCOL VIOLATIONS - YOU MUST COMPLY]\n\n${violations.map((v, i) => `${i + 1}. ${v}`).join("\n")}\n\nRemember: use codegraph/graphify for architecture queries, do not grep without trying AFT/codegraph first, no @ts-ignore/as-any, no empty catch, check memory before asking.`;
             output.messages.push({
               info: { role: "user", agent: "meta-governor", synthetic: true },
               parts: [{ type: "text", text: violationText, synthetic: true }],
-            })
-            pendingViolations.delete(currentSessionID)
-            logToFile("info", `injected ${violations.length} violation(s) to model`)
-            persistIntervention(currentSessionID, violationText)
+            });
+            pendingViolations.delete(currentSessionID);
+            logToFile(
+              "info",
+              `injected ${violations.length} violation(s) to model`,
+            );
+            persistIntervention(currentSessionID, violationText);
           }
         }
 
         // 2. Inject MetaGovernor decision â€” SCOPED to current session
-        const decision = takeDecision(currentSessionID)
-        if (!decision) return
-        if (decision.action === "continue") return
-        if (!decision.message) return
-        if (!meetsMinAction(decision.action, mergedConfig.intervention.minActionForMessage)) return
+        const decision = takeDecision(currentSessionID);
+        if (!decision) return;
+        if (decision.action === "continue") return;
+        if (!decision.message) return;
+        if (
+          !meetsMinAction(
+            decision.action,
+            mergedConfig.intervention.minActionForMessage,
+          )
+        )
+          return;
 
         // v0.10.0: defense-in-depth cap check before push.
         // State may not exist yet (no tool.execute.before ran); lazily create it.
-        let curState = state ?? auditSessions.get(currentSessionID)
+        let curState = state ?? auditSessions.get(currentSessionID);
         if (!curState) {
           curState = {
             memoryToolsUsed: [],
@@ -1000,46 +1350,61 @@ void triggerReindex(cwd).catch((err) => {
             interventionDisabled: false,
             lessonCount: 0,
             iteration: 0,
-          }
-          auditSessions.set(currentSessionID, curState)
+            postWave: {
+              currentWaveN: null,
+              lastInjectedWaveN: null,
+              lastInjectedAtMs: null,
+              postWaveInjectionsThisWave: 0,
+              rulesReadForWave: {},
+              oracleAfterPhaseAtMs: {},
+              repoModeResolved: null,
+            },
+          };
+          auditSessions.set(currentSessionID, curState);
         }
         const cap = Math.max(
           0,
           mergedConfig.intervention.maxInterventionsPerSession ?? 0,
-        )
+        );
         if (cap > 0 && curState.interventionCount >= cap) {
-          curState.interventionDisabled = true
-          return
+          curState.interventionDisabled = true;
+          return;
         }
-        curState.interventionCount++
+        curState.interventionCount++;
 
         // v0.17.2 (Gap D): when includeDecisionHistory is true, prepend
         // recent intervention texts so the model sees its history of decisions.
         // Capped at maxHistoryMessages (default 5).
-        const includeHistory = mergedConfig.intervention.includeDecisionHistory !== false
-        const maxHistory = mergedConfig.intervention.maxHistoryMessages ?? 5
-        const historyTexts = (curState.recentInterventionTexts ?? []).slice(-maxHistory)
-        let messageText = `[MetaGovernor] ${decision.message}`
+        const includeHistory =
+          mergedConfig.intervention.includeDecisionHistory !== false;
+        const maxHistory = mergedConfig.intervention.maxHistoryMessages ?? 5;
+        const historyTexts = (curState.recentInterventionTexts ?? []).slice(
+          -maxHistory,
+        );
+        let messageText = `[MetaGovernor] ${decision.message}`;
         if (includeHistory && historyTexts.length > 0) {
           const historyBlock = historyTexts
             .map((t, i) => `${i + 1}. ${t}`)
-            .join("\n")
-          messageText = `[MetaGovernor] Recent decisions in this session:\n${historyBlock}\n\n---\n\nCurrent decision: ${decision.message}`
+            .join("\n");
+          messageText = `[MetaGovernor] Recent decisions in this session:\n${historyBlock}\n\n---\n\nCurrent decision: ${decision.message}`;
         }
         // Track this intervention for future history inclusion.
-        curState.recentInterventionTexts = [...historyTexts, `[${decision.action}] ${decision.message}`].slice(-maxHistory)
+        curState.recentInterventionTexts = [
+          ...historyTexts,
+          `[${decision.action}] ${decision.message}`,
+        ].slice(-maxHistory);
 
         const textPart = {
           type: "text",
           text: messageText,
           synthetic: true,
-        }
+        };
 
         output.messages.push({
           info: { role: "user", agent: "meta-governor" },
           parts: [textPart],
-        })
-        persistIntervention(currentSessionID, messageText)
+        });
+        persistIntervention(currentSessionID, messageText);
       },
 
       // - System transform (protocol injection + system intervention mode)
@@ -1047,56 +1412,69 @@ void triggerReindex(cwd).catch((err) => {
         transformInput: { sessionID?: string; model: unknown },
         output: { system: string[] },
       ): Promise<void> => {
-        if (!mergedConfig.enabled) return
+        if (!mergedConfig.enabled) return;
 
-        if (mergedConfig.protocolEnforcement.injectIntoSystem && systemInjection) {
+        if (
+          mergedConfig.protocolEnforcement.injectIntoSystem &&
+          systemInjection
+        ) {
           output.system.push(
             "\n### Sisyphus Protocol Enforcement",
             systemInjection,
             "---",
-          )
+          );
         }
 
         // v0.13.0: inject cached graph context (C2 fix). When tool.execute.before
         // fired a graph query earlier, the result is now in the per-session cache
         // and we append it to the system prompt as reference material.
         if (transformInput.sessionID) {
-          const graphContext = graphRetrieval.getCachedContext(transformInput.sessionID)
+          const graphContext = graphRetrieval.getCachedContext(
+            transformInput.sessionID,
+          );
           if (graphContext) {
             output.system.push(
               "\n### Graph Context (auto-retrieved)",
               graphContext,
               "---",
-            )
+            );
           }
         }
 
-        if (mergedConfig.intervention.mode === "system" && transformInput.sessionID) {
+        if (
+          mergedConfig.intervention.mode === "system" &&
+          transformInput.sessionID
+        ) {
           // v0.10.0: also respect per-session intervention disable here
-          const state = auditSessions.get(transformInput.sessionID)
+          const state = auditSessions.get(transformInput.sessionID);
           if (state?.interventionDisabled) {
-            takeDecision(transformInput.sessionID)
-            return
+            takeDecision(transformInput.sessionID);
+            return;
           }
-          const decision = takeDecision(transformInput.sessionID)
+          const decision = takeDecision(transformInput.sessionID);
           if (decision && decision.action !== "continue" && decision.message) {
-            if (meetsMinAction(decision.action, mergedConfig.intervention.minActionForMessage)) {
+            if (
+              meetsMinAction(
+                decision.action,
+                mergedConfig.intervention.minActionForMessage,
+              )
+            ) {
               if (state) {
                 const cap = Math.max(
                   0,
                   mergedConfig.intervention.maxInterventionsPerSession ?? 0,
-                )
+                );
                 if (cap > 0 && state.interventionCount >= cap) {
-                  state.interventionDisabled = true
-                  return
+                  state.interventionDisabled = true;
+                  return;
                 }
-                state.interventionCount++
+                state.interventionCount++;
               }
               output.system.push(
                 "\n[MetaGovernor Intervention]",
                 decision.message,
                 "---",
-              )
+              );
             }
           }
         }
@@ -1127,23 +1505,26 @@ void triggerReindex(cwd).catch((err) => {
         compactInput: { sessionID: string },
         compactOutput: { context: string[]; prompt?: string },
       ): Promise<void> => {
-        if (!mergedConfig.enabled || !mergedConfig.closedLoop.enabled) return
+        if (!mergedConfig.enabled || !mergedConfig.closedLoop.enabled) return;
         // Fetch top-3 relevant lessons and inject into compaction context
-        const sqlite = getDefaultSqliteBackend()
-        const recentQuery = `session:${compactInput.sessionID}`
-        const results = await sqlite.smartSearch({ query: recentQuery, limit: 3 })
+        const sqlite = getDefaultSqliteBackend();
+        const recentQuery = `session:${compactInput.sessionID}`;
+        const results = await sqlite.smartSearch({
+          query: recentQuery,
+          limit: 3,
+        });
         if (results.lessons.length > 0) {
           const lessonText = results.lessons
             .map(
               (l, i) =>
                 `${i + 1}. [${l.id}] confidence=${l.confidence.toFixed(2)}\n   ${l.content.slice(0, 300)}`,
             )
-            .join("\n\n")
+            .join("\n\n");
           compactOutput.context.push(
             "\n### Past Lessons (auto-retrieved)",
             lessonText,
             "---",
-          )
+          );
         }
       },
 
@@ -1153,16 +1534,16 @@ void triggerReindex(cwd).catch((err) => {
         _autoInput: { sessionID: string; overflow: boolean },
         autoOutput: { enabled: boolean },
       ): Promise<void> => {
-        if (!mergedConfig.enabled) return
-        const state = auditSessions.get(_autoInput.sessionID)
+        if (!mergedConfig.enabled) return;
+        const state = auditSessions.get(_autoInput.sessionID);
         if (state?.interventionDisabled) {
-          autoOutput.enabled = false
+          autoOutput.enabled = false;
         }
       },
-    }
-  }
+    };
+  };
 
-  return plugin
+  return plugin;
 }
 // â”€â”€â”€ v0.11.0: helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -1170,7 +1551,7 @@ void triggerReindex(cwd).catch((err) => {
  * Detect whether a shell command is a `git commit` invocation.
  * Used to trigger codegraph reindex on each commit.
  */
-export { isGitCommitCommand } from "./graph-sync"
+export { isGitCommitCommand } from "./graph-sync";
 
 /**
  * Extract bot feedback lines from `gh pr checks` output.
@@ -1182,20 +1563,20 @@ export function extractBotFeedbackFromGhOutput(
   output: string,
   prIdentifier: string,
 ): string[] {
-  if (typeof output !== "string" || output.length === 0) return []
-  const lines = output.split("\n")
-  const feedback: string[] = []
+  if (typeof output !== "string" || output.length === 0) return [];
+  const lines = output.split("\n");
+  const feedback: string[] = [];
   for (const line of lines) {
     // gh pr checks output: "<check-name>    <status>    <details>"
     // Status values: pass, fail, pending, skipping, cancelled
-    const match = line.match(/^\s*(\S+)\s+(fail)\s+(.*)$/)
+    const match = line.match(/^\s*(\S+)\s+(fail)\s+(.*)$/);
     if (match) {
-      const name = match[1]!.trim()
-      const details = match[3]!.trim()
-      feedback.push(`${prIdentifier} Â· ${name}: ${details}`)
+      const name = match[1]!.trim();
+      const details = match[3]!.trim();
+      feedback.push(`${prIdentifier} Â· ${name}: ${details}`);
     }
   }
-  return feedback
+  return feedback;
 }
 
 /**
@@ -1204,9 +1585,9 @@ export function extractBotFeedbackFromGhOutput(
  * claude-code-review, etc.) so the next LLM turn can act on the feedback.
  */
 export function isGhPrCommand(command: string | undefined | null): boolean {
-  if (typeof command !== "string" || command.length === 0) return false
-  const normalized = command.replace(/\\\n/g, " ").replace(/\s*\n\s*/g, " ")
-  return /(?:^|[\s;&|])gh\s+pr(?:\s|$)/.test(normalized)
+  if (typeof command !== "string" || command.length === 0) return false;
+  const normalized = command.replace(/\\\n/g, " ").replace(/\s*\n\s*/g, " ");
+  return /(?:^|[\s;&|])gh\s+pr(?:\s|$)/.test(normalized);
 }
 
 /**
@@ -1223,20 +1604,24 @@ export function shouldInjectPlanReminder(
   projectDir: string,
   interventionCount: number,
 ): boolean {
-  if (interventionCount >= 1) return false
+  if (interventionCount >= 1) return false;
   // v0.16.0: replaced inline CJS require with top-level ESM imports (F1.2).
   // In strict ESM environments, require() throws ReferenceError; the catch
   // was silently returning true (always inject), which broke the logic.
   // Now both file checks use synchronous fs/imports at module load.
   try {
-    statSync(join(projectDir, "PLAN.md"))
-    return false
-  } catch { /* no PLAN.md */ }
+    statSync(join(projectDir, "PLAN.md"));
+    return false;
+  } catch {
+    /* no PLAN.md */
+  }
   try {
-    const agents = readFileSync(join(projectDir, "AGENTS.md"), "utf-8")
-    if (/^##\s+Plan\b/im.test(agents)) return false
-  } catch { /* no AGENTS.md */ }
-  return true
+    const agents = readFileSync(join(projectDir, "AGENTS.md"), "utf-8");
+    if (/^##\s+Plan\b/im.test(agents)) return false;
+  } catch {
+    /* no AGENTS.md */
+  }
+  return true;
 }
 
 // â”€â”€â”€ v0.15.0 completion-signal detectors (module-level exports for testing) â”€â”€â”€
@@ -1247,11 +1632,9 @@ export function shouldInjectPlanReminder(
  * new code should prefer {@link detectPhaseCompleteSignal} for per-phase
  * hints or {@link detectPlanCompleteSignal} for the terminal marker.
  */
-export function detectDoneSignal(
-  text: string | undefined | null,
-): boolean {
-  if (typeof text !== "string" || text.length === 0) return false
-  return /<promise>\s*DONE!?\s*<\/promise>/i.test(text)
+export function detectDoneSignal(text: string | undefined | null): boolean {
+  if (typeof text !== "string" || text.length === 0) return false;
+  return /<promise>\s*DONE!?\s*<\/promise>/i.test(text);
 }
 
 /**
@@ -1265,11 +1648,11 @@ export function detectDoneSignal(
 export function detectPhaseCompleteSignal(
   text: string | undefined | null,
 ): boolean {
-  if (typeof text !== "string" || text.length === 0) return false
+  if (typeof text !== "string" || text.length === 0) return false;
   return (
     /<promise>\s*DONE!?\s*<\/promise>/i.test(text) ||
     /<promise>\s*PHASE-\d+-COMPLETE\s*<\/promise>/i.test(text)
-  )
+  );
 }
 
 /**
@@ -1281,6 +1664,157 @@ export function detectPhaseCompleteSignal(
 export function detectPlanCompleteSignal(
   text: string | undefined | null,
 ): boolean {
-  if (typeof text !== "string" || text.length === 0) return false
-  return /<promise>\s*PLAN-COMPLETE\s*<\/promise>/i.test(text)
+  if (typeof text !== "string" || text.length === 0) return false;
+  return /<promise>\s*PLAN-COMPLETE\s*<\/promise>/i.test(text);
+}
+
+/**
+ * v0.21.0 (post-wave W3): extract the wave number N from a PHASE-N-COMPLETE
+ * marker. Mirrors the regex of {@link detectPhaseCompleteSignal} (same
+ * whitespace tolerance + case-insensitivity) but captures the numeric suffix.
+ *
+ * Returns the number, or null when the text has no PHASE-N-COMPLETE marker.
+ * Strict: only numeric suffixes match (PHASE-1-COMPLETE → 1, PHASE-12-COMPLETE
+ * → 12). Non-numeric suffixes (PHASE-A-COMPLETE) and legacy DONE return null.
+ */
+export function parsePhaseWaveN(text: string): number | null {
+  const m = /(?:<promise>\s*)?PHASE-(\d+)-COMPLETE\s*(?:<\/promise>)?/i.exec(
+    text,
+  );
+  return m ? Number.parseInt(m[1]!, 10) : null;
+}
+
+// ─── v0.21.0 (post-wave W5): wave-gate decision helpers (module-level exports for testing) ───
+
+/**
+ * Decide whether a post-wave landing directive should be injected NOW for the
+ * given session state. True only when:
+ *   - postWave gate is enabled (config), and
+ *   - a current wave is set (PHASE-N-COMPLETE seen), and
+ *   - Oracle has verified AFTER that phase (oracleAfterPhaseAtMs[N] present), and
+ *   - the same-wave injection budget is not exhausted, and
+ *   - the re-injection cooldown has elapsed.
+ *
+ * New waves reset the budget implicitly: lastInjectedWaveN !== wave bypasses
+ * the per-wave cap, so a fresh PHASE-2-COMPLETE after PHASE-1 is always
+ * eligible once Oracle verifies it.
+ */
+export function shouldInjectPostWaveDirective(
+  state: {
+    postWave: {
+      currentWaveN: number | null;
+      lastInjectedWaveN: number | null;
+      lastInjectedAtMs: number | null;
+      postWaveInjectionsThisWave: number;
+      oracleAfterPhaseAtMs: Record<number, number>;
+    };
+  },
+  config: {
+    enabled?: boolean;
+    maxRetriesPerWave?: number;
+    reinjectCooldownMs?: number;
+  },
+  nowMs: number,
+): boolean {
+  if (config.enabled === false) return false;
+  const wave = state.postWave.currentWaveN;
+  if (wave === null) return false;
+  if (!(wave in state.postWave.oracleAfterPhaseAtMs)) return false;
+  const cap = config.maxRetriesPerWave ?? 1;
+  const cooldown = config.reinjectCooldownMs ?? 60_000;
+  const sameWave = state.postWave.lastInjectedWaveN === wave;
+  if (sameWave && state.postWave.postWaveInjectionsThisWave >= cap) {
+    return false;
+  }
+  // Cooldown applies ONLY to same-wave re-injection (Oracle N1, 14/08/2026):
+  // a NEW wave arriving within the window must never be blocked — the agent
+  // can legally land wave N+1 seconds after injecting wave N.
+  if (
+    sameWave &&
+    state.postWave.lastInjectedAtMs !== null &&
+    nowMs - state.postWave.lastInjectedAtMs < cooldown
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Build the landing directive text for OWN repos: push + self-terminating CI
+ * watch. `timeout 600` caps the blocking `gh pr checks --watch` so the agent
+ * never hangs forever (Oracle note E, 14/08/2026). A user-provided override
+ * wins verbatim.
+ */
+export function buildOwnRepoDirective(
+  override: string | undefined,
+  waveN: number | null | undefined,
+): string {
+  if (override) return override;
+  const wave = waveN === null || waveN === undefined ? "?" : String(waveN);
+  return [
+    `Wave ${wave} is Oracle-verified. Land it now:`,
+    "1. `git push -u origin HEAD` (sets upstream on first push).",
+    "2. If no PR exists yet: `gh pr create --fill`.",
+    "3. Monitor CI: `timeout 600 gh pr checks --watch` (auto-stops after 10 min).",
+    "4. Only start the next wave after checks are green.",
+  ].join("\n");
+}
+
+/**
+ * Build the landing directive text for THIRD-PARTY repos (fork/PR workflow).
+ * Embeds the user's contribution rule (memory #1235): READ the repo's
+ * contribution rules FIRST (CONTRIBUTING.md, PR/issue templates and guides),
+ * invoke the AAS GitHub skills ({@link aasToolPrefix}) to create PR/issue,
+ * and request review at the end. A user-provided override wins verbatim.
+ */
+export function buildThirdPartyDirective(
+  override: string | undefined,
+  waveN: number | null | undefined,
+  aasToolPrefix = "aas",
+): string {
+  if (override) return override;
+  const wave = waveN === null || waveN === undefined ? "?" : String(waveN);
+  return [
+    `Wave ${wave} is Oracle-verified. This is a THIRD-PARTY repo — land it as a contribution:`,
+    "1. READ FIRST the repo's contribution rules (read CONTRIBUTING.md, PR/issue templates and guides) and follow them exactly.",
+    `2. Invoke the \`${aasToolPrefix}\` MCP GitHub skills (search_skills → get_skill → compose_stack) to create the PR/issue.`,
+    "3. Push the branch and open the PR/issue following the repo's template.",
+    "4. Request review on the PR.",
+  ].join("\n");
+}
+
+/**
+ * Resolve the repository mode for the post-wave workflow.
+ * v0.21.0 W5/N5 (14/08/2026): explicit config wins; "auto" queries gh
+ * (`gh repo view --json isFork,parent`) to decide own vs third-party.
+ * Falls back to "own" when gh is unavailable or the repo view fails.
+ * `runner` is injectable for tests (defaults to node:child_process execSync).
+ */
+export function resolveRepoMode(
+  configured: "auto" | "own" | "third-party",
+  projectDir: string,
+  runner: typeof execSync = execSync,
+): "own" | "third-party" {
+  if (configured === "own" || configured === "third-party") return configured;
+  try {
+    const out = runner("gh repo view --json isFork,parent", {
+      cwd: projectDir,
+      stdio: "pipe",
+      timeout: 10_000,
+    });
+    const parsed = JSON.parse(String(out)) as {
+      isFork?: boolean;
+      parent?: { owner?: { login?: string }; name?: string } | null;
+    };
+    if (
+      parsed.isFork === true &&
+      parsed.parent !== null &&
+      parsed.parent !== undefined
+    ) {
+      return "third-party";
+    }
+    return "own";
+  } catch {
+    return "own";
+  }
 }

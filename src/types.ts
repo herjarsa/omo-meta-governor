@@ -30,19 +30,19 @@
  */
 export interface DecisionContext {
   /** Whether the last Oracle invocation returned verified=true. */
-  readonly oracleVerified: boolean
+  readonly oracleVerified: boolean;
   /** Whether the last assistant turn produced no progress (zero tokens, no content). */
-  readonly noProgress: boolean
+  readonly noProgress: boolean;
   /** Detected deviations from expected behavior. Empty array = no deviations. */
-  readonly deviations: readonly Deviation[]
+  readonly deviations: readonly Deviation[];
   /** iteration / maxIterations. 0..1. 1.0 = at the cap. */
-  readonly iterationRatio: number
+  readonly iterationRatio: number;
   /** Lessons retrieved from agentmemory that match the current decision pattern. */
-  readonly lessonsRelevant: readonly RelevantLesson[]
+  readonly lessonsRelevant: readonly RelevantLesson[];
   /** Cross-session memory snapshot from the meta_state slot. */
-  readonly slotMemory: SlotMemory
+  readonly slotMemory: SlotMemory;
   /** Free-form context the calling site can attach (sessionID, directory, mode). */
-  readonly ambient: AmbientContext
+  readonly ambient: AmbientContext;
 }
 
 /**
@@ -58,17 +58,17 @@ export interface DecisionContext {
  * Note: actual thresholds are config-driven in PR 8. Defaults are above.
  */
 export interface Decision {
-  readonly action: "continue" | "warn" | "escalate" | "stop"
-  readonly score: number
+  readonly action: "continue" | "warn" | "escalate" | "stop";
+  readonly score: number;
   /** Human-readable one-sentence explanation. Required, never empty. */
-  readonly reasoning: string
+  readonly reasoning: string;
   /** Cite-or-abstain: at least 1 evidence unit when action !== "continue" silently. */
-  readonly evidence: readonly Evidence[]
+  readonly evidence: readonly Evidence[];
   /** When action === "escalate", which actor should be invoked. */
-  readonly shouldEscalateTo: EscalationTarget | null
+  readonly shouldEscalateTo: EscalationTarget | null;
 }
 
-export type EscalationTarget = "oracle" | "user"
+export type EscalationTarget = "oracle" | "user";
 
 /**
  * Atomic evidence unit. Carries provenance so the judge can be audited.
@@ -78,10 +78,10 @@ export type EscalationTarget = "oracle" | "user"
  *  (assigned by the scoring function, not the collector).
  */
 export interface Evidence {
-  readonly source: EvidenceSource
-  readonly value: string
-  readonly confidence: number
-  readonly weight: number
+  readonly source: EvidenceSource;
+  readonly value: string;
+  readonly confidence: number;
+  readonly weight: number;
 }
 
 export type EvidenceSource =
@@ -92,17 +92,17 @@ export type EvidenceSource =
   | "lesson-recall"
   | "slot-memory"
   | "ambient"
-  | "token-predictor"
+  | "token-predictor";
 
 /**
  * A deviation from expected behavior. Severity follows the prior
  * moderator-gate (PR 4405) taxonomy for backward compat.
  */
 export interface Deviation {
-  readonly severity: "leve" | "media" | "grave"
-  readonly category: string
-  readonly detail: string
-  readonly filePath?: string
+  readonly severity: "leve" | "media" | "grave";
+  readonly category: string;
+  readonly detail: string;
+  readonly filePath?: string;
 }
 
 /**
@@ -110,10 +110,10 @@ export interface Deviation {
  * Severity reuses the 3-level taxonomy from Deviation for consistency.
  */
 export interface ProtocolViolation {
-  readonly rule: string
-  readonly tool: string
-  readonly severity: "leve" | "media" | "grave"
-  readonly detail: string
+  readonly rule: string;
+  readonly tool: string;
+  readonly severity: "leve" | "media" | "grave";
+  readonly detail: string;
 }
 
 /**
@@ -121,11 +121,11 @@ export interface ProtocolViolation {
  * stored confidence in the memory store, not the relevance to this query.
  */
 export interface RelevantLesson {
-  readonly id: string
-  readonly title: string
-  readonly advice: "continue" | "stop" | "warn" | "info"
-  readonly confidence: number
-  readonly concepts: readonly string[]
+  readonly id: string;
+  readonly title: string;
+  readonly advice: "continue" | "stop" | "warn" | "info";
+  readonly confidence: number;
+  readonly concepts: readonly string[];
 }
 
 /**
@@ -135,10 +135,10 @@ export interface RelevantLesson {
  * in a row → force continue with warning, prevents infinite conservatism).
  */
 export interface SlotMemory {
-  readonly lastDecision?: Decision
-  readonly consecutiveStops: number
-  readonly consecutiveContinues: number
-  readonly lastUpdatedISO: string
+  readonly lastDecision?: Decision;
+  readonly consecutiveStops: number;
+  readonly consecutiveContinues: number;
+  readonly lastUpdatedISO: string;
 }
 
 /**
@@ -147,12 +147,12 @@ export interface SlotMemory {
  * session state. Fields are optional to keep the contract lean.
  */
 export interface AmbientContext {
-  readonly sessionID: string
-  readonly directory: string
-  readonly mode: "ultrawork" | "ulw" | "simple" | "ralph-loop"
-  readonly agentName: string
-  readonly iteration: number
-  readonly maxIterations: number
+  readonly sessionID: string;
+  readonly directory: string;
+  readonly mode: "ultrawork" | "ulw" | "simple" | "ralph-loop";
+  readonly agentName: string;
+  readonly iteration: number;
+  readonly maxIterations: number;
 }
 
 /**
@@ -163,33 +163,40 @@ export interface AmbientContext {
  * query that produced it.
  */
 export interface MemoryRead {
-  readonly query: string
-  readonly timestampISO: string
-  readonly agentmemory: AgentMemoryRead
-  readonly magicContext: MagicContextRead
-  readonly boulderState: BoulderStateRead
-  readonly degradedSources: readonly MemorySource[]
+  readonly query: string;
+  readonly timestampISO: string;
+  readonly agentmemory: AgentMemoryRead;
+  readonly magicContext: MagicContextRead;
+  readonly boulderState: BoulderStateRead;
+  readonly degradedSources: readonly MemorySource[];
 }
 
-export type MemorySource = "agentmemory" | "magicContext" | "boulderState"
+export type MemorySource = "agentmemory" | "magicContext" | "boulderState";
 
 export interface AgentMemoryRead {
-  readonly available: boolean
-  readonly lessons: readonly RelevantLesson[]
-  readonly errorMessage?: string
+  readonly available: boolean;
+  readonly lessons: readonly RelevantLesson[];
+  readonly errorMessage?: string;
 }
 
 export interface MagicContextRead {
-  readonly available: boolean
-  readonly slots: readonly { readonly label: string; readonly content: string }[]
-  readonly errorMessage?: string
+  readonly available: boolean;
+  readonly slots: readonly {
+    readonly label: string;
+    readonly content: string;
+  }[];
+  readonly errorMessage?: string;
 }
 
 export interface BoulderStateRead {
-  readonly available: boolean
-  readonly tasks: readonly { readonly id: string; readonly status: string; readonly title: string }[]
-  readonly planProgress: number
-  readonly errorMessage?: string
+  readonly available: boolean;
+  readonly tasks: readonly {
+    readonly id: string;
+    readonly status: string;
+    readonly title: string;
+  }[];
+  readonly planProgress: number;
+  readonly errorMessage?: string;
 }
 
 /**
@@ -204,19 +211,17 @@ export interface BoulderStateRead {
  *   - "no-action" → silent
  */
 export interface TokenPrediction {
-  readonly currentUsage: number
-  readonly burnRate: number
-  readonly budgetLeft: number
-  readonly willOverflowAt: string | null
-  readonly recommendation: TokenRecommendation
-  readonly confidence: number
-  readonly modelLimit: number
-  readonly windowRemaining: number
+  readonly currentUsage: number;
+  readonly burnRate: number;
+  readonly budgetLeft: number;
+  readonly willOverflowAt: string | null;
+  readonly recommendation: TokenRecommendation;
+  readonly confidence: number;
+  readonly modelLimit: number;
+  readonly windowRemaining: number;
 }
 
-export type TokenRecommendation =
-  | "compact-now"
-  | "no-action"
+export type TokenRecommendation = "compact-now" | "no-action";
 
 /**
  * Closed-loop learning types. PR 3 of 8.
@@ -232,44 +237,44 @@ export type TokenRecommendation =
  */
 export interface ClosedLoopConfig {
   /** Master switch. false = observe only, never write. */
-  readonly enabled: boolean
+  readonly enabled: boolean;
   /** Minimum severity to trigger a lesson write. */
-  readonly minSeverityToLearn: "leve" | "media" | "grave"
+  readonly minSeverityToLearn: "leve" | "media" | "grave";
   /** Maximum lessons to save per session (prevents flooding). Default 20. */
-  readonly maxLessonsPerSession: number
+  readonly maxLessonsPerSession: number;
   /** Whether to save decision records (lighter than lessons). Default true. */
-  readonly saveDecisions: boolean
+  readonly saveDecisions: boolean;
   /** v0.17.2: whether to save lessons. Default true. Independent of saveDecisions
    *  so users can disable lessons while keeping decision records, or vice versa. */
-  readonly saveLessons?: boolean
+  readonly saveLessons?: boolean;
 }
 
 /**
  * A record of a decision that was made, saved to agentmemory for future retrieval.
  */
 export interface MemoryDecision {
-  readonly id: string
-  readonly timestampISO: string
-  readonly action: Decision["action"]
-  readonly score: number
-  readonly reasoning: string
-  readonly sessionID: string
-  readonly directory: string
-  readonly deviations: readonly Deviation[]
+  readonly id: string;
+  readonly timestampISO: string;
+  readonly action: Decision["action"];
+  readonly score: number;
+  readonly reasoning: string;
+  readonly sessionID: string;
+  readonly directory: string;
+  readonly deviations: readonly Deviation[];
 }
 
 /**
  * A lesson extracted from an outcome, saved to agentmemory.
  */
 export interface LessonLearned {
-  readonly id: string
-  readonly title: string
-  readonly content: string
-  readonly type: "pattern" | "bug" | "architecture" | "workflow"
-  readonly concepts: readonly string[]
-  readonly confidence: number
-  readonly files: readonly string[]
-  readonly sessionID: string
+  readonly id: string;
+  readonly title: string;
+  readonly content: string;
+  readonly type: "pattern" | "bug" | "architecture" | "workflow";
+  readonly concepts: readonly string[];
+  readonly confidence: number;
+  readonly files: readonly string[];
+  readonly sessionID: string;
 }
 
 /**
@@ -278,36 +283,47 @@ export interface LessonLearned {
  */
 export interface AgentmemoryWriteBackend {
   saveMemory(input: {
-    content: string
-    concepts: string[]
-    type: string
-    files?: string[]
-  }): Promise<{ id: string }>
+    content: string;
+    concepts: string[];
+    type: string;
+    files?: string[];
+  }): Promise<{ id: string }>;
 
   saveLesson(input: {
-    content: string
-    context: string
-    confidence?: number
-    tags?: string[]
-  }): Promise<{ id: string }>
+    content: string;
+    context: string;
+    confidence?: number;
+    tags?: string[];
+  }): Promise<{ id: string }>;
 }
 
 /** Backend interfaces for memory-aggregator DI. Re-uses existing BoulderStateBackend from memory-aggregator. */
 export interface OrchestratorAgentmemoryBackend {
   smartSearch(input: {
-    query: string
-    limit?: number
-  }): Promise<{ lessons: Array<{ title: string; content: string; type: string; confidence: number }>; crystals: unknown[] }>
+    query: string;
+    limit?: number;
+  }): Promise<{
+    lessons: Array<{
+      title: string;
+      content: string;
+      type: string;
+      confidence: number;
+    }>;
+    crystals: unknown[];
+  }>;
 }
 
 export interface OrchestratorMagicContextBackend {
-  slotList(input: { directory?: string; labelPrefix?: string }): Promise<Array<{ label: string; content: string }>>
+  slotList(input: {
+    directory?: string;
+    labelPrefix?: string;
+  }): Promise<Array<{ label: string; content: string }>>;
 }
 
 export interface MemoryBackends {
-  agentmemory: OrchestratorAgentmemoryBackend
-  magicContext: OrchestratorMagicContextBackend
-  boulderState: import('./memory-aggregator').BoulderStateBackend
+  agentmemory: OrchestratorAgentmemoryBackend;
+  magicContext: OrchestratorMagicContextBackend;
+  boulderState: import("./memory-aggregator").BoulderStateBackend;
 }
 
 /**
@@ -315,46 +331,46 @@ export interface MemoryBackends {
  * to decide WHAT to learn and WHETHER to learn it.
  */
 export interface LearnFromOutcomeInput {
-  readonly decision: Decision
-  readonly memoryRead: MemoryRead
-  readonly config: ClosedLoopConfig
-  readonly sessionID: string
-  readonly directory: string
-  readonly filesChanged: readonly string[]
+  readonly decision: Decision;
+  readonly memoryRead: MemoryRead;
+  readonly config: ClosedLoopConfig;
+  readonly sessionID: string;
+  readonly directory: string;
+  readonly filesChanged: readonly string[];
   /** v0.17.0 (F5.4): current lesson count for this session. Defaults to 0. */
-  readonly currentLessonCount?: number
+  readonly currentLessonCount?: number;
 }
 
 /**
  * Output from observeAndLearn(). Reports what was persisted (if anything).
  */
 export interface LearnFromOutcomeOutput {
-  readonly lessonSaved: LessonLearned | null
-  readonly decisionSaved: MemoryDecision | null
-  readonly reason: string
+  readonly lessonSaved: LessonLearned | null;
+  readonly decisionSaved: MemoryDecision | null;
+  readonly reason: string;
 }
 
 export interface ModelOverrideConfig {
   /** Provider ID (e.g. "openai", "anthropic", "openrouter"). */
-  readonly providerID?: string
+  readonly providerID?: string;
   /** Model ID (e.g. "gpt-4o-mini", "claude-sonnet-4-20250514"). */
-  readonly modelID?: string
+  readonly modelID?: string;
   /** Context window size for token predictor. */
-  readonly modelLimit?: number
+  readonly modelLimit?: number;
   /** Sampling temperature. Default: 0.2 (deterministic). */
-  readonly temperature?: number
+  readonly temperature?: number;
   /** 0..1 top-p nucleus sampling. Default: 1. */
-  readonly topP?: number
+  readonly topP?: number;
   /** Max output tokens for internal reasoning. Default: 2048. */
-  readonly maxTokens?: number
+  readonly maxTokens?: number;
   /** Enable extended reasoning / thinking mode (provider-specific). Default: false. */
-  readonly reasoning?: boolean
+  readonly reasoning?: boolean;
   /** Verbosity level for internal logging: "silent" | "minimal" | "verbose". Default: "minimal". */
-  readonly verbosity?: "silent" | "minimal" | "verbose"
+  readonly verbosity?: "silent" | "minimal" | "verbose";
 }
 
 /** How the MetaGovernor should surface its guidance to the active agent. */
-export type InterventionMode = "silent" | "message" | "system"
+export type InterventionMode = "silent" | "message" | "system";
 
 /**
  * Configuration for visible intervention. When the MetaGovernor dispatches a
@@ -367,18 +383,18 @@ export interface InterventionConfig {
    * - "message": prepend a synthetic user message with the decision guidance.
    * - "system": append the guidance to the system prompt via chat.system.transform.
    */
-  readonly mode: InterventionMode
+  readonly mode: InterventionMode;
   /**
    * Minimum decision action that triggers an intervention.
    * "warn" means warn/escalate/stop all trigger.
    * "escalate" means escalate/stop trigger.
    * "stop" means only stop triggers.
    */
-  readonly minActionForMessage: "warn" | "escalate" | "stop"
+  readonly minActionForMessage: "warn" | "escalate" | "stop";
   /** Include recent decision history in the injected guidance. */
-  readonly includeDecisionHistory: boolean
+  readonly includeDecisionHistory: boolean;
   /** Max number of recent decision history entries to include. */
-  readonly maxHistoryMessages: number
+  readonly maxHistoryMessages: number;
   /**
    * v0.19.0: when true (default), intervention messages are ALSO persisted
    * to the session via session.prompt() (session-bridge) so they appear in
@@ -386,13 +402,13 @@ export interface InterventionConfig {
    * reaches the model but is never persisted (no write path in 1.18.x),
    * making interventions invisible to the user.
    */
-  readonly persistToSession: boolean
+  readonly persistToSession: boolean;
   /**
    * Max number of times a single session may receive an intervention
    * before the plugin auto-disables intervention for that session.
    * v0.10.0: prevents infinite instruction loops. Default: 3.
    */
-  readonly maxInterventionsPerSession: number
+  readonly maxInterventionsPerSession: number;
   /**
    * When true, the plugin stops injecting the moment the agent emits a
    * terminal completion signal AND Oracle has verified the work.
@@ -408,7 +424,7 @@ export interface InterventionConfig {
    *     terminal.
    * Default: true.
    */
-  readonly respectDoneSignal: boolean
+  readonly respectDoneSignal: boolean;
   /**
    * v0.15.0: split per-phase hint from terminal signal. When true, the
    * plugin no longer treats `<promise>DONE</promise>` as terminal —
@@ -421,7 +437,73 @@ export interface InterventionConfig {
    * Default: false in v0.15.0 (preserves v0.10.0–v0.14.x behavior). Will
    * flip to true in v0.16.0 once migration is documented.
    */
-  readonly phaseAwareDoneSignal: boolean
+  readonly phaseAwareDoneSignal: boolean;
+}
+
+/**
+ * Post-wave workflow gate (v0.21.0): after Oracle approves a
+ * PHASE-N-COMPLETE wave, inject landing directives (push+CI for own repos,
+ * PR/issue via aas skills for third-party repos).
+ */
+export interface PostWaveConfig {
+  /** Master switch. Default false. */
+  enabled?: boolean;
+  /**
+   * Repository mode:
+   *  - "auto": detect from config/remote heuristics.
+   *  - "own": this repo is ours — push + CI directives.
+   *  - "third-party": fork/PR workflow via aas skills.
+   * Default "auto".
+   */
+  repoMode?: "auto" | "own" | "third-party";
+  /** Prefix for aas tool names when invoking third-party skills. */
+  aasToolPrefix?: string;
+  /** Max ms to wait for CI after push before reporting failure. */
+  ciTimeoutMs?: number;
+  /** Max retries per wave before escalating. */
+  maxRetriesPerWave?: number;
+  /** Min ms between directive re-injections for the same wave. */
+  reinjectCooldownMs?: number;
+  /** When true, skip injection while silent mode is active. */
+  respectSilentMode?: boolean;
+  /** Directive injected for own repos (push + CI). */
+  ownRepoDirective?: string;
+  /** Directive injected for third-party repos (PR/issue via aas skills). */
+  thirdPartyDirective?: string;
+}
+
+/**
+ * Skill priming — v0.20.0: proactive skill-selection nudge.
+ *
+ * The plugin injects ONE synthetic user message at session start (or once
+ * implementation work begins) prompting the agent to select precise skills
+ * for the task: querying the AAS skill catalog (aas search_skills /
+ * get_skill / compose_stack) and/or loading the task-appropriate
+ * superpowers skill (brainstorming, writing-plans, test-driven-development,
+ * systematic-debugging, subagent-driven-development) via the skill tool.
+ * Config-gated, once per session, minimal context cost — the directive
+ * explicitly forbids enumerating the full catalog.
+ */
+export type SkillPrimingTrigger = "firstImplement" | "sessionStart";
+
+export type SkillPrimingRouter = "aas" | "superpowers" | "both";
+
+export interface SkillPrimingConfig {
+  /** Master switch. Default false. */
+  readonly enabled: boolean;
+  /**
+   * When to inject:
+   *  - "sessionStart": on the first messages.transform call of a session.
+   *  - "firstImplement": once implementation work begins (a write/edit-like
+   *    tool appears in the session's recent tool calls).
+   * Default "firstImplement".
+   */
+  readonly trigger: SkillPrimingTrigger;
+  /**
+   * Which skill system(s) the directive references: "aas" (catalog),
+   * "superpowers", or "both". Default "both".
+   */
+  readonly router: SkillPrimingRouter;
 }
 
 /**
@@ -431,44 +513,44 @@ export interface InterventionConfig {
  */
 export interface ProtocolEnforcementConfig {
   /** Master switch for protocol enforcement. */
-  readonly enabled: boolean
+  readonly enabled: boolean;
   /** Path to protocol markdown. Defaults to ~/.config/opencode/sisyphus-mandatory/sisyphus-mandatory.md */
-  readonly path?: string
+  readonly path?: string;
   /** Whether to inject protocol rules into the system prompt. */
-  readonly injectIntoSystem: boolean
+  readonly injectIntoSystem: boolean;
   /** Whether to audit tool calls for protocol violations. */
-  readonly auditToolCalls: boolean
+  readonly auditToolCalls: boolean;
 }
 
 export interface TokenPredictorConfig {
   /** Burn rate threshold (tokens/sec) above which to recommend compact-now. Default: 500. */
-  readonly compactBurnRateThreshold: number
+  readonly compactBurnRateThreshold: number;
   /** Context usage ratio (0..1) above which to recommend compact-now. Default: 0.85. */
-  readonly compactUsageThreshold: number
+  readonly compactUsageThreshold: number;
   /** Context usage ratio above which to recommend switch-model. Default: 0.95. */
-  readonly switchModelUsageThreshold: number
+  readonly switchModelUsageThreshold: number;
   /** Max consecutive high-burn turns before recommending delegate. Default: 5. */
-  readonly delegateConsecutiveHighBurn: number
+  readonly delegateConsecutiveHighBurn: number;
   /** Number of recent turns to use for burn rate calculation. Default: 10. */
-  readonly windowSize: number
+  readonly windowSize: number;
 }
 
 export interface TokenPredictorInput {
-  readonly currentUsage: number
-  readonly modelLimit: number
-  readonly recentTurnTokens: readonly number[]
-  readonly timestampISO: string
-  readonly providerID: string
-  readonly modelID: string
-  readonly config: TokenPredictorConfig
+  readonly currentUsage: number;
+  readonly modelLimit: number;
+  readonly recentTurnTokens: readonly number[];
+  readonly timestampISO: string;
+  readonly providerID: string;
+  readonly modelID: string;
+  readonly config: TokenPredictorConfig;
 }
 
 export interface TokenPredictorOutput extends TokenPrediction {
-  readonly input: TokenPredictorInput
-  readonly computedAtISO: string
-  readonly turnsAnalyzed: number
+  readonly input: TokenPredictorInput;
+  readonly computedAtISO: string;
+  readonly turnsAnalyzed: number;
   /** Informational recommendations not acted on by the dispatcher. */
-  readonly recommendations: readonly string[]
+  readonly recommendations: readonly string[];
 }
 
 /**
@@ -481,77 +563,77 @@ export interface TokenPredictorOutput extends TokenPrediction {
 
 export interface ScoringConfig {
   /** Score >= this → continue silently. Default: 0.3. */
-  readonly continueThreshold: number
+  readonly continueThreshold: number;
   /** Score in [-warnThreshold, +warnThreshold] → continue with log. Default: 0.3. */
-  readonly warnThreshold: number
+  readonly warnThreshold: number;
   /** Score <= -warnThreshold && > -escalateThreshold → warn. Default: 0.6. */
-  readonly escalateThreshold: number
+  readonly escalateThreshold: number;
   /** Score <= -escalateThreshold && > -stopThreshold → escalate. Default: 0.8. */
-  readonly stopThreshold: number
+  readonly stopThreshold: number;
   /** Number of consecutive stops that triggers paralysis override. Default: 3. */
-  readonly paralysisThreshold: number
+  readonly paralysisThreshold: number;
   /** Default escalation target when action is escalate. Default: "oracle". */
-  readonly defaultEscalationTarget: EscalationTarget
+  readonly defaultEscalationTarget: EscalationTarget;
 }
 
 /**
  * Weighted evidence contribution for a single signal.
  */
 export interface EvidenceContribution {
-  readonly source: EvidenceSource
-  readonly rawScore: number
-  readonly weight: number
-  readonly weightedScore: number
-  readonly description: string
+  readonly source: EvidenceSource;
+  readonly rawScore: number;
+  readonly weight: number;
+  readonly weightedScore: number;
+  readonly description: string;
 }
 
 /**
  * Full scoring result with per-signal breakdown.
  */
 export interface ScoringResult {
-  readonly decision: Decision
-  readonly contributions: readonly EvidenceContribution[]
-  readonly rawScore: number
-  readonly paralysisOverride: boolean
-  readonly computedAtISO: string
+  readonly decision: Decision;
+  readonly contributions: readonly EvidenceContribution[];
+  readonly rawScore: number;
+  readonly paralysisOverride: boolean;
+  readonly computedAtISO: string;
 }
 
 // ─── Decision Handler Types (PR 6) ────────────────────────────────
 
 export interface DecisionHandlerConfig {
   /** Master switch: false = always continue (pass-through) */
-  readonly enabled: boolean
+  readonly enabled: boolean;
   /** Max history entries per session before oldest are trimmed */
-  readonly maxHistoryPerSession: number
+  readonly maxHistoryPerSession: number;
   /** How many consecutive stops before forcing continue */
-  readonly forceContinueAfterStops: number
+  readonly forceContinueAfterStops: number;
   /** Template for warn messages. Placeholders: {score}, {reasoning}, {evidenceCount} */
-  readonly warnMessageTemplate: string
+  readonly warnMessageTemplate: string;
   /** Template for escalation messages. Placeholders: {target}, {reasoning} */
-  readonly escalateMessageTemplate: string
+  readonly escalateMessageTemplate: string;
   /** Template for stop messages. Placeholders: {reasoning}, {evidenceCount} */
-  readonly stopMessageTemplate: string
+  readonly stopMessageTemplate: string;
   /** Default escalation target when Decision.shouldEscalateTo is null */
-  readonly defaultEscalationTarget?: string
+  readonly defaultEscalationTarget?: string;
 }
 
 export interface DecisionHandlerInput {
-  readonly scoringResult: ScoringResult
-  readonly sessionID: string
+  readonly scoringResult: ScoringResult;
+  readonly sessionID: string;
 }
 
 export interface DecisionHistoryEntry {
-  readonly decision: Decision
-  readonly action: "continue" | "warn" | "escalate" | "stop"
-  readonly timestampISO: string
-  readonly sessionID: string
-  readonly reasoning: string
+  readonly decision: Decision;
+  readonly action: "continue" | "warn" | "escalate" | "stop";
+  readonly timestampISO: string;
+  readonly sessionID: string;
+  readonly reasoning: string;
 }
 
 export interface DecisionHandlerOutput {
-  readonly action: "continue" | "warn" | "escalate" | "stop"
-  readonly message: string | null
-  readonly historyEntry: DecisionHistoryEntry
+  readonly action: "continue" | "warn" | "escalate" | "stop";
+  readonly message: string | null;
+  readonly historyEntry: DecisionHistoryEntry;
 }
 
 // ─── Orchestrator Types (PR 7) ────────────────────────────────────
@@ -563,27 +645,31 @@ export interface DecisionHandlerOutput {
  */
 export interface OrchestratorConfig {
   /** Master switch. false = skip all MetaGovernor processing. */
-  readonly enabled: boolean
+  readonly enabled: boolean;
   /** Memory aggregator config. */
   readonly memory: {
-    readonly enabled: boolean
-    readonly query: string
-    readonly timeoutMs?: number
-  }
+    readonly enabled: boolean;
+    readonly query: string;
+    readonly timeoutMs?: number;
+  };
   /** Token predictor config overrides. */
-  readonly tokenPredictor: Partial<TokenPredictorConfig>
+  readonly tokenPredictor: Partial<TokenPredictorConfig>;
   /** Scoring config overrides. */
-  readonly scoring: Partial<ScoringConfig>
+  readonly scoring: Partial<ScoringConfig>;
   /** Decision handler config overrides. */
-  readonly decision: Partial<DecisionHandlerConfig>
+  readonly decision: Partial<DecisionHandlerConfig>;
   /** Closed-loop learning config overrides. */
-  readonly closedLoop: Partial<ClosedLoopConfig>
+  readonly closedLoop: Partial<ClosedLoopConfig>;
   /** Model override for MetaGovernor's internal LLM usage. */
-  readonly modelOverride?: ModelOverrideConfig
+  readonly modelOverride?: ModelOverrideConfig;
   /** Intervention config for injecting decisions into agent context. */
-  readonly intervention: InterventionConfig
+  readonly intervention: InterventionConfig;
   /** Protocol enforcement config for Sisyphus protocol injection and auditing. */
-  readonly protocolEnforcement: ProtocolEnforcementConfig
+  readonly protocolEnforcement: ProtocolEnforcementConfig;
+  /** Skill priming config (v0.20.0): proactive skill-selection nudge. */
+  readonly skillPriming: SkillPrimingConfig;
+  /** Post-wave workflow gate (v0.21.0): landing directives after Oracle-approved waves. */
+  readonly postWave?: PostWaveConfig;
 }
 
 /**
@@ -591,31 +677,31 @@ export interface OrchestratorConfig {
  * build a DecisionContext and dispatch a decision.
  */
 export interface MetaGovernorInput {
-  readonly sessionID: string
-  readonly toolName: string
-  readonly toolInput?: unknown
-  readonly toolOutput?: unknown
-  readonly agentName?: string
-  readonly providerID?: string
-  readonly modelID?: string
-  readonly iteration: number
-  readonly maxIterations: number
-  readonly oracleVerified: boolean
-  readonly noProgress: boolean
-  readonly filesChanged: number
-  readonly recentTurnTokens: readonly number[]
-  readonly deviations: readonly Deviation[]
+  readonly sessionID: string;
+  readonly toolName: string;
+  readonly toolInput?: unknown;
+  readonly toolOutput?: unknown;
+  readonly agentName?: string;
+  readonly providerID?: string;
+  readonly modelID?: string;
+  readonly iteration: number;
+  readonly maxIterations: number;
+  readonly oracleVerified: boolean;
+  readonly noProgress: boolean;
+  readonly filesChanged: number;
+  readonly recentTurnTokens: readonly number[];
+  readonly deviations: readonly Deviation[];
   /** v0.17.2 (Gap Q): file paths from recent write tools. Used by
    *  observeAndLearn to populate lesson extraction concepts with
    *  file basenames for FTS lookup. */
-  readonly filePaths?: readonly string[]
-readonly consecutiveStops?: number
-readonly backends: MemoryBackends
-  readonly writeBackend: AgentmemoryWriteBackend
-  readonly modelLimit?: number
-readonly config?: Partial<OrchestratorConfig>
+  readonly filePaths?: readonly string[];
+  readonly consecutiveStops?: number;
+  readonly backends: MemoryBackends;
+  readonly writeBackend: AgentmemoryWriteBackend;
+  readonly modelLimit?: number;
+  readonly config?: Partial<OrchestratorConfig>;
   /** v0.17.0 (F5.4): current lesson count for this session. Used to enforce maxLessonsPerSession. */
-  readonly currentLessonCount?: number
+  readonly currentLessonCount?: number;
 }
 
 /**
@@ -623,22 +709,22 @@ readonly config?: Partial<OrchestratorConfig>
  * so the caller can log, inject messages, or escalate.
  */
 export interface MetaGovernorOutput {
-  readonly memoryRead: MemoryRead
-  readonly tokenPrediction: TokenPredictorOutput
-  readonly scoringResult: ScoringResult
-  readonly decision: DecisionHandlerOutput
-  readonly lessonSaved: LearnFromOutcomeOutput | null
-  readonly decisionHistory: readonly DecisionHistoryEntry[]
-  readonly skipped: boolean
-  readonly skipReason?: string
+  readonly memoryRead: MemoryRead;
+  readonly tokenPrediction: TokenPredictorOutput;
+  readonly scoringResult: ScoringResult;
+  readonly decision: DecisionHandlerOutput;
+  readonly lessonSaved: LearnFromOutcomeOutput | null;
+  readonly decisionHistory: readonly DecisionHistoryEntry[];
+  readonly skipped: boolean;
+  readonly skipReason?: string;
 }
 
 // ─── Protocol Enforcer Types ─────────────────────────────
 
 export interface ProtocolEnforcementSessionState {
-  readonly memoryToolsUsed: readonly string[]
-  readonly hasCodegraphDir: boolean
-  readonly hasGraphifyDir: boolean
-  readonly oracleInvoked: boolean
-  readonly filesChanged: number
+  readonly memoryToolsUsed: readonly string[];
+  readonly hasCodegraphDir: boolean;
+  readonly hasGraphifyDir: boolean;
+  readonly oracleInvoked: boolean;
+  readonly filesChanged: number;
 }

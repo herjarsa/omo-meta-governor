@@ -95,6 +95,34 @@ When `intervention.mode !== "silent"`, decisions that meet the `minActionForMess
 - **PR bot feedback** — captures failed check lines from `gh pr checks`/`gh pr view` output and injects them as actionable feedback.
 - **Protocol violations** — accumulated violations from `tool.execute.before` audits are batched and injected as a single message.
 
+## Skill Priming (v0.20.0)
+
+Proactive skill-selection nudge. When enabled, the plugin injects **one** synthetic user message
+(via `experimental.chat.messages.transform`) prompting the agent to select precise skills for the
+current task before writing code — querying the **AAS skill catalog** (`aas search_skills` /
+`get_skill` / `compose_stack`) and/or loading the task-appropriate **superpowers** skill
+(`brainstorming`, `writing-plans`, `test-driven-development`, `systematic-debugging`,
+`subagent-driven-development`) via the `skill` tool.
+
+| Config | Default | Description |
+|--------|---------|-------------|
+| `skillPriming.enabled` | `false` | Master switch |
+| `skillPriming.trigger` | `"firstImplement"` | `"sessionStart"` = first transform call of the session; `"firstImplement"` = once a write/edit-like tool appears |
+| `skillPriming.router` | `"both"` | Which system(s) the directive references: `"aas"`, `"superpowers"`, `"both"` |
+
+Design notes:
+- **Independent of intervention mode** — the priming block runs before the
+  `intervention.mode !== "message"` gate, so it works in `silent`/`system` modes too.
+- **Once per session** — tracked via a per-factory `Set` (same pattern as the plan reminder).
+- **Minimal context cost** — the directive explicitly forbids enumerating the full catalog; the
+  AAS MCP is read-only and only consumes tokens when the agent actually queries it (avoids the
+  past skill-index token bloat, ~205k tokens/session).
+- **`firstImplement` does not depend on the audit state** — the audit state only exists when
+  `protocolEnforcement.auditToolCalls` is enabled, so implementation tools are also tracked in an
+  independent per-session `Set` populated by `tool.execute.after`.
+- The message is synthetic-only (never persisted via `persistSessionMessage`); it is a nudge, not
+  an intervention.
+
 ## Protocol Enforcement
 
 `src/protocol-enforcer.ts` — reads the Sisyphus protocol markdown from disk and enforces it.

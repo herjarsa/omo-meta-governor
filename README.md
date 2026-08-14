@@ -158,6 +158,33 @@ Enabled when `meta_governor.enabled: true` in config.
 | `respectDoneSignal` | `true` | Stop injecting after terminal signal + Oracle verified |
 | `phaseAwareDoneSignal` | `false` | **v0.15.0**: when `true`, only `<promise>PLAN-COMPLETE</promise>` latches intervention. DONE/PHASE-N-COMPLETE are per-phase hints. Recommended for multi-phase plans. |
 
+## Skill Priming (v0.20.0)
+
+Proactive skill-selection nudge: the plugin injects **one** synthetic user message at session
+start (or once implementation work begins) prompting the agent to select precise skills for the
+task via the **AAS skill catalog** (`aas search_skills` / `get_skill` / `compose_stack`) and/or
+the task-appropriate **superpowers** skill — before writing code. Minimal context cost: the
+directive forbids enumerating the full catalog.
+
+```jsonc
+{
+  "meta_governor": {
+    "enabled": true,
+    "skillPriming": {
+      "enabled": true,
+      "trigger": "sessionStart", // or "firstImplement" (default)
+      "router": "both" // "aas", "superpowers", or "both"
+    }
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | `false` | Master switch for the skill-priming nudge |
+| `trigger` | `"firstImplement"` | `"sessionStart"`: first transform call of the session. `"firstImplement"`: once a write/edit-like tool is observed |
+| `router` | `"both"` | Which system(s) the directive references: `"aas"`, `"superpowers"`, `"both"` |
+
 ### Multi-phase plans (v0.15.0)
 
 For work plans with multiple phases (e.g. Sisyphus/Prometheus work plans),

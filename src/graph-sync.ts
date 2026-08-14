@@ -167,46 +167,64 @@ export interface ToolAvailability {
 /**
  * Check which graph tools are available and whether indexes already exist.
  */
-async function checkToolAvailability(projectDir: string): Promise<ToolAvailability> {
+/**
+ * Check which graph tools are available and whether indexes already exist.
+ *
+ * Index existence requires the marker file, not just the directory:
+ * - codegraph: `.codegraph/codegraph.db`
+ * - graphify: `graphify-out/graph.json`
+ * An empty dir created by a failed init must NOT count as initialized.
+ */
+export async function checkToolAvailability(
+  projectDir: string,
+  runner: typeof execSync = execSync,
+): Promise<ToolAvailability> {
   let codegraph = false
   let graphify = false
-  const codegraphIndexExists = await dirExists(resolve(projectDir, ".codegraph"))
-  const graphifyIndexExists = await dirExists(resolve(projectDir, "graphify-out"))
+  const codegraphIndexExists = await fileExists(resolve(projectDir, ".codegraph", "codegraph.db"))
+  const graphifyIndexExists = await fileExists(resolve(projectDir, "graphify-out", "graph.json"))
 
   try {
-    execSync("npx --yes codegraph --version", {
+    runner("npx --yes codegraph --version", {
       stdio: "ignore",
       timeout: 10_000,
-    })
+    } as never)
     codegraph = true
   } catch {
     try {
-      execSync("node node_modules/.bin/codegraph --version", {
+      runner("node node_modules/.bin/codegraph --version", {
         cwd: projectDir,
         stdio: "ignore",
         timeout: 5_000,
-      })
+      } as never)
       codegraph = true
     } catch {
       // Not available
     }
   }
 
+  // v0.21.0: try the `graphify` BINARY first — on Windows the pip package
+  // `graphifyy` installs a binary named `graphify` (not `graphifyy`), and
+  // `python3` may resolve to a WindowsApps stub without the package.
   try {
-    execSync("python3 -c 'import graphify; print(graphify.__version__)'", {
-      stdio: "ignore",
-      timeout: 5_000,
-    })
+    runner("graphify --version", { stdio: "ignore", timeout: 5_000 } as never)
     graphify = true
   } catch {
     try {
-      execSync("python3 -c 'import graphifyy; print(graphifyy.__version__)'", {
-        stdio: "ignore",
-        timeout: 5_000,
-      })
+      runner("graphifyy --version", { stdio: "ignore", timeout: 5_000 } as never)
       graphify = true
     } catch {
-      // Not available
+      try {
+        runner('python -c "import graphifyy"', { stdio: "ignore", timeout: 5_000 } as never)
+        graphify = true
+      } catch {
+        try {
+          runner('python3 -c "import graphifyy"', { stdio: "ignore", timeout: 5_000 } as never)
+          graphify = true
+        } catch {
+          // Not available
+        }
+      }
     }
   }
 
@@ -215,42 +233,62 @@ async function checkToolAvailability(projectDir: string): Promise<ToolAvailabili
 
 // ─── Initialization ────────────────────────────────────────────────
 
-async function initCodegraph(projectDir: string): Promise<void> {
-  const codegraphDir = resolve(projectDir, ".codegraph")
-  await ensureDir(codegraphDir)
-
+/**
+ * Initialize codegraph in the project. Returns true only when the init
+ * command exited successfully (no throw). Does NOT pre-create the dir —
+ * a failed init must not leave an empty dir that later counts as
+ * "already exists".
+ */
+export async function initCodegraph(
+  projectDir: string,
+  timeoutMs: number = 60_000,
+  runner: typeof execSync = execSync,
+): Promise<boolean> {
   try {
-    execSync("npx --yes codegraph init", {
+    runner("npx --yes codegraph init", {
       cwd: projectDir,
       stdio: "ignore",
-      timeout: 60_000,
-    })
+      timeout: timeoutMs,
+    } as never)
+    return true
   } catch {
-    // Best-effort
+    return false
   }
 }
 
-async function initGraphify(projectDir: string): Promise<void> {
-  const graphifyOut = resolve(projectDir, "graphify-out")
-  await ensureDir(graphifyOut)
-
-  try {
-    execSync("python3 -m graphify . --no-viz", {
-      cwd: projectDir,
-      stdio: "ignore",
-      timeout: 120_000,
-    })
-  } catch {
+/**
+ * Initialize graphify in the project. Returns true only when one of the
+ * candidate commands exited successfully.
+ *
+ * v0.21.0 candidate order: `graphify` binary first (the real CLI installed
+ * by the pip package `graphifyy` on Windows), then `python -m graphify`
+ * (real interpreter — `python3` may be a WindowsApps stub), then
+ * `python3 -m graphify`. The `graphifyy` binary is NOT attempted — it does
+ * not exist; the package's binary is named `graphify`.
+ */
+export async function initGraphify(
+  projectDir: string,
+  timeoutMs: number = 120_000,
+  runner: typeof execSync = execSync,
+): Promise<boolean> {
+  const candidates = [
+    "graphify . --no-viz",
+    "python -m graphify . --no-viz",
+    "python3 -m graphify . --no-viz",
+  ]
+  for (const cmd of candidates) {
     try {
-      execSync("graphifyy . --no-viz", {
+      runner(cmd, {
         cwd: projectDir,
         stdio: "ignore",
-        timeout: 120_000,
-      })
+        timeout: timeoutMs,
+      } as never)
+      return true
     } catch {
-      // Best-effort
+      // Try next candidate
     }
   }
+  return false
 }
 
 // ─── Watch mode ────────────────────────────────────────────────────
@@ -353,11 +391,13 @@ export interface GraphSyncResult {
 
 export type GraphSyncCode =
   | "codegraph-initialized"
+  | "codegraph-init-failed"
   | "codegraph-already-exists"
   | "codegraph-unavailable"
   | "codegraph-install-failed"
   | "codegraph-install-skipped"
   | "graphify-initialized"
+  | "graphify-init-failed"
   | "graphify-already-exists"
   | "graphify-unavailable"
   | "graphify-install-failed"
@@ -485,12 +525,8 @@ export async function runGraphSync(
   // Codegraph init
   if (availability.codegraph) {
     if (!availability.codegraphIndexExists) {
-      try {
-        await initCodegraph(projectDir)
-        codes.push("codegraph-initialized")
-      } catch {
-        codes.push("error")
-      }
+      const ok = await initCodegraph(projectDir, config.installTimeoutMs ?? 60_000)
+      codes.push(ok ? "codegraph-initialized" : "codegraph-init-failed")
     } else {
       codes.push("codegraph-already-exists")
     }
@@ -501,12 +537,8 @@ export async function runGraphSync(
   // Graphify init
   if (availability.graphify) {
     if (!availability.graphifyIndexExists) {
-      try {
-        await initGraphify(projectDir)
-        codes.push("graphify-initialized")
-      } catch {
-        codes.push("error")
-      }
+      const ok = await initGraphify(projectDir, config.installTimeoutMs ?? 120_000)
+      codes.push(ok ? "graphify-initialized" : "graphify-init-failed")
     } else {
       codes.push("graphify-already-exists")
     }
@@ -556,6 +588,15 @@ async function dirExists(dirPath: string): Promise<boolean> {
   try {
     const st = await stat(dirPath)
     return st.isDirectory()
+  } catch {
+    return false
+  }
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    const st = await stat(filePath)
+    return st.isFile()
   } catch {
     return false
   }

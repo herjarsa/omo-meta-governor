@@ -1,4 +1,13 @@
-import type { InterventionConfig, ModelOverrideConfig, OrchestratorConfig, ProtocolEnforcementConfig } from "./types"
+import type {
+  InterventionConfig,
+  ModelOverrideConfig,
+  OrchestratorConfig,
+  PostWaveConfig,
+  ProtocolEnforcementConfig,
+  SkillPrimingConfig,
+  SkillPrimingRouter,
+  SkillPrimingTrigger,
+} from "./types"
 import { defaultScoringConfig } from "./scoring-engine"
 import { defaultDecisionHandlerConfig } from "./decision-handler"
 import { defaultClosedLoopConfig } from "./closed-loop-learning"
@@ -92,12 +101,22 @@ export interface MetaGovernorPluginConfig {
   }
 
   /** Graph sync config for auto-initializing codegraph/graphify. */
-graphSync?: {
-enabled?: boolean
+  graphSync?: {
+    enabled?: boolean
     watch?: boolean
     autoInstall?: boolean
     installTimeoutMs?: number
-}
+  }
+
+  /** Skill priming config (v0.20.0): proactive skill-selection nudge. */
+  skillPriming?: {
+    enabled?: boolean
+    trigger?: SkillPrimingTrigger
+    router?: SkillPrimingRouter
+  }
+
+  /** Post-wave workflow gate (v0.21.0): landing directives after Oracle-approved waves. */
+  postWave?: PostWaveConfig
 }
 
 /**
@@ -230,12 +249,36 @@ export function loadOrchestratorConfig(
       // persisted in OpenCode 1.18.x (no write path for synthetic messages).
       persistToSession: full.intervention?.persistToSession ?? true,
     } as InterventionConfig,
+    // v0.21.0: project all postWave fields with defaults. `enabled` derives
+    // from phaseAwareDoneSignal when the user hasn't set it explicitly.
+    postWave: {
+      enabled:
+        full.postWave?.enabled ?? (full.intervention?.phaseAwareDoneSignal === true),
+      repoMode: full.postWave?.repoMode ?? "auto",
+      aasToolPrefix: full.postWave?.aasToolPrefix ?? "aas",
+      ciTimeoutMs: full.postWave?.ciTimeoutMs ?? 600_000,
+      maxRetriesPerWave: full.postWave?.maxRetriesPerWave ?? 1,
+      reinjectCooldownMs: full.postWave?.reinjectCooldownMs ?? 60_000,
+      respectSilentMode: full.postWave?.respectSilentMode ?? false,
+      ...(full.postWave?.ownRepoDirective !== undefined
+        ? { ownRepoDirective: full.postWave.ownRepoDirective }
+        : {}),
+      ...(full.postWave?.thirdPartyDirective !== undefined
+        ? { thirdPartyDirective: full.postWave.thirdPartyDirective }
+        : {}),
+    } as PostWaveConfig,
     protocolEnforcement: {
       enabled: full.protocolEnforcement?.enabled ?? false,
       path: full.protocolEnforcement?.path,
       injectIntoSystem: full.protocolEnforcement?.injectIntoSystem ?? false,
       auditToolCalls: full.protocolEnforcement?.auditToolCalls ?? false,
     } as ProtocolEnforcementConfig,
+    // v0.20.0: project all skillPriming fields with defaults.
+    skillPriming: {
+      enabled: full.skillPriming?.enabled ?? false,
+      trigger: full.skillPriming?.trigger ?? "firstImplement",
+      router: full.skillPriming?.router ?? "both",
+    } as SkillPrimingConfig,
   }
 }
 

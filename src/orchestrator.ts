@@ -14,12 +14,15 @@
  * - Graceful degradation: if any module throws, returns partial output with skipped=true
  */
 
-import { aggregateRead } from "./memory-aggregator"
-import type { Backends } from "./memory-aggregator"
-import { predict } from "./token-predictor"
-import { score } from "./scoring-engine"
-import { handleDecision } from "./decision-handler"
-import { observeAndLearn, defaultClosedLoopConfig } from "./closed-loop-learning"
+import { aggregateRead } from "./memory-aggregator";
+import type { Backends } from "./memory-aggregator";
+import { predict } from "./token-predictor";
+import { score } from "./scoring-engine";
+import { handleDecision } from "./decision-handler";
+import {
+  observeAndLearn,
+  defaultClosedLoopConfig,
+} from "./closed-loop-learning";
 
 import type {
   AgentmemoryWriteBackend,
@@ -34,7 +37,7 @@ import type {
   SlotMemory,
   TokenPredictorConfig,
   TokenPredictorOutput,
-} from "./types"
+} from "./types";
 
 // ─── Defaults ────────────────────────────────────────────────────
 
@@ -66,12 +69,19 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
     persistToSession: true,
   },
   protocolEnforcement: {
-enabled: false,
-path: undefined,
-injectIntoSystem: false,
-auditToolCalls: false,
-},
-})
+    enabled: false,
+    path: undefined,
+    injectIntoSystem: false,
+    auditToolCalls: false,
+  },
+  // v0.20.0: skill priming off by default in the orchestrator defaults
+  // (same as protocolEnforcement).
+  skillPriming: {
+    enabled: false,
+    trigger: "firstImplement",
+    router: "both",
+  },
+});
 
 const EMPTY_MEMORY_READ: MemoryRead = {
   query: "",
@@ -80,13 +90,13 @@ const EMPTY_MEMORY_READ: MemoryRead = {
   magicContext: { available: false, slots: [] },
   boulderState: { available: false, tasks: [], planProgress: 0 },
   degradedSources: ["agentmemory", "magicContext", "boulderState"],
-}
+};
 
 const EMPTY_SLOT_MEMORY: SlotMemory = {
   consecutiveStops: 0,
   consecutiveContinues: 0,
   lastUpdatedISO: new Date().toISOString(),
-}
+};
 
 const NO_OP_DECISION: MetaGovernorOutput["decision"] = {
   action: "continue",
@@ -104,8 +114,7 @@ const NO_OP_DECISION: MetaGovernorOutput["decision"] = {
     sessionID: "",
     reasoning: "no decision made",
   },
-}
-
+};
 
 /**
  * Build a DecisionContext from orchestrator input + memory read.
@@ -116,12 +125,12 @@ export function buildDecisionContext(
   memoryRead: MemoryRead = EMPTY_MEMORY_READ,
 ): DecisionContext {
   const iterationRatio =
-    input.maxIterations > 0 ? input.iteration / input.maxIterations : 0
+    input.maxIterations > 0 ? input.iteration / input.maxIterations : 0;
 
   const slotMemory: SlotMemory = {
     ...EMPTY_SLOT_MEMORY,
     consecutiveStops: input.consecutiveStops ?? 0,
-  }
+  };
 
   return {
     oracleVerified: input.oracleVerified,
@@ -138,7 +147,7 @@ export function buildDecisionContext(
       iteration: input.iteration,
       maxIterations: input.maxIterations,
     },
-  }
+  };
 }
 
 // ─── Orchestrator ──────────────────────────────────────────────
@@ -160,7 +169,7 @@ export async function runMetaGovernor(
   const mergedConfig: OrchestratorConfig = {
     ...defaultOrchestratorConfig(),
     ...config,
-  }
+  };
 
   if (!mergedConfig.enabled) {
     return {
@@ -184,18 +193,18 @@ export async function runMetaGovernor(
       decisionHistory: [],
       skipped: true,
       skipReason: "disabled",
-    }
+    };
   }
 
   // Step 1: Memory read
-  let memoryRead: MemoryRead = EMPTY_MEMORY_READ
+  let memoryRead: MemoryRead = EMPTY_MEMORY_READ;
   if (mergedConfig.memory.enabled) {
     try {
       const backends: Backends = {
         agentmemory: input.backends.agentmemory as Backends["agentmemory"],
         magicContext: input.backends.magicContext as Backends["magicContext"],
         boulderState: input.backends.boulderState,
-      }
+      };
       memoryRead = await aggregateRead(
         {
           directory: ".",
@@ -203,50 +212,49 @@ export async function runMetaGovernor(
           query: mergedConfig.memory.query || input.toolName,
         },
         backends,
-      )
+      );
     } catch {
       // Graceful degradation — memoryRead stays at EMPTY_MEMORY_READ
     }
   }
 
   // Step 2: Token prediction (sync)
-  let tokenPrediction: TokenPredictorOutput
+  let tokenPrediction: TokenPredictorOutput;
   try {
     tokenPrediction = predict({
       currentUsage: input.recentTurnTokens.reduce((a, b) => a + b, 0),
-      modelLimit: input.modelLimit ?? config.modelOverride?.modelLimit ?? 200_000,
+      modelLimit:
+        input.modelLimit ?? config.modelOverride?.modelLimit ?? 200_000,
       recentTurnTokens: input.recentTurnTokens,
       timestampISO: new Date().toISOString(),
       providerID: input.providerID ?? "",
       modelID: input.modelID ?? "",
       config: mergedConfig.tokenPredictor as TokenPredictorConfig,
-    })
+    });
   } catch {
-    tokenPrediction = createNoopPrediction(input)
+    tokenPrediction = createNoopPrediction(input);
   }
-
 
   const scoringResult = score(
     buildDecisionContext(input, memoryRead),
     mergedConfig.scoring as Partial<ScoringConfig>,
-  )
-
+  );
 
   // Step 4: Decision
   const decisionInput: DecisionHandlerInput = {
     sessionID: input.sessionID,
     scoringResult,
-  }
+  };
 
   const decision = handleDecision(
     decisionInput,
     mergedConfig.decision as DecisionHandlerConfig,
-  )
+  );
 
   // Step 5: Learn from outcome
-  let lessonSaved: MetaGovernorOutput["lessonSaved"] = null
+  let lessonSaved: MetaGovernorOutput["lessonSaved"] = null;
   try {
-    const learnConfig = mergedConfig.closedLoop
+    const learnConfig = mergedConfig.closedLoop;
     if (learnConfig.enabled !== false) {
       lessonSaved = await observeAndLearn(
         {
@@ -259,7 +267,7 @@ export async function runMetaGovernor(
           currentLessonCount: input.currentLessonCount,
         },
         input.writeBackend,
-      )
+      );
     }
   } catch {
     // Graceful degradation — lessonSaved stays null
@@ -273,13 +281,11 @@ export async function runMetaGovernor(
     lessonSaved,
     decisionHistory: [decision.historyEntry],
     skipped: false,
-  }
+  };
 }
 
-function createNoopPrediction(
-  input: MetaGovernorInput,
-): TokenPredictorOutput {
-  const totalTokens = input.recentTurnTokens.reduce((a, b) => a + b, 0)
+function createNoopPrediction(input: MetaGovernorInput): TokenPredictorOutput {
+  const totalTokens = input.recentTurnTokens.reduce((a, b) => a + b, 0);
   return {
     burnRate: 0,
     budgetLeft: 200_000,
@@ -307,5 +313,5 @@ function createNoopPrediction(
     computedAtISO: new Date().toISOString(),
     turnsAnalyzed: input.recentTurnTokens.length,
     recommendations: [],
-  }
+  };
 }

@@ -301,3 +301,50 @@ describe("loadOrchestratorConfig — protocolEnforcement", () => {
     })
   })
 })
+
+describe("loadOrchestratorConfig — skillPriming", () => {
+  describe("#given undefined skillPriming config", () => {
+    const config: MetaGovernorPluginConfig = { enabled: true }
+    const result = loadOrchestratorConfig(config)
+
+    it("then skillPriming.enabled defaults to false", () => {
+      expect(result.skillPriming.enabled).toBe(false)
+    })
+
+    it("then skillPriming.trigger defaults to 'firstImplement'", () => {
+      expect(result.skillPriming.trigger).toBe("firstImplement")
+    })
+
+    it("then skillPriming.router defaults to 'both'", () => {
+      expect(result.skillPriming.router).toBe("both")
+    })
+  })
+
+  describe("#given custom skillPriming config", () => {
+    const config: MetaGovernorPluginConfig = {
+      enabled: true,
+      skillPriming: { enabled: true, trigger: "sessionStart", router: "aas" },
+    }
+    const result = loadOrchestratorConfig(config)
+
+    it("then all three overrides are reflected", () => {
+      expect(result.skillPriming.enabled).toBe(true)
+      expect(result.skillPriming.trigger).toBe("sessionStart")
+      expect(result.skillPriming.router).toBe("aas")
+    })
+  })
+
+  describe("#given partial skillPriming config", () => {
+    const config: MetaGovernorPluginConfig = {
+      enabled: true,
+      skillPriming: { enabled: true },
+    }
+    const result = loadOrchestratorConfig(config)
+
+    it("then trigger and router keep defaults", () => {
+      expect(result.skillPriming.enabled).toBe(true)
+      expect(result.skillPriming.trigger).toBe("firstImplement")
+      expect(result.skillPriming.router).toBe("both")
+    })
+  })
+})

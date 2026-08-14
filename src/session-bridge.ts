@@ -26,9 +26,9 @@
  *   is busy, the tool returns a friendly error string and the LLM can retry.
  */
 
-import { join } from "node:path"
-import { existsSync } from "node:fs"
-import { AsyncLocalStorage } from "node:async_hooks"
+import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,37 +42,37 @@ import { AsyncLocalStorage } from "node:async_hooks"
 export interface OpencodeClientLike {
   session: {
     prompt(input: {
-      sessionID: string
+      sessionID: string;
       body: {
         // Accept any shape — the SDK allows parts as a discriminated union
-        parts: Array<{ type: string; text?: string; [k: string]: unknown }>
-      }
-    }): Promise<{ data?: { info?: { id?: string } } | null } | null>
-  }
+        parts: Array<{ type: string; text?: string; [k: string]: unknown }>;
+      };
+    }): Promise<{ data?: { info?: { id?: string } } | null } | null>;
+  };
 }
 
 export interface PromptOptions {
   /** The tool name to mention in the prompt (for context) */
-  toolName: string
+  toolName: string;
   /** The MCP tool the agent should invoke */
-  mcpTool: string
+  mcpTool: string;
   /** Args to pass to the MCP tool (will be serialized to JSON) */
-  mcpArgs: Record<string, unknown>
+  mcpArgs: Record<string, unknown>;
   /** Optional instruction prefix (e.g. "this is a durable fact") */
-  preamble?: string
+  preamble?: string;
   /** Timeout in ms. Default: 15_000 (MCP tools can be slow) */
-  timeoutMs?: number
+  timeoutMs?: number;
 }
 
 export interface PromptResult {
   /** True if the prompt was sent and the session accepted it */
-  ok: boolean
+  ok: boolean;
   /** The session message id (if available) */
-  messageID: string | null
+  messageID: string | null;
   /** Error if the prompt failed */
-  error: string | null
+  error: string | null;
   /** Time taken in ms */
-  durationMs: number
+  durationMs: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -83,9 +83,9 @@ export interface PromptResult {
 // Previously a module-level _client meant concurrent sessions could
 // overwrite each other's client reference. Now each session's client
 // is bound to its async context via runWithClient().
-export const _sessionStore = new AsyncLocalStorage<OpencodeClientLike>()
-let _lastInitLog: number = 0
-let _fallbackClient: OpencodeClientLike | null = null
+export const _sessionStore = new AsyncLocalStorage<OpencodeClientLike>();
+let _lastInitLog: number = 0;
+let _fallbackClient: OpencodeClientLike | null = null;
 
 /**
  * Set the OpenCode client. Called from the plugin factory when the first
@@ -93,13 +93,16 @@ let _fallbackClient: OpencodeClientLike | null = null
  */
 export function setSessionClient(client: OpencodeClientLike | null): void {
   if (client) {
-    const now = Date.now()
+    const now = Date.now();
     if (now - _lastInitLog > 1000) {
-      _lastInitLog = now
+      _lastInitLog = now;
       // Lazy require to avoid circular dep at module load
       try {
-        const { logToFile } = require("./file-logger")
-        logToFile("info", "SessionBridge: OpenCode client hydrated — session.prompt() available")
+        const { logToFile } = require("./file-logger");
+        logToFile(
+          "info",
+          "SessionBridge: OpenCode client hydrated — session.prompt() available",
+        );
       } catch {
         // best-effort
       }
@@ -107,7 +110,7 @@ export function setSessionClient(client: OpencodeClientLike | null): void {
   }
   // Legacy: also write to a module-level fallback so promptAgent can find
   // it when called outside a runWithClient context (e.g., direct test).
-  _fallbackClient = client
+  _fallbackClient = client;
 }
 
 /**
@@ -116,14 +119,14 @@ export function setSessionClient(client: OpencodeClientLike | null): void {
  * from other concurrent sessions.
  */
 export function runWithClient<T>(client: OpencodeClientLike, fn: () => T): T {
-  return _sessionStore.run(client, fn)
+  return _sessionStore.run(client, fn);
 }
 
 /**
  * Returns true if a client is available for session.prompt() calls.
  */
 export function hasSessionClient(): boolean {
-  return (_sessionStore.getStore() ?? _fallbackClient) !== null
+  return (_sessionStore.getStore() ?? _fallbackClient) !== null;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,16 +155,17 @@ export async function promptAgent(
   sessionID: string,
   options: PromptOptions,
 ): Promise<PromptResult> {
-  const start = Date.now()
-  const timeoutMs = options.timeoutMs ?? 15_000
-  const client = _sessionStore.getStore() ?? _fallbackClient
+  const start = Date.now();
+  const timeoutMs = options.timeoutMs ?? 15_000;
+  const client = _sessionStore.getStore() ?? _fallbackClient;
   if (!client) {
     return {
       ok: false,
       messageID: null,
-      error: "SessionBridge: no OpenCode client captured (plugin not initialized?)",
+      error:
+        "SessionBridge: no OpenCode client captured (plugin not initialized?)",
       durationMs: 0,
-    }
+    };
   }
   if (!sessionID) {
     return {
@@ -169,37 +173,41 @@ export async function promptAgent(
       messageID: null,
       error: "SessionBridge: sessionID is required",
       durationMs: 0,
-    }
+    };
   }
-  const mcpArgsJson = JSON.stringify(options.mcpArgs, null, 2)
-  const preamble = options.preamble ?? "The user wants to record this."
+  const mcpArgsJson = JSON.stringify(options.mcpArgs, null, 2);
+  const preamble = options.preamble ?? "The user wants to record this.";
   const instruction =
     `${preamble}\n\n` +
     `Please call the \`${options.mcpTool}\` MCP tool with EXACTLY these args:\n\n` +
-    "```json\n" + mcpArgsJson + "\n```\n\n" +
+    "```json\n" +
+    mcpArgsJson +
+    "\n```\n\n" +
     `Do not paraphrase, modify, or add fields. Pass the args through verbatim.\n` +
-    `After the tool call, briefly confirm what you stored and for which tool.`
-  const part = { type: "text", text: instruction }
+    `After the tool call, briefly confirm what you stored and for which tool.`;
+  const part = { type: "text", text: instruction };
   try {
     const result = await raceWithTimeout(
       client.session.prompt({ sessionID, body: { parts: [part] } }),
       timeoutMs,
       `session.prompt for ${options.mcpTool}`,
-    )
-    const messageID = (result as { data?: { info?: { id?: string } } | null })?.data?.info?.id ?? null
+    );
+    const messageID =
+      (result as { data?: { info?: { id?: string } } | null })?.data?.info
+        ?.id ?? null;
     return {
       ok: true,
       messageID,
       error: null,
       durationMs: Date.now() - start,
-    }
+    };
   } catch (err) {
     return {
       ok: false,
       messageID: null,
       error: err instanceof Error ? err.message : String(err),
       durationMs: Date.now() - start,
-    }
+    };
   }
 }
 
@@ -226,15 +234,16 @@ export async function persistSessionMessage(
   text: string,
   timeoutMs = 10_000,
 ): Promise<PromptResult> {
-  const start = Date.now()
-  const client = _sessionStore.getStore() ?? _fallbackClient
+  const start = Date.now();
+  const client = _sessionStore.getStore() ?? _fallbackClient;
   if (!client) {
     return {
       ok: false,
       messageID: null,
-      error: "SessionBridge: no OpenCode client captured (plugin not initialized?)",
+      error:
+        "SessionBridge: no OpenCode client captured (plugin not initialized?)",
       durationMs: 0,
-    }
+    };
   }
   if (!sessionID || !text) {
     return {
@@ -242,46 +251,78 @@ export async function persistSessionMessage(
       messageID: null,
       error: "SessionBridge: sessionID and text are required",
       durationMs: 0,
-    }
+    };
   }
-  const part = { type: "text", text }
+  const part = { type: "text", text };
   try {
     const result = await raceWithTimeout(
       client.session.prompt({ sessionID, body: { parts: [part] } }),
       timeoutMs,
       `session.prompt persist for ${sessionID}`,
-    )
-    const messageID = (result as { data?: { info?: { id?: string } } | null })?.data?.info?.id ?? null
+    );
+    const messageID =
+      (result as { data?: { info?: { id?: string } } | null })?.data?.info
+        ?.id ?? null;
     return {
       ok: true,
       messageID,
       error: null,
       durationMs: Date.now() - start,
-    }
+    };
   } catch (err) {
     return {
       ok: false,
       messageID: null,
       error: err instanceof Error ? err.message : String(err),
       durationMs: Date.now() - start,
-    }
+    };
   }
 }
 
-function raceWithTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+/**
+ * Send a plain-text directive to the session as a REAL user message —
+ * visible in the OpenCode TUI and stored in the session DB.
+ *
+ * v0.21.0: send plain-text directive to the session (used by the post-wave
+ * gate to inject push/PR landing instructions).
+ *
+ * Thin wrapper over persistSessionMessage: same transport
+ * (`session.prompt({ sessionID, body: { parts: [{ type: "text", text }] } })`)
+ * and same delivery semantics — awaited, never throws. Resolves with
+ * `PromptResult`; the caller (post-wave gate W4.4) must check `result.ok` to
+ * confirm the directive was actually queued for the LLM.
+ */
+export async function promptAgentText(
+  sessionID: string,
+  text: string,
+): Promise<PromptResult> {
+  return persistSessionMessage(sessionID, text);
+}
+
+function raceWithTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error(`${label} timed out after ${ms}ms`))
-    }, ms)
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
     promise.then(
-      (v) => { clearTimeout(timer); resolve(v) },
-      (e) => { clearTimeout(timer); reject(e) },
-    )
-  })
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
 }
 
 // Re-export existsSync for the plugin factory to detect a project context
-export { existsSync, join }
+export { existsSync, join };
 
 // ─── v0.17.0 (F5.1): escalation prompt builder ──────────────────
 
@@ -292,10 +333,10 @@ export { existsSync, join }
  * Pure function — testable in isolation.
  */
 export function buildEscalationPrompt(options: {
-  reasoning: string
-  target: "oracle" | "user"
-  evidenceCount: number
-  sessionID: string
+  reasoning: string;
+  target: "oracle" | "user";
+  evidenceCount: number;
+  sessionID: string;
 }): string {
   if (options.target === "oracle") {
     return (
@@ -304,11 +345,11 @@ export function buildEscalationPrompt(options: {
       `perform a verification pass on the current session state. ` +
       `Decision context: ${options.evidenceCount} evidence unit(s). ` +
       `After Oracle returns, you should continue with the recommended action.`
-    )
+    );
   }
   return (
     `[MetaGovernor] Escalation to user required. Reason: ${options.reasoning}\n\n` +
     `Present a clear summary to the user with the deviation(s) detected and ` +
     `your recommended next steps. Wait for explicit user input before proceeding.`
-  )
+  );
 }

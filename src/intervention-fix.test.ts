@@ -105,6 +105,9 @@ describe("cross-session decision scoping", () => {
             mode: "message",
             minActionForMessage: "warn",
           },
+          // v0.20.0: user config enables skillPriming; disable it here so
+          // this test asserts ONLY the decision-injection path.
+          skillPriming: { enabled: false },
         },
       }
 
@@ -195,6 +198,9 @@ describe("explicit warn threshold (regression)", () => {
             mode: "message",
             minActionForMessage: "warn", // explicit opt-in
           },
+          // v0.20.0: user config enables skillPriming; disable it here so
+          // this test asserts ONLY the decision-injection path.
+          skillPriming: { enabled: false },
         },
       }
 
@@ -241,6 +247,9 @@ describe("max interventions per session", () => {
             minActionForMessage: "warn",
             maxInterventionsPerSession: 1,
           },
+          // v0.20.0: user config enables skillPriming; disable it here so
+          // this test asserts ONLY the intervention-cap behavior.
+          skillPriming: { enabled: false },
         },
       }
 
