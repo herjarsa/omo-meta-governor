@@ -17,6 +17,7 @@ import {
   initGraphify,
   initCodegraph,
   checkToolAvailability,
+  triggerReindex,
   type GraphSyncConfig,
 } from "./graph-sync"
 
@@ -112,6 +113,61 @@ describe("runGraphSync", () => {
       const result = await runGraphSync({ enabled: false, watch: false })
       expect(result.codes).toContain("disabled")
     })
+  })
+})
+
+describe("triggerReindex runner DI (Oracle N2, v0.21.0)", () => {
+  // The seam must flow through to the underlying sync/init calls so a
+  // hermetic test never spawns real npx/pip.
+  it("passes the runner to the underlying runGraphSync", async () => {
+    // Spy that always throws → checkToolAvailability reports unavailable for
+    // every probe → runGraphSync returns immediately with the unavailability
+    // codes, never reaching initCodegraph/initGraphify (which still use the
+    // real execSync — out of scope for this seam).
+    const calls: string[] = []
+    const spyRunner = ((cmd: string) => {
+      calls.push(cmd)
+      throw new Error("not available")
+    }) as unknown as typeof import("node:child_process").execSync
+    const os = await import("node:os")
+    const path = await import("node:path")
+    const fs = await import("node:fs/promises")
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "omo-reindex-"))
+    try {
+      const result = await triggerReindex(tmp, spyRunner)
+      expect(result.attempted).toBe(true)
+      // The runner flowed into the underlying call.
+      expect(calls.length).toBeGreaterThan(0)
+      // And the unavailability path was taken (probe threw → no init).
+      expect(result.codes).toContain("codegraph-unavailable")
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(() => {})
+    }
+  }, 30000)
+
+  it("skips the availability probe when the codegraph index already exists", async () => {
+    // Oracle N1: triggerCodegraphSync re-probes `codegraph --version` (up to
+    // 5s) on the commit hot path even though triggerReindex already decided
+    // the index exists. The sync must go straight to `codegraph sync -q`.
+    const calls: string[] = []
+    const spyRunner = ((cmd: string) => {
+      calls.push(cmd)
+      return Buffer.from("ok")
+    }) as unknown as typeof import("node:child_process").execSync
+    const os = await import("node:os")
+    const path = await import("node:path")
+    const fs = await import("node:fs/promises")
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "omo-reindex2-"))
+    try {
+      await fs.mkdir(path.join(tmp, ".codegraph"), { recursive: true })
+      const result = await triggerReindex(tmp, spyRunner)
+      expect(result.attempted).toBe(true)
+      // Straight to sync — NO --version probe, NO init.
+      expect(calls.some((c) => c.includes("sync -q"))).toBe(true)
+      expect(calls.some((c) => c.includes("--version"))).toBe(false)
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(() => {})
+    }
   })
 })
 

@@ -641,7 +641,10 @@ export function isGitCommitCommand(command: string | undefined | null): boolean 
  *
  * Best-effort: never throws, returns a structured result instead.
  */
-export async function triggerReindex(projectDir: string): Promise<GraphSyncResult> {
+export async function triggerReindex(
+  projectDir: string,
+  runner: typeof execSync = execSync,
+): Promise<GraphSyncResult> {
   // v0.21.0 (fix): when the codegraph index ALREADY exists, run
   // `codegraph sync -q` to refresh it after commits — runGraphSync alone
   // returns "codegraph-already-exists" without syncing (gap found 14/08/2026:
@@ -649,7 +652,7 @@ export async function triggerReindex(projectDir: string): Promise<GraphSyncResul
   // post-commit git hook (`graphify update`).
   const codegraphIndexExists = await dirExists(resolve(projectDir, ".codegraph"))
   if (codegraphIndexExists) {
-    return await triggerCodegraphSync(projectDir)
+    return await triggerCodegraphSync(projectDir, runner)
   }
   return await runGraphSync({
     enabled: true,
@@ -657,6 +660,7 @@ export async function triggerReindex(projectDir: string): Promise<GraphSyncResul
     autoInstall: false,
     installTimeoutMs: 5_000,
     projectDir,
+    runner,
   })
 }
 
@@ -695,24 +699,56 @@ export async function isGraphifyHookInstalled(projectDir: string): Promise<boole
  *
  * Best-effort: never throws, returns a structured result.
  */
-export async function triggerCodegraphSync(projectDir: string): Promise<GraphSyncResult> {
-  const { execSync } = await import("node:child_process")
-  const { access } = await import("node:fs/promises")
+export async function triggerCodegraphSync(
+  projectDir: string,
+  runner: typeof execSync = execSync,
+): Promise<GraphSyncResult> {
   const { resolve } = await import("node:path")
   const codes: GraphSyncCode[] = []
   const codegraphIndexExists = await dirExists(resolve(projectDir, ".codegraph"))
 
+  // Oracle N1 (v0.21.0, 14/08/2026): when the index ALREADY exists, skip the
+  // availability probe (`codegraph --version`, up to 5s) — the caller
+  // (triggerReindex) already decided the index exists, and the sync itself
+  // fails fast if the tool is unavailable. This is the commit hot path.
+  if (codegraphIndexExists) {
+    try {
+      runner("npx --yes codegraph sync -q", {
+        cwd: projectDir,
+        stdio: "ignore",
+        timeout: 30_000,
+      } as never)
+      codes.push("codegraph-already-exists")
+      void logToFile("info", `codegraph sync -q completed for ${projectDir}`)
+    } catch (err) {
+      void logToFile("warn", `codegraph sync failed for ${projectDir}: ${err}`)
+      codes.push("codegraph-install-failed")
+    }
+    return {
+      attempted: true,
+      codes,
+      availability: {
+        codegraph: true,
+        graphify: false,
+        codegraphIndexExists,
+        graphifyIndexExists: await dirExists(resolve(projectDir, "graphify-out")),
+      },
+      alreadyInitialized: false,
+    }
+  }
+
+  // No index — probe availability before deciding init vs unavailable.
   let codegraphAvailable = false
   try {
-    execSync("npx --yes codegraph --version", { stdio: "ignore", timeout: 5_000 })
+    runner("npx --yes codegraph --version", { stdio: "ignore", timeout: 5_000 } as never)
     codegraphAvailable = true
   } catch {
     try {
-      execSync("node node_modules/.bin/codegraph --version", {
+      runner("node node_modules/.bin/codegraph --version", {
         cwd: projectDir,
         stdio: "ignore",
         timeout: 5_000,
-      })
+      } as never)
       codegraphAvailable = true
     } catch { /* not available */ }
   }
@@ -726,43 +762,15 @@ export async function triggerCodegraphSync(projectDir: string): Promise<GraphSyn
     }
   }
 
-  if (!codegraphIndexExists) {
-    // No prior index — call runGraphSync to do the full init
-    return await runGraphSync({
-      enabled: true,
-      watch: false,
-      autoInstall: false,
-      installTimeoutMs: 5_000,
-      projectDir,
-    })
-  }
-
-  // We have an index — run `codegraph sync -q <projectDir>` in the background
-  // so we don't block the tool.execute.after hook
-  try {
-    execSync("npx --yes codegraph sync -q", {
-      cwd: projectDir,
-      stdio: "ignore",
-      timeout: 30_000,
-    })
-    codes.push("codegraph-already-exists") // re-uses existing code
-    void logToFile("info", `codegraph sync -q completed for ${projectDir}`)
-  } catch (err) {
-    void logToFile("warn", `codegraph sync failed for ${projectDir}: ${err}`)
-    codes.push("codegraph-install-failed") // re-uses existing code
-  }
-
-  return {
-    attempted: true,
-    codes,
-    availability: {
-      codegraph: true,
-      graphify: false,
-      codegraphIndexExists,
-      graphifyIndexExists: await dirExists(resolve(projectDir, "graphify-out")),
-    },
-    alreadyInitialized: false,
-  }
+  // No prior index — call runGraphSync to do the full init
+  return await runGraphSync({
+    enabled: true,
+    watch: false,
+    autoInstall: false,
+    installTimeoutMs: 5_000,
+    projectDir,
+    runner,
+  })
 }
 
 // v0.16.0: F2.3 — replaced the no-op stub with a lazy proxy to the real
