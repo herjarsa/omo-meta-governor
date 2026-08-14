@@ -44,7 +44,11 @@ describe("named exports still work", () => {
   test("calling the default fires the factory and returns hooks", async () => {
     const hooks = await pluginModule(
       { client: null, project: null, directory: "", worktree: "", experimental_workspace: { register: () => {} }, serverUrl: new URL("http://localhost"), $: null } as never,
-      {},
+      // Hermetic: the plugin defaults to enabled=false WITHOUT a user config
+      // file (~/.config/opencode/omo-meta-governor.jsonc) — CI has none, so
+      // the early-return would strip tool.execute.after (env-dependent test,
+      // exposed when the CI workflow YAML was fixed on 14/08/2026).
+      { meta_governor: { enabled: true, graphSync: { enabled: false } } } as never,
     )
     expect(typeof hooks["tool.execute.after"]).toBe("function")
     expect(typeof hooks["experimental.session.compacting"]).toBe("function")
