@@ -18,7 +18,11 @@ jobs:
       - run: bun run typecheck
       - run: bun test
       - name: "Verify npm pack is clean (v0.15.1: F0.2)"
-        run: bun run build && npm pack --dry-run 2>&1 | tee /tmp/pack-output.txt && (grep -q "package.json" /tmp/pack-output.txt || (echo "FAIL: pack output missing" && exit 1)) && (grep -vE "^\s*(npm notice|files:|Tarball Contents|name:|version:|filename:|package size|total files:)" /tmp/pack-output.txt | head -40)
+        run: |
+          bun run build
+          npm pack --dry-run 2>&1 | tee /tmp/pack-output.txt
+          grep -q "package.json" /tmp/pack-output.txt || (echo "FAIL: pack output missing" && exit 1)
+          grep -vE "^\s*(npm notice|files:|Tarball Contents|name:|version:|filename:|package size|total files:)" /tmp/pack-output.txt | head -40
 
   test-macos:
     runs-on: macos-latest
