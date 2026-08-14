@@ -20,6 +20,7 @@ import { access, stat } from "node:fs/promises"
 import { resolve } from "node:path"
 import { homedir } from "node:os"
 import { constants } from "node:fs"
+import { killProcessTree, trackPid, untrackPid, runGuardedSync, killOrphanedToolProcesses } from "./proc-guard"
 
 // ─── GraphSync config ──────────────────────────────────────────────
 
@@ -48,6 +49,9 @@ autoInstall: boolean
    * never spawn real npx/pip/graphify in hermetic tests (CI Windows: the
    * npx download + 4 fallbacks exceeded the 30s test timeout). */
   runner?: typeof execSync
+  /** v0.22.0: when true, graph-sync init sweeps orphaned graphify/codegraph/aft
+   * processes left by previous crashed runs. Default true. */
+  killOrphanedOnInit?: boolean
 }
 
 
@@ -69,16 +73,11 @@ export async function installCodegraph(
   projectDir: string,
   timeoutMs: number = 60_000,
 ): Promise<InstallCode> {
-  try {
-    execSync("npm i -D @colbymchenry/codegraph", {
-      cwd: projectDir,
-      stdio: "ignore",
-      timeout: timeoutMs,
-    })
-    return "codegraph-installed"
-  } catch {
-    return "codegraph-install-failed"
-  }
+  const res = runGuardedSync("npm", ["i", "-D", "@colbymchenry/codegraph"], {
+    cwd: projectDir,
+    timeoutMs,
+  })
+  return res.code === 0 ? "codegraph-installed" : "codegraph-install-failed"
 }
 
 /**
@@ -89,23 +88,14 @@ export async function installCodegraph(
 export async function installGraphify(
   timeoutMs: number = 60_000,
 ): Promise<InstallCode> {
-  try {
-    execSync("pip install graphifyy --break-system-packages --quiet", {
-      stdio: "ignore",
-      timeout: timeoutMs,
-    })
-    return "graphify-installed"
-  } catch {
-    try {
-      execSync("uv tool install graphifyy --quiet", {
-        stdio: "ignore",
-        timeout: timeoutMs,
-      })
-      return "graphify-installed"
-    } catch {
-      return "graphify-install-failed"
-    }
-  }
+  const pip = runGuardedSync("pip", ["install", "graphifyy", "--break-system-packages", "--quiet"], {
+    timeoutMs,
+  })
+  if (pip.code === 0) return "graphify-installed"
+  const uv = runGuardedSync("uv", ["tool", "install", "graphifyy", "--quiet"], {
+    timeoutMs,
+  })
+  return uv.code === 0 ? "graphify-installed" : "graphify-install-failed"
 }
 
 // ─── Graph sync state ──────────────────────────────────────────────
@@ -119,6 +109,8 @@ export function resetInitializedProjects(): void {
 // ─── Session tracking (for watch lifecycle) ────────────────────────
 
 const sessionCounts = new Map<string, number>()
+
+let orphanSweepDone = false
 
 /**
  * Track a new session for a project. Increments reference count.
@@ -313,11 +305,14 @@ function startWatch(projectDir: string, tool: "codegraph" | "graphify"): void {
 
     if (tool === "codegraph") {
       // codegraph has no built-in watch; use periodic update loop
+      // v0.22.0: `OMO_MG_WATCH` marker lets the orphan sweep find this
+      // process via its CommandLine even if it outlives a crashed run.
       child = spawn(
         "node",
         [
           "-e",
           `
+          const OMO_MG_WATCH = 1;
           const {execSync} = require("child_process");
           const run = () => {
             try { execSync("npx codegraph update 2>/dev/null", {cwd: ${JSON.stringify(projectDir)}, stdio: "ignore"}); }
@@ -330,6 +325,7 @@ function startWatch(projectDir: string, tool: "codegraph" | "graphify"): void {
         {
           stdio: "ignore",
           detached: true,
+          env: { ...process.env, OMO_MG_SPAWN: "1" },
         },
       )
     } else {
@@ -337,14 +333,17 @@ function startWatch(projectDir: string, tool: "codegraph" | "graphify"): void {
         cwd: projectDir,
         stdio: "ignore",
         detached: true,
+        env: { ...process.env, OMO_MG_SPAWN: "1" },
       })
     }
 
     child.unref()
     activeWatchProcesses.set(key, { process: child, tool })
+    trackPid(child.pid!)
 
     child.on("exit", () => {
       activeWatchProcesses.delete(key)
+      untrackPid(child.pid!)
     })
   } catch {
     // Best-effort
@@ -357,14 +356,22 @@ function startWatch(projectDir: string, tool: "codegraph" | "graphify"): void {
 export function stopWatches(projectDir?: string): void {
   for (const [key, wp] of activeWatchProcesses) {
     if (!projectDir || key.startsWith(projectDir)) {
-      try {
-        wp.process.kill("SIGTERM")
-      } catch {
-        // Already dead
+      const pid = wp.process.pid
+      if (pid) untrackPid(pid)
+      if (process.platform === "win32") {
+        // Windows: taskkill /T /F is the only reliable tree kill.
+        killProcessTree(pid!)
+      } else {
+        // POSIX: SIGTERM first, then tree-kill after 2s grace.
+        try {
+          wp.process.kill("SIGTERM")
+        } catch {
+          // Already dead
+        }
+        setTimeout(() => {
+          killProcessTree(pid!)
+        }, 2_000).unref()
       }
-      setTimeout(() => {
-        try { wp.process.kill("SIGKILL") } catch { /* OK */ }
-      }, 2_000).unref()
       activeWatchProcesses.delete(key)
     }
   }
@@ -431,6 +438,14 @@ export async function runGraphSync(
       availability: { codegraph: false, graphify: false, codegraphIndexExists: false, graphifyIndexExists: false },
       alreadyInitialized: false,
     }
+  }
+
+  // v0.22.0: sweep orphaned tool processes (graphify/codegraph/aft) left by
+  // previous crashed runs. Once per plugin process, best-effort.
+  if (config.killOrphanedOnInit !== false && !orphanSweepDone) {
+    orphanSweepDone = true
+    const killed = killOrphanedToolProcesses()
+    void logToFile("info", "orphan sweep: killed " + killed + " leftover tool processes")
   }
 
   // Skip if already initialized this session
@@ -549,15 +564,15 @@ export async function runGraphSync(
 
     // v0.11.0: auto-install the graphify git hook so commits auto-rebuild
     // the graph. Native hook is more reliable than our own polling.
+    // v0.22.0: runGuardedSync so a timeout tree-kills the hook process.
     try {
       const alreadyInstalled = await isGraphifyHookInstalled(projectDir)
       if (!alreadyInstalled) {
-        execSync("graphify hook install", {
+        const res = runGuardedSync("graphify", ["hook", "install"], {
           cwd: projectDir,
-          stdio: "ignore",
-          timeout: 10_000,
+          timeoutMs: 10_000,
         })
-        codes.push("graphify-hook-installed")
+        if (res.code === 0) codes.push("graphify-hook-installed")
       }
     } catch {
       // best-effort
@@ -643,7 +658,7 @@ export function isGitCommitCommand(command: string | undefined | null): boolean 
  */
 export async function triggerReindex(
   projectDir: string,
-  runner: typeof execSync = execSync,
+  runner?: typeof execSync,
 ): Promise<GraphSyncResult> {
   // v0.21.0 (fix): when the codegraph index ALREADY exists, run
   // `codegraph sync -q` to refresh it after commits — runGraphSync alone
@@ -701,7 +716,7 @@ export async function isGraphifyHookInstalled(projectDir: string): Promise<boole
  */
 export async function triggerCodegraphSync(
   projectDir: string,
-  runner: typeof execSync = execSync,
+  runner?: typeof execSync,
 ): Promise<GraphSyncResult> {
   const { resolve } = await import("node:path")
   const codes: GraphSyncCode[] = []
@@ -713,11 +728,20 @@ export async function triggerCodegraphSync(
   // fails fast if the tool is unavailable. This is the commit hot path.
   if (codegraphIndexExists) {
     try {
-      runner("npx --yes codegraph sync -q", {
-        cwd: projectDir,
-        stdio: "ignore",
-        timeout: 30_000,
-      } as never)
+      if (runner) {
+        runner("npx --yes codegraph sync -q", {
+          cwd: projectDir,
+          stdio: "ignore",
+          timeout: 30_000,
+        } as never)
+      } else {
+        // v0.22.0: real path uses runGuardedSync so a timeout tree-kills
+        // the npx tree (execSync only kills the direct shell).
+        runGuardedSync("npx", ["--yes", "codegraph", "sync", "-q"], {
+          cwd: projectDir,
+          timeoutMs: 30_000,
+        })
+      }
       codes.push("codegraph-already-exists")
       void logToFile("info", `codegraph sync -q completed for ${projectDir}`)
     } catch (err) {
@@ -740,15 +764,28 @@ export async function triggerCodegraphSync(
   // No index — probe availability before deciding init vs unavailable.
   let codegraphAvailable = false
   try {
-    runner("npx --yes codegraph --version", { stdio: "ignore", timeout: 5_000 } as never)
+    if (runner) {
+      runner("npx --yes codegraph --version", { stdio: "ignore", timeout: 5_000 } as never)
+    } else {
+      const probe = runGuardedSync("npx", ["--yes", "codegraph", "--version"], { timeoutMs: 5_000 })
+      if (probe.code !== 0) throw new Error("codegraph probe failed")
+    }
     codegraphAvailable = true
   } catch {
     try {
-      runner("node node_modules/.bin/codegraph --version", {
-        cwd: projectDir,
-        stdio: "ignore",
-        timeout: 5_000,
-      } as never)
+      if (runner) {
+        runner("node node_modules/.bin/codegraph --version", {
+          cwd: projectDir,
+          stdio: "ignore",
+          timeout: 5_000,
+        } as never)
+      } else {
+        const probe = runGuardedSync("node", ["node_modules/.bin/codegraph", "--version"], {
+          cwd: projectDir,
+          timeoutMs: 5_000,
+        })
+        if (probe.code !== 0) throw new Error("local codegraph probe failed")
+      }
       codegraphAvailable = true
     } catch { /* not available */ }
   }
