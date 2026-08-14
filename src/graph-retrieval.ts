@@ -22,7 +22,7 @@
  * and for users who have the tools in non-standard locations.
  */
 
-import { spawn } from "node:child_process"
+import { runGuarded } from "./proc-guard"
 import { statSync, existsSync } from "node:fs"
 import { join } from "node:path"
 
@@ -274,42 +274,17 @@ export class GraphRetrieval {
     timeoutMs: number,
     cwd: string,
   ): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const child = spawn(cmd, args, {
-        cwd,
-        stdio: ["ignore", "pipe", "pipe"],
-        shell: process.platform === "win32", // use shell on Windows for .cmd/.bat lookup
-      })
-      let stdout = ""
-      let stderr = ""
-      let killed = false
-
-      const timer = setTimeout(() => {
-        killed = true
-        child.kill("SIGKILL")
-        reject(new Error(`graph retrieval subprocess timed out after ${timeoutMs}ms`))
-      }, timeoutMs)
-
-      child.stdout?.on("data", (chunk: Buffer) => {
-        stdout += chunk.toString("utf8")
-      })
-      child.stderr?.on("data", (chunk: Buffer) => {
-        stderr += chunk.toString("utf8")
-      })
-
-      child.on("error", (err) => {
-        clearTimeout(timer)
-        if (!killed) reject(err)
-      })
-      child.on("close", (code) => {
-        clearTimeout(timer)
-        if (killed) return // already rejected by timeout
-        if (code === 0) {
-          resolve(stdout)
-        } else {
-          reject(new Error(`graph retrieval subprocess exited ${code}: ${stderr.slice(0, 200)}`))
-        }
-      })
+    return runGuarded(cmd, args, { cwd, timeoutMs }).then((res) => {
+      if (res.timedOut) {
+        throw new Error(`graph retrieval subprocess timed out after ${timeoutMs}ms`)
+      }
+      if (res.code === null) {
+        throw new Error(`graph retrieval subprocess failed to spawn: ${cmd}`)
+      }
+      if (res.code !== 0) {
+        throw new Error(`graph retrieval subprocess exited ${res.code}: ${res.stderr.slice(0, 200)}`)
+      }
+      return res.stdout
     })
   }
 
