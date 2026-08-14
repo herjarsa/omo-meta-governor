@@ -97,6 +97,10 @@ export interface MetaGovernorPluginDeps {
   /** v0.21.0: test-only hook — asserts runGraphSync is invoked with the
    * session's projectDir (fix: was module-load cwd under serve). */
   __test_onGraphSyncInit?: (payload: { projectDir: string }) => void;
+  /** v0.21.0: test-only DI seam — replaces the REAL runGraphSync so hermetic
+   * placement tests never spawn npx/pip/graphify. Avoids mock.module (which
+   * leaks across test files sharing a Bun worker — broke CI on macOS). */
+  __test_runGraphSync?: typeof import("./graph-sync").runGraphSync;
 }
 
 // - Helpers
@@ -348,7 +352,11 @@ export function createMetaGovernorPlugin(
     if (graphSyncEnabledAtInvocation) {
       // Test-only hook: assert placement without executing real CLI commands.
       deps.__test_onGraphSyncInit?.({ projectDir: sessionProjectDir });
-      runGraphSync({
+      // Test-only DI seam: hermetic tests replace runGraphSync so the real
+      // npx/pip/graphify never spawns (mock.module leaks across test files
+      // sharing a Bun worker — broke CI on macOS).
+      const runGraphSyncImpl = deps.__test_runGraphSync ?? runGraphSync;
+      runGraphSyncImpl({
         enabled: true,
         watch: rawGraphSync?.watch ?? false,
         autoInstall: rawGraphSync?.autoInstall ?? true,
