@@ -326,6 +326,15 @@ export function createMetaGovernorPlugin(
       });
     }
 
+    // v0.21.0: projects where the background graphSync completed and BOTH
+    // index tools are available (codegraph + graphify) — messages.transform
+    // nudges the agent to use them once per session. Declared BEFORE the
+    // graphSync block: the init seam resolves immediately and its .then
+    // microtask runs during the first await of this invocation — a const
+    // declared later in the same scope would hit the TDZ (14/08/2026).
+    const graphSyncReadyProjects = new Set<string>();
+    const graphSyncReadyNotified = new Set<string>();
+
     // v0.21.0: graphSync init runs at FACTORY INVOCATION with the session's
     // project directory, not at module load with process.cwd() (which under
     // `opencode serve` is the SERVER's cwd — the bug that left session
@@ -362,7 +371,16 @@ export function createMetaGovernorPlugin(
         autoInstall: rawGraphSync?.autoInstall ?? true,
         installTimeoutMs: rawGraphSync?.installTimeoutMs ?? 60_000,
         projectDir: sessionProjectDir,
-      }).catch(() => {});
+      })
+        .then((res) => {
+          // v0.21.0: mark the project as ready when BOTH index tools are
+          // available — messages.transform later nudges the agent to use
+          // them (once per session). Best-effort; never throws.
+          if (res?.attempted && res.availability.codegraph && res.availability.graphify) {
+            graphSyncReadyProjects.add(sessionProjectDir);
+          }
+        })
+        .catch(() => {});
       trackSession(sessionProjectDir);
     }
 
@@ -1249,6 +1267,36 @@ export function createMetaGovernorPlugin(
           logToFile(
             "info",
             `skill_priming_injected for session ${currentSessionID}`,
+          );
+        }
+
+        // v0.21.0: graph-tools-ready nudge — independent of intervention
+        // mode, once per session. Fires when the background graphSync
+        // completed and BOTH codegraph + graphify are available, so the
+        // agent actually uses the indexes (omo_search/omo_find/omo_impact).
+        if (
+          graphSyncReadyProjects.has(sessionProjectDir) &&
+          !graphSyncReadyNotified.has(currentSessionID)
+        ) {
+          graphSyncReadyNotified.add(currentSessionID);
+          output.messages.push({
+            info: { role: "user", agent: "meta-governor", synthetic: true },
+            parts: [
+              {
+                type: "text",
+                text: [
+                  "[META-GOVERNOR] codegraph y graphify ya están inicializados en este repo.",
+                  "Usa las tools de navegación en vez de grep: `omo_search` (semántico),",
+                  "`omo_find` (símbolos), `omo_impact` (impacto), `omo_path`/`omo_explain`",
+                  "(graphify). Actualizan tras cada commit.",
+                ].join(" "),
+                synthetic: true,
+              },
+            ],
+          });
+          logToFile(
+            "info",
+            `graph_tools_ready_injected for session ${currentSessionID}`,
           );
         }
 

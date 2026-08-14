@@ -33,6 +33,20 @@ const fakeRunGraphSync = (async () => ({
   alreadyInitialized: false,
 })) as unknown as NonNullable<MetaGovernorPluginDeps["__test_runGraphSync"]>
 
+// Fake where BOTH index tools are available — marks the project ready so
+// messages.transform nudges the agent to use codegraph/graphify.
+const readyRunGraphSync = (async () => ({
+  attempted: true,
+  codes: ["codegraph-initialized", "graphify-initialized"],
+  availability: {
+    codegraph: true,
+    graphify: true,
+    codegraphIndexExists: true,
+    graphifyIndexExists: true,
+  },
+  alreadyInitialized: false,
+})) as unknown as NonNullable<MetaGovernorPluginDeps["__test_runGraphSync"]>
+
 function makeInput(directory: string): PluginInput {
   return {
     client: null as unknown as PluginInput["client"],
@@ -102,5 +116,41 @@ describe("graphSync init placement", () => {
     )
     await plugin(makeInput("D:/test/project-c"), {})
     expect(seen).toEqual([resolve("D:/test/project-c")])
+  })
+
+  it("nudges the agent to use the graph tools once both indexes are ready", async () => {
+    const seen: string[] = []
+    const deps: MetaGovernorPluginDeps = {
+      ...makeDeps(seen),
+      __test_runGraphSync: readyRunGraphSync,
+    }
+    const plugin = createMetaGovernorPlugin(
+      { graphSync: { enabled: true, autoInstall: false, installTimeoutMs: 100 } },
+      deps,
+    )
+    const hooks = await plugin(makeInput("D:/test/project-ready"), {
+      // Hermetic: governance must be ON for messages.transform to reach the
+      // nudge block (it early-returns when mergedConfig.enabled is false).
+      meta_governor: { enabled: true, graphSync: { enabled: false } },
+    })
+    const transform = hooks["experimental.chat.messages.transform"]!
+
+    // The background init resolves asynchronously — let the microtask run.
+    await new Promise((r) => setTimeout(r, 10))
+
+    const messages: Array<{ info: unknown; parts: unknown[] }> = [
+      { info: { sessionID: "s-ready" }, parts: [{ type: "text", text: "hi" }] },
+    ]
+    await transform({}, { messages })
+    const nudges = messages.filter((m) =>
+      JSON.stringify(m.parts).includes("omo_search"),
+    )
+    expect(nudges.length).toBe(1)
+
+    // Once per session only.
+    await transform({}, { messages })
+    expect(
+      messages.filter((m) => JSON.stringify(m.parts).includes("omo_search")).length,
+    ).toBe(1)
   })
 })

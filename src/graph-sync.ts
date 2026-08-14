@@ -642,6 +642,15 @@ export function isGitCommitCommand(command: string | undefined | null): boolean 
  * Best-effort: never throws, returns a structured result instead.
  */
 export async function triggerReindex(projectDir: string): Promise<GraphSyncResult> {
+  // v0.21.0 (fix): when the codegraph index ALREADY exists, run
+  // `codegraph sync -q` to refresh it after commits — runGraphSync alone
+  // returns "codegraph-already-exists" without syncing (gap found 14/08/2026:
+  // triggerCodegraphSync was orphaned). graphify is refreshed by its native
+  // post-commit git hook (`graphify update`).
+  const codegraphIndexExists = await dirExists(resolve(projectDir, ".codegraph"))
+  if (codegraphIndexExists) {
+    return await triggerCodegraphSync(projectDir)
+  }
   return await runGraphSync({
     enabled: true,
     watch: false,
