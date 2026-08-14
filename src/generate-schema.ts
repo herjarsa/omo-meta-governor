@@ -366,6 +366,11 @@ minActionForMessage: {
             description: "Enable watch mode (re-index on file changes).",
             default: false,
           },
+          killOrphanedOnInit: {
+            type: "boolean",
+            description: "When true, sweep orphaned graphify/codegraph/aft processes left by previous crashed runs on graph-sync init.",
+            default: true,
+          },
         },
       },
     },

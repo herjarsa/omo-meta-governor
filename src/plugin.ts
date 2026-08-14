@@ -378,6 +378,7 @@ export function createMetaGovernorPlugin(
         watch: rawGraphSync?.watch ?? false,
         autoInstall: rawGraphSync?.autoInstall ?? true,
         installTimeoutMs: rawGraphSync?.installTimeoutMs ?? 60_000,
+        killOrphanedOnInit: rawGraphSync?.killOrphanedOnInit ?? true,
         projectDir: sessionProjectDir,
       })
         .then((res) => {

@@ -106,6 +106,9 @@ export interface MetaGovernorPluginConfig {
     watch?: boolean
     autoInstall?: boolean
     installTimeoutMs?: number
+    /** v0.22.0: when true, graph-sync init sweeps orphaned graphify/codegraph/aft
+     * processes left by previous crashed runs. Default true. */
+    killOrphanedOnInit?: boolean
   }
 
   /** Skill priming config (v0.20.0): proactive skill-selection nudge. */
@@ -279,6 +282,10 @@ export function loadOrchestratorConfig(
       trigger: full.skillPriming?.trigger ?? "firstImplement",
       router: full.skillPriming?.router ?? "both",
     } as SkillPrimingConfig,
+    // v0.22.0: project graphSync killOrphanedOnInit with default true.
+    graphSync: {
+      killOrphanedOnInit: full.graphSync?.killOrphanedOnInit ?? true,
+    },
   }
 }
 

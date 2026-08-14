@@ -670,6 +670,11 @@ export interface OrchestratorConfig {
   readonly skillPriming: SkillPrimingConfig;
   /** Post-wave workflow gate (v0.21.0): landing directives after Oracle-approved waves. */
   readonly postWave?: PostWaveConfig;
+  /** Graph sync config (v0.22.0): orphan process sweep on init. */
+  readonly graphSync?: {
+    /** When true (default), graph-sync init sweeps orphaned graphify/codegraph/aft processes. */
+    readonly killOrphanedOnInit?: boolean;
+  };
 }
 
 /**
