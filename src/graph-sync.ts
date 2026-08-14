@@ -44,6 +44,10 @@ autoInstall: boolean
   autoUpgrade?: boolean
   /** v0.12.0: Min ms between registry queries for version check. Default 24h. */
   upgradeCheckTtlMs?: number
+  /** v0.21.0: test-only DI seam — replaces execSync so availability probes
+   * never spawn real npx/pip/graphify in hermetic tests (CI Windows: the
+   * npx download + 4 fallbacks exceeded the 30s test timeout). */
+  runner?: typeof execSync
 }
 
 
@@ -431,7 +435,7 @@ export async function runGraphSync(
 
   // Skip if already initialized this session
   if (initializedProjects.has(projectDir)) {
-    const avail = await checkToolAvailability(projectDir)
+    const avail = await checkToolAvailability(projectDir, config.runner)
     return {
       attempted: false,
       codes: avail.codegraphIndexExists ? ["codegraph-already-exists"] : [],
@@ -444,7 +448,7 @@ export async function runGraphSync(
 
   let availability: ToolAvailability
   try {
-    availability = await checkToolAvailability(projectDir)
+    availability = await checkToolAvailability(projectDir, config.runner)
   } catch {
     return {
       attempted: false,

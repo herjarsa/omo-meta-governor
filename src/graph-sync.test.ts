@@ -40,12 +40,20 @@ describe("runGraphSync", () => {
   })
 
   describe("#given enabled config with no tools available", () => {
+    // Hermetic: a runner that ALWAYS throws simulates "no tools" without
+    // spawning real npx/pip — on CI Windows the real npx download + 4
+    // fallback probes exceeded the 30s test timeout (14/08/2026).
+    const alwaysFailRunner = (() => {
+      throw new Error("tool not available")
+    }) as unknown as typeof import("node:child_process").execSync
+
     const config: GraphSyncConfig = {
       enabled: true,
       watch: false,
       projectDir: "/dev/null-test",
       autoInstall: false,
       installTimeoutMs: 100,
+      runner: alwaysFailRunner,
     }
 
     it("then returns attempted=true with some codes", async () => {
