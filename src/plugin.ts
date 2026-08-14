@@ -229,8 +229,12 @@ export function createMetaGovernorPlugin(
   const omoCheckpointTool = buildOmoCheckpointTool({});
   const omoUndoTool = buildOmoUndoTool({});
 
-  // Log startup so the user can see the plugin is loaded
-  logToFile("info", "MetaGovernor plugin loaded", {
+  // Log startup so the user can see the plugin is loaded. The version is
+  // prepended to the message (and included in the structured fields) so
+  // OpenChamber's startup log shows exactly which release is loaded —
+  // without this, a stale cache could serve an older bundle silently
+  // (user-reported 14/08/2026, after publishing v0.21.0 with `@latest`).
+  logToFile("info", `v${DEFAULT_VERSION} MetaGovernor plugin loaded`, {
     version: DEFAULT_VERSION,
     build: "0.19.5-instr",
     cwd,
@@ -243,8 +247,11 @@ export function createMetaGovernorPlugin(
     options?: PluginOptions,
   ): Promise<Hooks> => {
     // v0.19.3 debug instrumentation: prove whether opencode invokes the
-    // factory in serve mode and what input it receives.
-    logToFile("info", "factory_invoked", {
+    // factory in serve mode and what input it receives. The version is
+    // prepended so the user can confirm from the OpenChamber startup log
+    // which release actually loaded (cache may serve an older bundle).
+    logToFile("info", `v${DEFAULT_VERSION} factory_invoked`, {
+      version: DEFAULT_VERSION,
       hasInput: _input != null,
       inputDir: _input?.directory ?? null,
       inputKeys: _input ? Object.keys(_input) : [],
@@ -302,7 +309,8 @@ export function createMetaGovernorPlugin(
       throw err;
     }
     if (fileConfigSource.sources.length > 0) {
-      logToFile("info", "config_loaded", {
+      logToFile("info", `v${DEFAULT_VERSION} config_loaded`, {
+        version: DEFAULT_VERSION,
         sources: fileConfigSource.sources,
         effectiveSource: fileConfigSource.effectiveSource,
         enabled: mergedConfig.enabled,

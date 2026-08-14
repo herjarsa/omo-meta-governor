@@ -673,11 +673,12 @@ XDG-isolated opencode run (`opencode run` with custom config pointing at `@herja
 - v0.19.6 (cache populated): log shows `MetaGovernor plugin loaded` only — **no `factory_invoked`**, intervention never runs.
 - v0.19.7 (cache cleared, reinstalled): log shows full chain:
   ```
-  [meta-governor] MetaGovernor plugin loaded
-  [meta-governor] factory_invoked
+  [meta-governor] v0.21.1 MetaGovernor plugin loaded
+  [meta-governor] v0.21.1 factory_invoked
   [meta-governor] SessionBridge: OpenCode client hydrated — session.prompt() available
-  [meta-governor] config_loaded
+  [meta-governor] v0.21.1 config_loaded
   ```
+  > **Note (v0.21.1+)**: every init log line now prepends `v<DEFAULT_VERSION>` (read from `package.json` at build time by Bun). Use this prefix to confirm which release OpenChamber actually loaded — a stale npm cache could otherwise serve an older bundle silently because `@latest` does not force re-fetch if the cache is still valid.
 
 Updated `~/.cache/opencode/packages/@herjarsa/omo-meta-governor@latest/node_modules/@herjarsa/omo-meta-governor/package.json` now reads `exports."."` = `{ types: "./dist/index.d.ts", import: "./dist/index.js" }` and `peerDependencies` = `{ "@opencode-ai/plugin": ">=1.0.0" }`.
 
