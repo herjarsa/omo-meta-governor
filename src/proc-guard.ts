@@ -36,11 +36,31 @@ export interface GuardedOptions {
 // ─── Process-tree kill ──────────────────────────────────────────────
 
 /**
+ * Recursively kill all descendants of a POSIX pid via `pgrep -P` walk.
+ * Never throws.
+ */
+function killDescendants(pid: number): void {
+  try {
+    const out = spawnSync("pgrep", ["-P", String(pid)], { encoding: "utf8" })
+    for (const line of out.stdout.trim().split(/\s+/)) {
+      const child = Number(line)
+      if (!child) continue
+      killDescendants(child)
+      try { process.kill(child, "SIGKILL") } catch { /* already gone */ }
+    }
+  } catch {
+    // pgrep unavailable — best-effort
+  }
+}
+
+/**
  * Kill a process AND its entire descendant tree. Never throws.
  *
  * - win32: `taskkill /pid <pid> /T /F` — the only reliable tree kill on Windows.
- * - POSIX: `process.kill(-pid, "SIGKILL")` (negative = process group, works
- *   when the child was spawned detached). Falls back to `process.kill(pid, ...)`.
+ * - POSIX: group kill (`kill(-pid)`) as fast path when the child is a group
+ *   leader (spawned detached), then a recursive `pgrep -P` descendant walk,
+ *   then a direct SIGKILL. The plain `kill(-pid)` fallback ALONE leaves
+ *   grandchildren orphaned when the child is not a group leader (CI-verified).
  */
 export function killProcessTree(pid: number): void {
   if (!pid || pid <= 0) return
@@ -51,8 +71,10 @@ export function killProcessTree(pid: number): void {
       try {
         process.kill(-pid, "SIGKILL")
       } catch {
-        process.kill(pid, "SIGKILL")
+        // not a group leader — fall through to the descendant walk
       }
+      killDescendants(pid)
+      try { process.kill(pid, "SIGKILL") } catch { /* already gone */ }
     }
   } catch {
     // Never throw — best-effort kill
