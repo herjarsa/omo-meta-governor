@@ -18,9 +18,12 @@ import type { PluginInput } from "@opencode-ai/plugin"
 // v0.21.0: hermetic placement tests. The factory must invoke runGraphSync
 // with the SESSION project dir, but the real runGraphSync spawns npx/graphify
 // (blocking execSync that would stall the test event loop). Mock the module:
-// keep isGitCommitCommand real (imported via absolute path — mock.module only
-// intercepts the relative specifier), spy on runGraphSync/trackSession.
-const realGraphSync = await import("D:/GITHUB/omo-meta-governor/src/graph-sync.ts")
+// keep isGitCommitCommand real (imported via absolute path derived from
+// import.meta.dir — portable across machines/CI; mock.module only intercepts
+// the relative specifier), spy on runGraphSync/trackSession.
+const realGraphSync = await import(
+  resolve(import.meta.dir, "graph-sync.ts"),
+)
 mock.module("./graph-sync", () => ({
   ...realGraphSync,
   runGraphSync: async () => ({ attempted: true, codes: [], availability: {
