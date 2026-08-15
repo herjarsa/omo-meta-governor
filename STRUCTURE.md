@@ -35,7 +35,7 @@ All source files live flat in `src/` — no subdirectories. Files are organized 
 | File | Purpose |
 |------|---------|
 | `index.ts` | Plugin entry point. Default-exports `PluginModule`, re-exports all public APIs |
-| `plugin.ts` | Plugin factory. Wires all hooks (`tool.execute.before/after`, `messages.transform`, `system.transform`, `session.compacting`, `compaction.autocontinue`) and registers 15 custom tools |
+| `plugin.ts` | Plugin factory. Wires all hooks (`tool.execute.before/after`, `messages.transform`, `system.transform`, `session.compacting`, `compaction.autocontinue`) and registers 9 custom tools |
 | `orchestrator.ts` | Pipeline runner: memory → predict → score → decide → learn |
 | `types.ts` | All type contracts (DecisionContext, Decision, Evidence, MemoryRead, TokenPrediction, ScoringConfig, etc.) |
 | `config.ts` | Config schema (`MetaGovernorPluginConfig`) and `loadOrchestratorConfig()` projection |
@@ -66,7 +66,7 @@ All source files live flat in `src/` — no subdirectories. Files are organized 
 
 | File | Purpose |
 |------|---------|
-| `session-bridge.ts` | Bridge to MCP tools via `session.prompt()` (AgentMemory, MagicContext, AFT) |
+| `session-bridge.ts` | Bridge to MCP tools via `session.prompt()` (AgentMemory) |
 | `mcp-client.ts` | Wrapper over OpenCode server API for direct MCP tool invocation |
 | `codegraph-tools.ts` | High-level wrappers for codegraph sub-commands (node, impact, files) |
 | `protocol-enforcer.ts` | Load Sisyphus protocol; build system injection; audit tool calls for violations |
@@ -114,7 +114,6 @@ All source files live flat in `src/` — no subdirectories. Files are organized 
 | `audit-state-cache.test.ts` | TTL expiration, LRU eviction |
 | `post-repair-recorder.test.ts` | Recovery outcome recording |
 | `generate-schema.test.ts` | Schema generation correctness |
-| `aft-args.test.ts` | AFT argument parsing |
 | `intervention-fix.test.ts` | Intervention rate limiting fixes |
 | `graphsink-fix.test.ts` | Graph sink error handling fixes |
 | `upgrade-fix.test.ts` | Auto-upgrade logic fixes |
@@ -161,7 +160,7 @@ All source files live flat in `src/` — no subdirectories. Files are organized 
 
 **Constants:** SCREAMING_SNAKE_CASE for module-level constants (`DEFAULT_WEIGHTS`, `DEFAULT_PROTOCOL_PATH`, `ACTION_SEVERITY`).
 
-**Tools:** Prefixed `omo_` followed by verb/noun (`omo_search`, `omo_recall`, `omo_health`, `omo_checkpoint`).
+**Tools:** Prefixed `omo_` followed by verb/noun (`omo_search`, `omo_recall`, `omo_health`).
 
 ## Where to Add New Code
 

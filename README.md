@@ -1,8 +1,8 @@
 # @herjarsa/omo-meta-governor
 
 Self-judging agent orchestration layer for OpenCode. Observes tool executions,
-reads session state, scores progress, and dispatches decisions. Includes **15 custom tools**
-that the agent can invoke across CodeGraph, Graphify, AFT, AgentMemory, Magic Context, and SQLite.
+reads session state, scores progress, and dispatches decisions. Includes **9 custom tools**
+that the agent can invoke across CodeGraph, Graphify, AgentMemory, and SQLite.
 
 ## Install
 
@@ -20,7 +20,7 @@ Add as a plugin in your OpenCode config:
 }
 ```
 
-The 15 custom tools register automatically (even without setting enabled:true).
+The 9 custom tools register automatically (even without setting enabled:true).
 To also enable the governance pipeline (intervention, protocol enforcement):
 
 ```jsonc
@@ -35,20 +35,19 @@ To also enable the governance pipeline (intervention, protocol enforcement):
 }
 ```
 
-## 15 Custom Tools
+## 9 Custom Tools
 
-The plugin registers 15 tools the LLM can invoke. All available immediately on install.
+The plugin registers 9 tools the LLM can invoke. All available immediately on install.
 
 ### Code Search & Navigation
 
 | Tool | What it does | Use case |
 |------|-------------|----------|
-| `omo_search` | Semantic code search via codegraph/graphify with AFT fallback | Architecture questions, finding features â€” USE THIS FIRST |
+| `omo_search` | Semantic code search via codegraph/graphify | Architecture questions, finding features â€” USE THIS FIRST |
 | `omo_find` | Exact symbol lookup (definition + direct callers) via codegraph node | "Find the function `validateToken`" |
 | `omo_impact` | Impact analysis: callers, transitive callers, test files, doc files | Run BEFORE modifying a function |
 | `omo_path` | Shortest conceptual path between two concepts via graphify | "How does auth connect to database?" |
 | `omo_explain` | Plain-language explanation of a concept via graphify | "What is the SwinTransformer?" |
-| `omo_outline` | Structural outline of files/directories via AFT | Understanding a new file's structure |
 
 ### Lesson & Memory
 
@@ -62,16 +61,11 @@ The plugin registers 15 tools the LLM can invoke. All available immediately on i
 
 | Tool | What it does | Use case |
 |------|-------------|----------|
-| `omo_rule` | Save a durable rule to Magic Context (ctx_memory) | "Always use bun:sqlite, not better-sqlite3" |
-| `omo_history` | Search git history + past messages via ctx_search | "When did we add this feature?" |
-| `omo_note` | Write ephemeral session note via ctx_note | "Currently debugging auth in module X" |
 
 ### Safety & Status
 
 | Tool | What it does | Use case |
 |------|-------------|----------|
-| `omo_checkpoint` | Create a named AFT snapshot before risky changes | Undo protection before refactoring |
-| `omo_undo` | Revert to most recent AFT checkpoint | "That broke things, revert it" |
 | `omo_health` | Show plugin runtime status: metrics, decisions, errors | "Is the plugin working?" |
 
 ## Health & Observability
@@ -93,8 +87,7 @@ Lessons learned by the plugin persist in **SQLite** at `~/.omo-meta-governor/met
 with full-text search (FTS5) for fast recall. Zero dependencies needed â€” uses Bun's built-in
 `bun:sqlite`.
 
-Optionally, the OpciÃ³n A tools (`omo_remember`, `omo_recall_mcp`, `omo_rule`, `omo_history`,
-`omo_note`) can bridge to AgentMemory and Magic Context via `session.prompt()` â€” the LLM
+Optionally, the OpciÃ³n A tools (`omo_remember`, `omo_recall_mcp`) can bridge to AgentMemory via `session.prompt()` â€” the LLM
 receives a structured instruction to call the appropriate MCP tool.
 
 ## Graph Sync (v0.11.0)
@@ -120,14 +113,14 @@ MetaGovernor wires the plugin into the native git hooks of **codegraph** and
 
 ### Process zombie safeguards (v0.22.0)
 
-Every subprocess the plugin spawns (graphify, codegraph, `aft`, npx, python,
+Every subprocess the plugin spawns (graphify, codegraph, npx, python,
 npm/pip) is guaranteed to die after use — on success, error, AND timeout —
 including its descendant tree. On Windows this uses `taskkill /pid <pid> /T /F`
 (plain `child.kill()` only kills the direct shell, orphaning grandchildren —
 the confirmed cause of the Bun/OpenChamber crashes).
 
 Config: `graphSync.killOrphanedOnInit` (default `true`) — on graph-sync init
-the plugin sweeps orphaned `graphify`/`codegraph`/`aft` processes left by
+the plugin sweeps orphaned `graphify`/`codegraph` processes left by
 previous crashed runs. Set to `false` to disable the sweep.
 
 ## Intervention

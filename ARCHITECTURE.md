@@ -2,7 +2,7 @@
 
 ## Overview
 
-`@herjarsa/omo-meta-governor` is an OpenCode plugin that acts as a self-judging agent orchestration layer. It observes tool executions, reads cross-system memory, scores session progress via weighted evidence, and dispatches decisions (continue / warn / escalate / stop) that are injected into the agent's context. The plugin registers 15 custom tools the LLM can invoke for code search, memory, rules, and safety.
+`@herjarsa/omo-meta-governor` is an OpenCode plugin that acts as a self-judging agent orchestration layer. It observes tool executions, reads cross-system memory, scores session progress via weighted evidence, and dispatches decisions (continue / warn / escalate / stop) that are injected into the agent's context. The plugin registers 9 custom tools the LLM can invoke for code search, memory, rules, and safety.
 
 ## Plugin Integration
 
@@ -129,7 +129,7 @@ Design notes:
 
 - **`loadProtocol(path?)`** — reads the protocol file (default: `~/.config/opencode/sisyphus-mandatory/sisyphus-mandatory.md`).
 - **`buildSystemInjection(text)`** — builds a condensed rules block injected into the system prompt via `system.transform`.
-- **`auditToolCall(tool, args, context)`** — heuristic detection of protocol violations (no NLP). Checks: memory tools not used before grep, AFT not tried before grep, `@ts-ignore`/`as any` usage, empty catch blocks, etc.
+- **`auditToolCall(tool, args, context)`** — heuristic detection of protocol violations (no NLP). Checks: memory tools not used before grep, `@ts-ignore`/`as any` usage, empty catch blocks, etc.
 
 Violations are queued per-session with a 5-minute TTL and injected on the next `messages.transform` call.
 
@@ -172,7 +172,7 @@ Wraps codegraph sub-commands for the custom tools:
 - `codegraph node <symbol>` — source + callers
 - `codegraph impact <symbol>` — full impact analysis
 
-## 15 Custom Tools
+## 9 Custom Tools
 
 Registered via the `tool` hook. Available even when governance is disabled.
 
@@ -180,12 +180,11 @@ Registered via the `tool` hook. Available even when governance is disabled.
 
 | Tool | Backend | Purpose |
 |------|---------|---------|
-| `omo_search` | `graph-retrieval.ts` | Semantic search via codegraph/graphify with AFT fallback |
+| `omo_search` | `graph-retrieval.ts` | Semantic search via codegraph/graphify |
 | `omo_find` | `codegraph-tools.ts` | Exact symbol lookup (definition + callers) |
 | `omo_impact` | `codegraph-tools.ts` | Impact analysis: callers, transitive callers, tests, docs |
 | `omo_path` | `graphify` via `promptAgent` | Shortest conceptual path between two concepts |
 | `omo_explain` | `graphify` via `promptAgent` | Plain-language explanation of a concept |
-| `omo_outline` | AFT via `promptAgent` | Structural outline of files/directories |
 
 ### Lesson & Memory
 
@@ -199,21 +198,16 @@ Registered via the `tool` hook. Available even when governance is disabled.
 
 | Tool | Backend | Purpose |
 |------|---------|---------|
-| `omo_rule` | `promptAgent` → Magic Context MCP | Save a durable rule via `ctx_memory` |
-| `omo_history` | `promptAgent` → Magic Context MCP | Search git history via `ctx_search` |
-| `omo_note` | `promptAgent` → Magic Context MCP | Write ephemeral session note via `ctx_note` |
 
 ### Safety & Status
 
 | Tool | Backend | Purpose |
 |------|---------|---------|
-| `omo_checkpoint` | `promptAgent` → AFT MCP | Create named AFT snapshot |
-| `omo_undo` | `promptAgent` → AFT MCP | Revert to most recent checkpoint |
 | `omo_health` | `metrics.ts` + `health.ts` | Show plugin runtime status, metrics, errors |
 
 ### Session Bridge Pattern
 
-Tools that bridge to MCP servers (AgentMemory, Magic Context, AFT) use `src/session-bridge.ts`. The OpenCode SDK does not expose direct MCP tool invocation from plugins, so `promptAgent()` sends a follow-up message to the session telling the LLM to call the right MCP tool with the right args. This adds ~1–2s latency but works without SDK changes.
+Tools that bridge to MCP servers (AgentMemory) use `src/session-bridge.ts`. The OpenCode SDK does not expose direct MCP tool invocation from plugins, so `promptAgent()` sends a follow-up message to the session telling the LLM to call the right MCP tool with the right args. This adds ~1–2s latency but works without SDK changes.
 
 ## Persistence
 
