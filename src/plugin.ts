@@ -1818,10 +1818,11 @@ export function buildOwnRepoDirective(
   const wave = waveN === null || waveN === undefined ? "?" : String(waveN);
   return [
     `Wave ${wave} is Oracle-verified. Land it now:`,
-    "1. `git push -u origin HEAD` (sets upstream on first push).",
-    "2. If no PR exists yet: `gh pr create --fill`.",
-    "3. Monitor CI: `timeout 600 gh pr checks --watch` (auto-stops after 10 min).",
-    "4. Only start the next wave after checks are green.",
+    "1. Use a CLEAN dedicated branch for this PR: `git checkout -b <branch>` (each PR gets its own independent branch; never mix PRs on one branch unless they fix the same problem).",
+    "2. `git push -u origin HEAD` (sets upstream on first push).",
+    "3. If no PR exists yet: `gh pr create --fill`.",
+    "4. Monitor CI: `timeout 600 gh pr checks --watch` (auto-stops after 10 min).",
+    "5. Only start the next wave after checks are green.",
   ].join("\n");
 }
 
@@ -1842,9 +1843,10 @@ export function buildThirdPartyDirective(
   return [
     `Wave ${wave} is Oracle-verified. This is a THIRD-PARTY repo — land it as a contribution:`,
     "1. READ FIRST the repo's contribution rules (read CONTRIBUTING.md, PR/issue templates and guides) and follow them exactly.",
-    `2. Invoke the \`${aasToolPrefix}\` MCP GitHub skills (search_skills → get_skill → compose_stack) to create the PR/issue.`,
-    "3. Push the branch and open the PR/issue following the repo's template.",
-    "4. Request review on the PR.",
+    "2. Create a CLEAN dedicated branch for THIS PR: `git checkout -b <branch>` — each PR gets its own independent branch; never mix PRs on one branch unless they fix the same problem (then commit onto that same branch).",
+    `3. Invoke the \`${aasToolPrefix}\` MCP GitHub skills (search_skills → get_skill → compose_stack) to create the PR/issue.`,
+    "4. Push the branch to your FORK (`git push -u origin HEAD`) and open the PR against the UPSTREAM repo following the repo's template.",
+    "5. Request review on the PR (add reviewers) and wait for CI to pass before starting the next wave.",
   ].join("\n");
 }
 
@@ -1880,6 +1882,21 @@ export function resolveRepoMode(
     }
     return "own";
   } catch {
+    // gh unavailable/failed (common with private repos) — fall back to git
+    // remotes: a fork workflow usually has an "upstream" remote.
+    try {
+      const remotes = runner("git remote -v", {
+        cwd: projectDir,
+        stdio: "pipe",
+        timeout: 10_000,
+      })
+      const hasUpstream = String(remotes)
+        .split("\n")
+        .some((l) => /^\s*upstream\s+/.test(l))
+      if (hasUpstream) return "third-party";
+    } catch {
+      // no git either — assume own repo
+    }
     return "own";
   }
 }

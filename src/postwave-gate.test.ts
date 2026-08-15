@@ -130,6 +130,7 @@ describe("buildOwnRepoDirective", () => {
     expect(text).toContain("gh pr create --fill")
     expect(text).toContain("timeout 600 gh pr checks --watch")
     expect(text).toContain("Wave 3")
+    expect(text).toContain("git checkout -b") // clean branch per PR
   })
 
   test("respects the user-provided override verbatim", () => {
@@ -152,6 +153,9 @@ describe("buildThirdPartyDirective", () => {
     expect(text).toContain("aas")
     expect(text).toContain("review")
     expect(text).toContain("PR")
+    expect(text.toLowerCase()).toContain("fork") // push to fork
+    expect(text.toLowerCase()).toContain("upstream") // PR against upstream
+    expect(text).toContain("git checkout -b") // clean branch per PR
   })
 
   test("custom aasToolPrefix is honored", () => {
@@ -202,6 +206,25 @@ describe("resolveRepoMode", () => {
   test("auto falls back to own when gh is unavailable", () => {
     const runner = (() => {
       throw new Error("gh not installed")
+    }) as unknown as typeof import("node:child_process").execSync
+    expect(resolveRepoMode("auto", "D:/x", runner)).toBe("own")
+  })
+
+  test("auto resolves third-party via git upstream remote when gh is unavailable", () => {
+    const runner = ((cmd: string) => {
+      if (cmd.startsWith("gh")) throw new Error("gh not installed")
+      return Buffer.from(
+        "origin\thttps://github.com/user/fork.git (fetch)\n" +
+          "upstream\thttps://github.com/thirdparty/repo.git (fetch)\n",
+      )
+    }) as unknown as typeof import("node:child_process").execSync
+    expect(resolveRepoMode("auto", "D:/x", runner)).toBe("third-party")
+  })
+
+  test("auto stays own when gh unavailable and no upstream remote", () => {
+    const runner = ((cmd: string) => {
+      if (cmd.startsWith("gh")) throw new Error("gh not installed")
+      return Buffer.from("origin\thttps://github.com/user/repo.git (fetch)\n")
     }) as unknown as typeof import("node:child_process").execSync
     expect(resolveRepoMode("auto", "D:/x", runner)).toBe("own")
   })
