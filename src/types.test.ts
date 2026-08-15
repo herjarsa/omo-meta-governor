@@ -9,7 +9,6 @@ import type {
   EscalationTarget,
   Evidence,
   EvidenceSource,
-  MagicContextRead,
   MemoryRead,
   MemorySource,
   RelevantLesson,
@@ -211,7 +210,7 @@ describe("meta-governor types", () => {
   })
 
   describe("MemoryRead", () => {
-    test("S4: aggregates agentmemory + magicContext + boulderState, marks degraded sources", () => {
+    test("S4: aggregates agentmemory + boulderState, marks degraded sources", () => {
       // given
       const read: MemoryRead = {
         query: "ralph-loop continue after config-change",
@@ -221,10 +220,6 @@ describe("meta-governor types", () => {
           lessons: [
             { id: "L1", title: "stop on grave config-change", advice: "stop", confidence: 0.7, concepts: ["config-change"] },
           ],
-        },
-        magicContext: {
-          available: true,
-          slots: [{ label: "meta_state", content: "{}" }],
         },
         boulderState: {
           available: false,
@@ -405,24 +400,17 @@ describe("meta-governor types", () => {
       expect(lesson.advice).toBe("warn")
     })
 
-    test("AgentMemoryRead and MagicContextRead report available=false with errorMessage when degraded", () => {
+    test("AgentMemoryRead reports available=false with errorMessage when degraded", () => {
       // given
       const am: AgentMemoryRead = {
         available: false,
         lessons: [],
         errorMessage: "agentmemory MCP not connected",
       }
-      const mc: MagicContextRead = {
-        available: false,
-        slots: [],
-        errorMessage: "magic-context slot not initialised",
-      }
 
       // then
       expect(am.available).toBe(false)
       expect(am.errorMessage).toBeTruthy()
-      expect(mc.available).toBe(false)
-      expect(mc.errorMessage).toBeTruthy()
     })
 
     test("BoulderStateRead reports planProgress in 0..1", () => {
@@ -553,7 +541,6 @@ describe("meta-governor types", () => {
           query: "test",
           timestampISO: "2026-06-09T12:00:00.000Z",
           agentmemory: { available: true, lessons: [] },
-          magicContext: { available: true, slots: [] },
           boulderState: { available: true, tasks: [], planProgress: 0 },
           degradedSources: [],
         },

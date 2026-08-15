@@ -1,6 +1,6 @@
 /**
  * SessionBridge — gives omo-meta-governor a way to instruct the LLM to call
- * MCP tools (AgentMemory, Magic Context, etc.) via `session.prompt()`.
+ * MCP tools (AgentMemory, etc.) via `session.prompt()`.
  *
  * Why this exists (v0.14.0 pivot):
  * The OpenCode SDK (1.17.4) does NOT expose a way to call MCP tools directly
@@ -136,7 +136,7 @@ export function hasSessionClient(): boolean {
 /**
  * Send a message to the LLM that instructs it to call a specific MCP tool
  * with specific args. This is the bridge between the plugin and MCP servers
- * (AgentMemory, Magic Context, etc.) since we can't call them directly.
+ * (AgentMemory, etc.) since we can't call them directly.
  *
  * Example: promptAgent({ toolName: "omo_remember", mcpTool: "agentmemory_memory_save",
  *                        mcpArgs: { content: "...", concepts: [...] } })

@@ -28,14 +28,8 @@ import {
   buildOmoImpactTool,
   buildOmoRememberTool,
   buildOmoRecallMcpTool,
-  buildOmoRuleTool,
-  buildOmoHistoryTool,
-  buildOmoNoteTool,
   buildOmoPathTool,
   buildOmoExplainTool,
-  buildOmoOutlineTool,
-  buildOmoCheckpointTool,
-  buildOmoUndoTool,
 } from "./custom-tools";
 import { getMCPClient } from "./mcp-client";
 import {
@@ -208,26 +202,8 @@ export function createMetaGovernorPlugin(
       deliveryRegistry.register({ sessionID, mcpTool, mcpArgs });
     },
   });
-  const omoRuleTool = buildOmoRuleTool({
-    onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
-      deliveryRegistry.register({ sessionID, mcpTool, mcpArgs });
-    },
-  });
-  const omoHistoryTool = buildOmoHistoryTool({
-    onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
-      deliveryRegistry.register({ sessionID, mcpTool, mcpArgs });
-    },
-  });
-  const omoNoteTool = buildOmoNoteTool({
-    onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
-      deliveryRegistry.register({ sessionID, mcpTool, mcpArgs });
-    },
-  });
   const omoPathTool = buildOmoPathTool({ cwd });
   const omoExplainTool = buildOmoExplainTool({ cwd });
-  const omoOutlineTool = buildOmoOutlineTool({ cwd });
-  const omoCheckpointTool = buildOmoCheckpointTool({});
-  const omoUndoTool = buildOmoUndoTool({});
 
   // Log startup so the user can see the plugin is loaded. The version is
   // prepended to the message (and included in the structured fields) so
@@ -256,7 +232,7 @@ export function createMetaGovernorPlugin(
       inputDir: _input?.directory ?? null,
       inputKeys: _input ? Object.keys(_input) : [],
     });
-    // Magic Context, AFT). Hydrates the MCPClient singleton on first plugin
+    // Hydrates the MCPClient singleton on first plugin
     // invocation. Safe to call multiple times â€” setClient is idempotent.
     // v0.16.0: F3.4 â€” runtime guard instead of "as never". The cast
     // hid incompatibilities between OpenCode plugin API versions; the
@@ -405,14 +381,8 @@ export function createMetaGovernorPlugin(
           omo_impact: omoImpactTool,
           omo_remember: omoRememberTool,
           omo_recall_mcp: omoRecallMcpTool,
-          omo_rule: omoRuleTool,
-          omo_history: omoHistoryTool,
-          omo_note: omoNoteTool,
           omo_path: omoPathTool,
           omo_explain: omoExplainTool,
-          omo_outline: omoOutlineTool,
-          omo_checkpoint: omoCheckpointTool,
-          omo_undo: omoUndoTool,
         },
       };
     }
@@ -464,8 +434,6 @@ export function createMetaGovernorPlugin(
       filesChanged: number;
       emptyRecall: boolean;
       escalationAttempted: boolean;
-      aftAvailable: boolean;
-      aftUsed: boolean;
       recentToolCalls: string[];
       recentWriteContents: string[];
       /** v0.17.2: file paths from recent write tools. Used by Gap Q to
@@ -627,8 +595,6 @@ export function createMetaGovernorPlugin(
             filesChanged: 0,
             emptyRecall: false,
             escalationAttempted: false,
-            aftAvailable: false,
-            aftUsed: false,
             recentToolCalls: [],
             recentWriteContents: [],
             recentWriteFilePaths: [],
@@ -672,8 +638,6 @@ export function createMetaGovernorPlugin(
           filesChanged: state.filesChanged,
           emptyRecall: state.emptyRecall,
           escalationAttempted: state.escalationAttempted,
-          aftAvailable: state.aftAvailable,
-          aftUsed: state.aftUsed,
           recentToolCalls: state.recentToolCalls,
           recentWriteContents: state.recentWriteContents,
           memorySaved: state.memorySaved,
@@ -813,9 +777,6 @@ export function createMetaGovernorPlugin(
             "agentmemory_memory_recall",
             "agentmemory_memory_smart_search",
             "agentmemory_memory_save",
-            "ctx_memory",
-            "ctx_search",
-            "ctx_note",
           ];
           const isMemoryTool = memoryTools.some((m: string) =>
             toolInput.tool.startsWith(m),
@@ -827,18 +788,11 @@ export function createMetaGovernorPlugin(
             sessionState.memoryToolsUsed.push(toolInput.tool);
           }
 
-          if (toolInput.tool.startsWith("ctx_memory")) {
+          if (toolInput.tool.startsWith("agentmemory_memory_save")) {
             const out = toolOutput.output ?? "";
             if (out.includes("saved") || out.includes("written")) {
               sessionState.memorySaved = true;
             }
-          }
-
-          if (
-            toolInput.tool.startsWith("aft_zoom") ||
-            toolInput.tool.startsWith("aft_outline")
-          ) {
-            sessionState.aftUsed = true;
           }
 
           if (
@@ -1035,8 +989,7 @@ export function createMetaGovernorPlugin(
               return {
                 backends: userBackends ?? {
                   agentmemory: sqlite,
-                  magicContext: { slotList: async () => [] },
-                  boulderState: sqlite,
+                                    boulderState: sqlite,
                 },
                 writeBackend: userWrite ?? sqlite,
               };
@@ -1047,8 +1000,7 @@ export function createMetaGovernorPlugin(
                   agentmemory: {
                     smartSearch: async () => ({ lessons: [], crystals: [] }),
                   },
-                  magicContext: { slotList: async () => [] },
-                  boulderState: { boulderRead: async () => [] },
+                                    boulderState: { boulderRead: async () => [] },
                 },
                 writeBackend: userWrite ?? {
                   saveMemory: async () => ({ id: "" }),
@@ -1360,7 +1312,7 @@ export function createMetaGovernorPlugin(
         if (violEntry && violEntry.expiresAtMs > Date.now()) {
           const violations = violEntry.items;
           if (violations.length > 0) {
-            const violationText = `[META-GOVERNOR PROTOCOL VIOLATIONS - YOU MUST COMPLY]\n\n${violations.map((v, i) => `${i + 1}. ${v}`).join("\n")}\n\nRemember: use codegraph/graphify for architecture queries, do not grep without trying AFT/codegraph first, no @ts-ignore/as-any, no empty catch, check memory before asking.`;
+            const violationText = `[META-GOVERNOR PROTOCOL VIOLATIONS - YOU MUST COMPLY]\n\n${violations.map((v, i) => `${i + 1}. ${v}`).join("\n")}\n\nRemember: use codegraph/graphify for architecture queries, do not grep without trying codegraph/graphify first, no @ts-ignore/as-any, no empty catch, check memory before asking.`;
             output.messages.push({
               info: { role: "user", agent: "meta-governor", synthetic: true },
               parts: [{ type: "text", text: violationText, synthetic: true }],
@@ -1399,8 +1351,6 @@ export function createMetaGovernorPlugin(
             filesChanged: 0,
             emptyRecall: false,
             escalationAttempted: false,
-            aftAvailable: false,
-            aftUsed: false,
             recentToolCalls: [],
             recentWriteContents: [],
             recentWriteFilePaths: [],
@@ -1554,14 +1504,8 @@ export function createMetaGovernorPlugin(
         omo_impact: omoImpactTool,
         omo_remember: omoRememberTool,
         omo_recall_mcp: omoRecallMcpTool,
-        omo_rule: omoRuleTool,
-        omo_history: omoHistoryTool,
-        omo_note: omoNoteTool,
         omo_path: omoPathTool,
         omo_explain: omoExplainTool,
-        omo_outline: omoOutlineTool,
-        omo_checkpoint: omoCheckpointTool,
-        omo_undo: omoUndoTool,
       },
 
       // v0.13.1: inject lesson context at compaction time so learned patterns

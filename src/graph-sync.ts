@@ -49,7 +49,7 @@ autoInstall: boolean
    * never spawn real npx/pip/graphify in hermetic tests (CI Windows: the
    * npx download + 4 fallbacks exceeded the 30s test timeout). */
   runner?: typeof execSync
-  /** v0.22.0: when true, graph-sync init sweeps orphaned graphify/codegraph/aft
+  /** v0.22.0: when true, graph-sync init sweeps orphaned graphify/codegraph
    * processes left by previous crashed runs. Default true. */
   killOrphanedOnInit?: boolean
 }
@@ -440,7 +440,7 @@ export async function runGraphSync(
     }
   }
 
-  // v0.22.0: sweep orphaned tool processes (graphify/codegraph/aft) left by
+  // v0.22.0: sweep orphaned tool processes (graphify/codegraph) left by
   // previous crashed runs. Once per plugin process, best-effort.
   if (config.killOrphanedOnInit !== false && !orphanSweepDone) {
     orphanSweepDone = true

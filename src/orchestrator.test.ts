@@ -45,12 +45,6 @@ const makeMemoryBackends = (
         memories: [],
       }),
     ),
-    slotList: mock(() => Promise.resolve({ slots: [] })),
-  },
-  magicContext: {
-    slotList: mock(() =>
-      Promise.resolve([]),
-    ),
   },
   boulderState: {
     boulderRead: mock(() =>
@@ -231,7 +225,6 @@ describe("orchestrator", () => {
 
       // then
       expect(backends.agentmemory.smartSearch).toHaveBeenCalled()
-      expect(backends.magicContext.slotList).toHaveBeenCalled()
       expect(backends.boulderState.boulderRead).toHaveBeenCalled()
     })
 

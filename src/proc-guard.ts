@@ -14,7 +14,7 @@
  * Design invariants:
  *   - NEVER throws. All failures surface as `code: null` results.
  *   - Tracks every spawned pid in a module-level Set so a crash can't leak.
- *   - AFT integration is untouched; this module only ADDS safeguards.
+ *   - Covers the tools the plugin spawns (graphify/codegraph/npx/python).
  */
 import { spawn, spawnSync } from "node:child_process"
 
@@ -258,14 +258,14 @@ export function runGuardedSync(
  * Sweep zombie processes left by previous crashed runs.
  *
  * - win32: `taskkill /IM graphify.exe /F`, `/IM codegraph.exe /F`,
- *   `/IM aft.exe /F` (each try/catch — "not found" is fine), then a
+ *   (each try/catch — "not found" is fine), then a
  *   PowerShell one-liner that stops any process whose CommandLine matches
  *   `OMO_MG_WATCH|OMO_MG_SPAWN`.
- * - POSIX: `pkill -x graphify`, `pkill -x codegraph`, `pkill -x aft`,
+ * - POSIX: `pkill -x graphify`, `pkill -x codegraph`,
  *   `pkill -f "OMO_MG_WATCH|OMO_MG_SPAWN"` (each try/catch).
  *
  * MUST NOT kill the current process or the bun test runner — exact-name
- * matching on graphify/codegraph/aft makes this safe (the runner is
+ * matching on graphify/codegraph makes this safe (the runner is
  * `bun`/`node`, never those names).
  *
  * Returns a best-effort count (may be 0 — counting via taskkill/pkill is
@@ -275,7 +275,7 @@ export function killOrphanedToolProcesses(): number {
   let count = 0
   try {
     if (process.platform === "win32") {
-      for (const name of ["graphify.exe", "codegraph.exe", "aft.exe"]) {
+      for (const name of ["graphify.exe", "codegraph.exe"]) {
         try {
           spawnSync("taskkill", ["/IM", name, "/F"], { stdio: "ignore" })
         } catch {
@@ -297,7 +297,7 @@ export function killOrphanedToolProcesses(): number {
         // best-effort
       }
     } else {
-      for (const name of ["graphify", "codegraph", "aft"]) {
+      for (const name of ["graphify", "codegraph"]) {
         try {
           spawnSync("pkill", ["-x", name], { stdio: "ignore" })
         } catch {

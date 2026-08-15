@@ -110,8 +110,7 @@ describe("e2e: omo-meta-governor v0.13.0 visible commander", () => {
         {
           backends: {
             agentmemory: backend,
-            magicContext: { slotList: async () => [] },
-            boulderState: backend,
+                      boulderState: backend,
           },
           writeBackend: backend,
         },
@@ -241,7 +240,6 @@ exit 1
         {
           backends: {
             agentmemory: backend,
-            magicContext: { slotList: async () => [] },
             boulderState: backend,
           },
           writeBackend: backend,

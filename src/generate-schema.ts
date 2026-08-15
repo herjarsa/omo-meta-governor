@@ -91,12 +91,6 @@ export function generateSchema(): JsonSchema {
             default: 2000,
             minimum: 100,
           },
-          magicContextTimeoutMs: {
-            type: "integer",
-            description: "Timeout for magic-context queries in milliseconds.",
-            default: 1000,
-            minimum: 100,
-          },
           boulderStateTimeoutMs: {
             type: "integer",
             description: "Timeout for boulder-state queries in milliseconds.",
@@ -368,7 +362,7 @@ minActionForMessage: {
           },
           killOrphanedOnInit: {
             type: "boolean",
-            description: "When true, sweep orphaned graphify/codegraph/aft processes left by previous crashed runs on graph-sync init.",
+            description: "When true, sweep orphaned graphify/codegraph processes left by previous crashed runs on graph-sync init.",
             default: true,
           },
         },

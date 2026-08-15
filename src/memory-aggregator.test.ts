@@ -12,7 +12,6 @@ import { describe, it, expect } from "bun:test"
 import { aggregateRead } from "./memory-aggregator"
 import type {
   AgentmemoryBackend,
-  MagicContextBackend,
   BoulderStateBackend,
   AggregateReadInput,
   Backends,
@@ -29,14 +28,6 @@ function makeFakeAgentmemory(overrides?: {
       lessons: overrides?.lessons ?? [],
       crystals: [],
     }),
-  }
-}
-
-function makeFakeMagicContext(overrides?: {
-  slots?: Array<{ label: string; content: string; pinned?: boolean; scope?: string }>
-}): MagicContextBackend {
-  return {
-    slotList: async () => overrides?.slots ?? [],
   }
 }
 
@@ -72,7 +63,6 @@ describe("memory-aggregator", () => {
       ]
       const backends: Backends = {
         agentmemory: makeFakeAgentmemory({ lessons }),
-        magicContext: makeFakeMagicContext(),
         boulderState: makeFakeBoulder(),
       }
 
@@ -93,7 +83,6 @@ describe("memory-aggregator", () => {
       ]
       const backends: Backends = {
         agentmemory: makeFakeAgentmemory({ lessons }),
-        magicContext: makeFakeMagicContext(),
         boulderState: makeFakeBoulder(),
       }
 
@@ -107,42 +96,6 @@ describe("memory-aggregator", () => {
       })
     })
 
-    it("returns slots from magic-context with label+content only (contract shape)", async () => {
-      const slots = [
-        { label: "meta_governor:last_decision", content: '{"action":"continue"}', pinned: true, scope: "project" },
-        { label: "unrelated_slot", content: "something", pinned: true, scope: "project" },
-        { label: "meta_governor:token_prediction", content: '{"action":"compact"}', pinned: true, scope: "project" },
-      ]
-      const backends: Backends = {
-        agentmemory: makeFakeAgentmemory(),
-        magicContext: makeFakeMagicContext({ slots }),
-        boulderState: makeFakeBoulder(),
-      }
-
-      const result = await aggregateRead(makeInput({ query: "test query" }), backends)
-      expect(result.magicContext.available).toBe(true)
-      expect(result.magicContext.slots).toHaveLength(2)
-      // meta_governor: prefixed slots are always included
-      expect(result.magicContext.slots.some((s) => s.label === "meta_governor:last_decision")).toBe(true)
-      expect(result.magicContext.slots.some((s) => s.label === "meta_governor:token_prediction")).toBe(true)
-    })
-
-    it("returns slots sorted by label ASC", async () => {
-      const slots = [
-        { label: "meta_governor:z_last", content: "z", pinned: true, scope: "project" },
-        { label: "meta_governor:a_first", content: "a", pinned: true, scope: "project" },
-      ]
-      const backends: Backends = {
-        agentmemory: makeFakeAgentmemory(),
-        magicContext: makeFakeMagicContext({ slots }),
-        boulderState: makeFakeBoulder(),
-      }
-
-      const result = await aggregateRead(makeInput(), backends)
-      expect(result.magicContext.slots[0].label).toBe("meta_governor:a_first")
-      expect(result.magicContext.slots[1].label).toBe("meta_governor:z_last")
-    })
-
     it("returns tasks from boulder-state sorted by priority ASC then recency DESC", async () => {
       const now = Date.now()
       const tasks = [
@@ -152,7 +105,6 @@ describe("memory-aggregator", () => {
       ]
       const backends: Backends = {
         agentmemory: makeFakeAgentmemory(),
-        magicContext: makeFakeMagicContext(),
         boulderState: makeFakeBoulder({ tasks }),
       }
 
@@ -173,7 +125,6 @@ describe("memory-aggregator", () => {
       ]
       const backends: Backends = {
         agentmemory: makeFakeAgentmemory(),
-        magicContext: makeFakeMagicContext(),
         boulderState: makeFakeBoulder({ tasks }),
       }
 
@@ -184,7 +135,6 @@ describe("memory-aggregator", () => {
     it("returns zeroed planProgress when no tasks", async () => {
       const backends: Backends = {
         agentmemory: makeFakeAgentmemory(),
-        magicContext: makeFakeMagicContext(),
         boulderState: makeFakeBoulder({ tasks: [] }),
       }
 
@@ -195,7 +145,6 @@ describe("memory-aggregator", () => {
     it("returns MemoryRead contract fields: query and timestampISO", async () => {
       const backends: Backends = {
         agentmemory: makeFakeAgentmemory(),
-        magicContext: makeFakeMagicContext(),
         boulderState: makeFakeBoulder(),
       }
 
@@ -212,7 +161,6 @@ describe("memory-aggregator", () => {
       }
       const backends: Backends = {
         agentmemory: brokenAgentmemory,
-        magicContext: makeFakeMagicContext({ slots: [{ label: "meta_governor:x", content: "", pinned: true, scope: "project" }] }),
         boulderState: makeFakeBoulder({ tasks: [{ id: "t1", title: "task", priority: 1, status: "pending", description: "", createdAtMs: 1, updatedAtMs: 1 }] }),
       }
 
@@ -220,30 +168,10 @@ describe("memory-aggregator", () => {
 
       expect(result.agentmemory.available).toBe(false)
       expect(result.agentmemory.lessons).toHaveLength(0)
-      expect(result.magicContext.available).toBe(true)
-      expect(result.magicContext.slots).toHaveLength(1)
       expect(result.boulderState.available).toBe(true)
       expect(result.boulderState.tasks).toHaveLength(1)
       expect(result.degradedSources).toContain("agentmemory")
       expect(result.errorMessages.agentmemory).toContain("MCP connection lost")
-    })
-
-    it("degrades magic-context gracefully", async () => {
-      const brokenMagic: MagicContextBackend = {
-        slotList: async () => { throw new Error("slot list timeout") },
-      }
-      const backends: Backends = {
-        agentmemory: makeFakeAgentmemory({ lessons: [{ id: "l1", title: "ok", content: "c", type: "pattern", concepts: [], confidence: 0.5, files: [] }] }),
-        magicContext: brokenMagic,
-        boulderState: makeFakeBoulder(),
-      }
-
-      const result = await aggregateRead(makeInput(), backends)
-      expect(result.agentmemory.available).toBe(true)
-      expect(result.agentmemory.lessons).toHaveLength(1)
-      expect(result.magicContext.available).toBe(false)
-      expect(result.magicContext.slots).toHaveLength(0)
-      expect(result.degradedSources).toContain("magicContext")
     })
 
     it("degrades boulder-state gracefully", async () => {
@@ -252,7 +180,6 @@ describe("memory-aggregator", () => {
       }
       const backends: Backends = {
         agentmemory: makeFakeAgentmemory(),
-        magicContext: makeFakeMagicContext(),
         boulderState: brokenBoulder,
       }
 
@@ -263,20 +190,17 @@ describe("memory-aggregator", () => {
       expect(result.degradedSources).toContain("boulderState")
     })
 
-    it("degrades ALL sources — returns empty MemoryRead with 3 degradedSources", async () => {
+    it("degrades ALL sources — returns empty MemoryRead with 2 degradedSources", async () => {
       const allBroken: Backends = {
         agentmemory: { smartSearch: async () => { throw new Error("boom") } },
-        magicContext: { slotList: async () => { throw new Error("boom") } },
         boulderState: { boulderRead: async () => { throw new Error("boom") } },
       }
 
       const result = await aggregateRead(makeInput(), allBroken)
       expect(result.agentmemory.available).toBe(false)
-      expect(result.magicContext.available).toBe(false)
       expect(result.boulderState.available).toBe(false)
-      expect(result.degradedSources).toHaveLength(3)
+      expect(result.degradedSources).toHaveLength(2)
       expect(result.degradedSources).toContain("agentmemory")
-      expect(result.degradedSources).toContain("magicContext")
       expect(result.degradedSources).toContain("boulderState")
     })
   })
@@ -294,7 +218,6 @@ describe("memory-aggregator", () => {
       }))
       const backends: Backends = {
         agentmemory: makeFakeAgentmemory({ lessons }),
-        magicContext: makeFakeMagicContext(),
         boulderState: makeFakeBoulder(),
       }
 
@@ -317,7 +240,6 @@ describe("memory-aggregator", () => {
       }))
       const backends: Backends = {
         agentmemory: makeFakeAgentmemory(),
-        magicContext: makeFakeMagicContext(),
         boulderState: makeFakeBoulder({ tasks }),
       }
 
@@ -334,12 +256,10 @@ describe("memory-aggregator", () => {
       }))
       const backends: Backends = {
         agentmemory: makeFakeAgentmemory(),
-        magicContext: makeFakeMagicContext({ slots }),
         boulderState: makeFakeBoulder(),
       }
 
       const result = await aggregateRead(makeInput({ limits: { maxSlots: 5 } }), backends)
-      expect(result.magicContext.slots).toHaveLength(5)
     })
   })
 
@@ -347,15 +267,12 @@ describe("memory-aggregator", () => {
     it("all empty sources — returns zeroed MemoryRead with no degradedSources", async () => {
       const backends: Backends = {
         agentmemory: makeFakeAgentmemory(),
-        magicContext: makeFakeMagicContext(),
         boulderState: makeFakeBoulder(),
       }
 
       const result = await aggregateRead(makeInput(), backends)
       expect(result.agentmemory.available).toBe(true)
       expect(result.agentmemory.lessons).toHaveLength(0)
-      expect(result.magicContext.available).toBe(true)
-      expect(result.magicContext.slots).toHaveLength(0)
       expect(result.boulderState.available).toBe(true)
       expect(result.boulderState.tasks).toHaveLength(0)
       expect(result.boulderState.planProgress).toBe(0)
@@ -365,28 +282,11 @@ describe("memory-aggregator", () => {
     it("returns durationMs > 0", async () => {
       const backends: Backends = {
         agentmemory: makeFakeAgentmemory(),
-        magicContext: makeFakeMagicContext(),
         boulderState: makeFakeBoulder(),
       }
 
       const result = await aggregateRead(makeInput(), backends)
       expect(result.durationMs).toBeGreaterThan(0)
-    })
-
-    it("magic-context slots with relevance match to query", async () => {
-      const slots = [
-        { label: "alpha", content: "the query word appears here: test", pinned: true, scope: "project" },
-        { label: "beta", content: "nothing relevant here", pinned: true, scope: "project" },
-      ]
-      const backends: Backends = {
-        agentmemory: makeFakeAgentmemory(),
-        magicContext: makeFakeMagicContext({ slots }),
-        boulderState: makeFakeBoulder(),
-      }
-
-      const result = await aggregateRead(makeInput({ query: "test" }), backends)
-      // "alpha" has "test" in content → should match relevance filter
-      expect(result.magicContext.slots.length).toBeGreaterThanOrEqual(1)
     })
 
     it("boulder backend receives query for server-side filtering", async () => {
@@ -397,7 +297,6 @@ describe("memory-aggregator", () => {
       let receivedQuery: string | undefined
       const backends: Backends = {
         agentmemory: makeFakeAgentmemory(),
-        magicContext: makeFakeMagicContext(),
         boulderState: makeFakeBoulder({
           tasks,
           readFn: (input) => { receivedQuery = input.query; return Promise.resolve(tasks); },

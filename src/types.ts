@@ -7,7 +7,7 @@
  *
  * Architectural invariants (from AGENTS.md, must respect):
  * - All session.promptAsync calls go through prompt-async-gate (not enforced here)
- * - MetaGovernor composes AFT + agentmemory + magic-context + boulder-state
+ * - MetaGovernor composes agentmemory + boulder-state
  * - 5 recovery hooks wrap into post-repair-recorder (not enforced here)
  *
  * Public surface (5 contracts):
@@ -129,7 +129,7 @@ export interface RelevantLesson {
 }
 
 /**
- * Cross-session state held in the magic-context `meta_state` slot.
+ * Cross-session state held in the agentmemory `meta_state` slot.
  *
  * `consecutiveStops` is read by the judge to detect paralysis (3 stops
  * in a row → force continue with warning, prevents infinite conservatism).
@@ -166,25 +166,15 @@ export interface MemoryRead {
   readonly query: string;
   readonly timestampISO: string;
   readonly agentmemory: AgentMemoryRead;
-  readonly magicContext: MagicContextRead;
   readonly boulderState: BoulderStateRead;
   readonly degradedSources: readonly MemorySource[];
 }
 
-export type MemorySource = "agentmemory" | "magicContext" | "boulderState";
+export type MemorySource = "agentmemory" | "boulderState";
 
 export interface AgentMemoryRead {
   readonly available: boolean;
   readonly lessons: readonly RelevantLesson[];
-  readonly errorMessage?: string;
-}
-
-export interface MagicContextRead {
-  readonly available: boolean;
-  readonly slots: readonly {
-    readonly label: string;
-    readonly content: string;
-  }[];
   readonly errorMessage?: string;
 }
 
@@ -313,16 +303,8 @@ export interface OrchestratorAgentmemoryBackend {
   }>;
 }
 
-export interface OrchestratorMagicContextBackend {
-  slotList(input: {
-    directory?: string;
-    labelPrefix?: string;
-  }): Promise<Array<{ label: string; content: string }>>;
-}
-
 export interface MemoryBackends {
   agentmemory: OrchestratorAgentmemoryBackend;
-  magicContext: OrchestratorMagicContextBackend;
   boulderState: import("./memory-aggregator").BoulderStateBackend;
 }
 
@@ -672,7 +654,7 @@ export interface OrchestratorConfig {
   readonly postWave?: PostWaveConfig;
   /** Graph sync config (v0.22.0): orphan process sweep on init. */
   readonly graphSync?: {
-    /** When true (default), graph-sync init sweeps orphaned graphify/codegraph/aft processes. */
+    /** When true (default), graph-sync init sweeps orphaned graphify/codegraph processes. */
     readonly killOrphanedOnInit?: boolean;
   };
 }

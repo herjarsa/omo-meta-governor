@@ -1,7 +1,7 @@
 /**
  * Cross-system memory aggregator for MetaGovernor.
  *
- * PR 2 of 8. Reads from all three memory systems (agentmemory, magic-context,
+ * PR 2 of 8. Reads from the memory systems (agentmemory,
  * boulder-state) in parallel and returns a `MemoryRead` that conforms to the
  * PR 1 contract (types.ts).
  *
@@ -84,10 +84,6 @@ export interface AgentmemoryBackend {
   smartSearch(input: { query: string; limit?: number }): Promise<{ lessons: RawLesson[]; crystals: RawCrystal[] }>;
 }
 
-export interface MagicContextBackend {
-  slotList(input: { directory?: string; labelPrefix?: string }): Promise<RawSlot[]>;
-}
-
 export interface BoulderStateBackend {
   boulderRead(input: { directory: string; sessionID: string; query?: string }): Promise<RawBoulderTask[]>;
 }
@@ -111,7 +107,6 @@ export interface AggregateReadInput {
   /** Per-source timeout in ms. Default 2000 for agentmemory (network), 1000 for local. */
   readonly timeouts?: {
     readonly agentmemoryMs?: number;
-    readonly magicContextMs?: number;
     readonly boulderStateMs?: number;
   };
 }
@@ -131,13 +126,12 @@ export interface AggregateReadResult extends MemoryRead {
 
 export interface Backends {
   agentmemory: AgentmemoryBackend;
-  magicContext: MagicContextBackend;
   boulderState: BoulderStateBackend;
 }
 
 const DEFAULTS = {
   limits: { maxLessons: 10, maxSlots: 20, maxTasks: 10 },
-  timeouts: { agentmemoryMs: 2000, magicContextMs: 1000, boulderStateMs: 1000 },
+  timeouts: { agentmemoryMs: 2000, boulderStateMs: 1000 },
 } as const;
 
 /**
@@ -152,9 +146,8 @@ export async function aggregateRead(
   const limits = { ...DEFAULTS.limits, ...input.limits };
   const timeouts = { ...DEFAULTS.timeouts, ...input.timeouts };
 
-  const [agentResult, magicResult, boulderResult] = await Promise.allSettled([
+  const [agentResult, boulderResult] = await Promise.allSettled([
     readAgentmemory(input, backends.agentmemory, limits, timeouts.agentmemoryMs),
-    readMagicContext(input, backends.magicContext, limits, timeouts.magicContextMs),
     readBoulderState(input, backends.boulderState, limits, timeouts.boulderStateMs),
   ]);
 
@@ -165,10 +158,6 @@ export async function aggregateRead(
     ? agentResult.value
     : (pushDegraded(degradedSources, errorMessages, "agentmemory", errorMessage(agentResult.reason)), DEGRADED.agentmemory);
 
-  const magicContext = magicResult.status === "fulfilled"
-    ? magicResult.value
-    : (pushDegraded(degradedSources, errorMessages, "magicContext", errorMessage(magicResult.reason)), DEGRADED.magicContext);
-
   const boulderState = boulderResult.status === "fulfilled"
     ? boulderResult.value
     : (pushDegraded(degradedSources, errorMessages, "boulderState", errorMessage(boulderResult.reason)), DEGRADED.boulderState);
@@ -177,7 +166,6 @@ export async function aggregateRead(
     query: input.query,
     timestampISO: new Date().toISOString(),
     agentmemory,
-    magicContext,
     boulderState,
     degradedSources,
     durationMs: performance.now() - start,
@@ -213,28 +201,6 @@ async function readAgentmemory(
   return {
     available: true,
     lessons,
-  };
-}
-
-async function readMagicContext(
-  input: AggregateReadInput,
-  backend: MagicContextBackend,
-  limits: Required<NonNullable<AggregateReadInput["limits"]>>,
-  timeoutMs: number,
-): Promise<MemoryRead["magicContext"]> {
-  const slots = await withTimeout(
-    backend.slotList({ directory: input.directory }),
-    timeoutMs,
-    "magicContext",
-  );
-
-  return {
-    available: true,
-    slots: slots
-      .filter((s) => s.label.startsWith("meta_governor:") || isRelevant(s, input.query))
-      .sort((a, b) => a.label.localeCompare(b.label))
-      .slice(0, limits.maxSlots)
-      .map((s) => ({ label: s.label, content: s.content })),
   };
 }
 
@@ -299,7 +265,6 @@ function pushDegraded(
 // These match the contract types exactly — pushDegraded is side-effect only.
 const DEGRADED = {
   agentmemory: { available: false, lessons: [] } as const satisfies MemoryRead["agentmemory"],
-  magicContext: { available: false, slots: [] } as const satisfies MemoryRead["magicContext"],
   boulderState: { available: false, tasks: [], planProgress: 0 } as const satisfies MemoryRead["boulderState"],
 } as const;
 

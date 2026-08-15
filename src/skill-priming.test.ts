@@ -35,7 +35,6 @@ const mockPluginInput = {
 // and has zero filesystem/network side effects.
 const stubBackends = {
   agentmemory: { smartSearch: async () => ({ lessons: [], crystals: [] }) },
-  magicContext: { slotList: async () => [] },
   boulderState: { boulderRead: async () => [] },
 }
 const stubWrite = {

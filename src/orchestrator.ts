@@ -87,9 +87,8 @@ const EMPTY_MEMORY_READ: MemoryRead = {
   query: "",
   timestampISO: new Date().toISOString(),
   agentmemory: { available: false, lessons: [] },
-  magicContext: { available: false, slots: [] },
   boulderState: { available: false, tasks: [], planProgress: 0 },
-  degradedSources: ["agentmemory", "magicContext", "boulderState"],
+  degradedSources: ["agentmemory", "boulderState"],
 };
 
 const EMPTY_SLOT_MEMORY: SlotMemory = {
@@ -202,7 +201,6 @@ export async function runMetaGovernor(
     try {
       const backends: Backends = {
         agentmemory: input.backends.agentmemory as Backends["agentmemory"],
-        magicContext: input.backends.magicContext as Backends["magicContext"],
         boulderState: input.backends.boulderState,
       };
       memoryRead = await aggregateRead(

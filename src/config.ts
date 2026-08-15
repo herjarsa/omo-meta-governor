@@ -39,7 +39,6 @@ export interface MetaGovernorPluginConfig {
     agentmemoryTimeoutMs?: number
     /** v0.18.0: alias for agentmemoryTimeoutMs (was the only name projected). */
     timeoutMs?: number
-    magicContextTimeoutMs?: number
     boulderStateTimeoutMs?: number
     query?: string
   }
@@ -106,7 +105,7 @@ export interface MetaGovernorPluginConfig {
     watch?: boolean
     autoInstall?: boolean
     installTimeoutMs?: number
-    /** v0.22.0: when true, graph-sync init sweeps orphaned graphify/codegraph/aft
+    /** v0.22.0: when true, graph-sync init sweeps orphaned graphify/codegraph
      * processes left by previous crashed runs. Default true. */
     killOrphanedOnInit?: boolean
   }

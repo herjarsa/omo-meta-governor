@@ -3,8 +3,7 @@
  * programmatic access to OpenCode's server API (sessions, tools, config).
  *
  * Why this exists: omo-meta-governor 0.13.1 only used the OpenCode client
- * implicitly (via tools the LLM called). To integrate AgentMemory,
- * Magic Context, and AFT directly — without requiring the LLM to invoke
+ * implicitly (via tools the LLM called). To integrate AgentMemory directly — without requiring the LLM to invoke
  * their MCP tools manually — we need a way to call MCP tools from within
  * the plugin's own hooks and custom tools.
  *

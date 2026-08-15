@@ -24,7 +24,6 @@ import type {
   AggregateReadInput,
   AggregateReadResult,
   AgentmemoryBackend,
-  MagicContextBackend,
   BoulderStateBackend,
 } from "./memory-aggregator"
 
@@ -34,7 +33,7 @@ function createMockBackends(opts: {
   lessons?: Array<{ title: string; content: string; type: string; confidence: number }>
   slots?: Array<{ label: string; content: string }>
   tasks?: Array<{ id: string; title: string; priority: number; status: string; description: string; createdAtMs: number }>
-  throwOn?: "agentmemory" | "magicContext" | "boulderState"
+  throwOn?: "agentmemory" | "boulderState"
 } = {}): Backends {
   const lessons = opts.lessons ?? [
     { title: "previous session lesson", content: "tests passed last time", type: "pattern", confidence: 0.8 },
@@ -50,12 +49,6 @@ function createMockBackends(opts: {
       return { lessons, crystals: [] }
     },
   }
-  const magicContext: MagicContextBackend = {
-    async slotList() {
-      if (opts.throwOn === "magicContext") throw new Error("magicContext down")
-      return slots
-    },
-  }
   const boulderState: BoulderStateBackend = {
     async boulderRead() {
       if (opts.throwOn === "boulderState") throw new Error("boulderState down")
@@ -63,7 +56,7 @@ function createMockBackends(opts: {
     },
   }
 
-  return { agentmemory, magicContext, boulderState }
+  return { agentmemory, boulderState }
 }
 
 function createMockWriteBackend(): AgentmemoryWriteBackend & {
@@ -142,8 +135,7 @@ describe("runMetaGovernor (integration)", () => {
           // All 3 backends respond, so no degradation
           const allAvailable =
             output!.memoryRead.agentmemory.available &&
-            output!.memoryRead.magicContext.available &&
-            output!.memoryRead.boulderState.available
+                  output!.memoryRead.boulderState.available
           expect(allAvailable).toBe(true)
         })
 
@@ -214,8 +206,7 @@ describe("runMetaGovernor (integration)", () => {
 
       it("then the other 2 backends remain available", async () => {
         const output = await runMetaGovernor(input)
-        expect(output.memoryRead.magicContext.available).toBe(true)
-        expect(output.memoryRead.boulderState.available).toBe(true)
+            expect(output.memoryRead.boulderState.available).toBe(true)
       })
     })
   })

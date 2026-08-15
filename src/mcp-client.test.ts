@@ -1,7 +1,7 @@
 /**
  * Tests for MCPClient — the wrapper that gives omo-meta-governor programmatic
  * access to OpenCode's server API (sessions, tools, config) for calling
- * MCP tools like agentmemory, magic-context, and AFT directly.
+ * MCP tools like agentmemory directly.
  */
 
 import { describe, test, expect, beforeEach } from "bun:test"
@@ -136,8 +136,7 @@ describe("MCPClient", () => {
           list: async () => ({
             data: [
               { id: "agentmemory_memory_save" },
-              { id: "ctx_memory" },
-              { id: "aft_outline" },
+              { id: "agentmemory_memory_recall" },
             ],
           }),
           invoke: async () => ({ data: null }),
@@ -145,8 +144,7 @@ describe("MCPClient", () => {
       }
       client.setClient(mockClient)
       expect(await client.isAvailable("agentmemory_memory_save")).toBe(true)
-      expect(await client.isAvailable("ctx_memory")).toBe(true)
-      expect(await client.isAvailable("aft_outline")).toBe(true)
+      expect(await client.isAvailable("agentmemory_memory_recall")).toBe(true)
     })
 
     test("returns false for unknown tool", async () => {
@@ -221,7 +219,7 @@ describe("MCPClient", () => {
           list: async () => ({
             data: [
               { id: "agentmemory_memory_save" },
-              { id: "ctx_memory" },
+              { id: "agentmemory_memory_recall" },
             ],
           }),
           invoke: async () => ({ data: null }),
@@ -229,7 +227,7 @@ describe("MCPClient", () => {
       }
       client.setClient(mockClient)
       const tools = await client.availableTools()
-      expect(tools.sort()).toEqual(["agentmemory_memory_save", "ctx_memory"].sort())
+      expect(tools.sort()).toEqual(["agentmemory_memory_save", "agentmemory_memory_recall"].sort())
     })
   })
 

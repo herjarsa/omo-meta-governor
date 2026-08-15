@@ -434,52 +434,7 @@ export class GraphRetrieval {
     return this.invokeGraphifySubcommand("explain", concept, projectDir, options)
   }
 
-  // -------- AFT tools (v0.14.0) --------
-
-  /**
-   * Get a structural outline of a file or directory.
-   * Runs `aft outline <path>`.
-   */
-  async invokeAFTOutline(
-    targetPath: string,
-    options: InvokeOptions = {},
-  ): Promise<GraphInvocationResult> {
-    return this.invokeAFTSubcommand("outline", targetPath, options)
-  }
-
-  /**
-   * Find a symbol by name.
-   * Runs `aft zoom <symbol>`.
-   */
-  async invokeAFTZoom(
-    symbol: string,
-    options: InvokeOptions = {},
-  ): Promise<GraphInvocationResult> {
-    return this.invokeAFTSubcommand("zoom", symbol, options)
-  }
-
-  /**
-   * Create a named checkpoint via AFT.
-   * Runs `aft safety checkpoint --name <name>`.
-   */
-  async invokeAFTCheckpoint(
-    name: string,
-    options: InvokeOptions = {},
-  ): Promise<GraphInvocationResult> {
-    return this.invokeAFTSubcommand("safety", ["checkpoint", "--name", name], options)
-  }
-
-  /**
-   * Undo the last change via AFT.
-   * Runs `aft safety undo`.
-   */
-  async invokeAFTUndo(
-    options: InvokeOptions = {},
-  ): Promise<GraphInvocationResult> {
-    return this.invokeAFTSubcommand("safety", "undo", options)
-  }
-
-  // -------- Internal: shared sub-command runners --------
+  // -------- Internal: graphify sub-command runner --------
 
   private async invokeGraphifySubcommand(
     subcommand: "path" | "explain",
@@ -502,29 +457,7 @@ export class GraphRetrieval {
     }
   }
 
-  private async invokeAFTSubcommand(
-    subcommand: "outline" | "zoom" | "safety",
-    argument: string | string[],
-    options: InvokeOptions,
-  ): Promise<GraphInvocationResult> {
-    const start = Date.now()
-    const timeoutMs = options.timeoutMs ?? this.timeoutMs
-    const cmd = options.codegraphBin ?? "aft"
-    // v0.16.0: F3.1 — split string[] args correctly. The previous version
-    // wrapped the entire argument into one argv slot, so 'aft safety
-    // checkpoint --name "my name"' on Linux failed because the shell-less
-    // spawn saw the whole string as a single arg.
-    const queryLabel = Array.isArray(argument) ? argument.join(" ") : argument
-    const args = [subcommand, ...(Array.isArray(argument) ? argument : [argument])]
-    // F3.2: respect options.projectDir; fall back to process.cwd().
-    const cwd = options.projectDir ?? process.cwd()
-    try {
-      const output = await this.spawnWithTimeout(cmd, args, timeoutMs, cwd)
-      return { kind: "codegraph", query: queryLabel, result: output.trim() || null, timedOut: false, durationMs: Date.now() - start }
-    } catch (err) {
-      return { kind: null, query: queryLabel, result: null, timedOut: err instanceof Error && /timed out/i.test(err.message), durationMs: Date.now() - start }
-    }
-  }
+
 }
 
 // ---------------------------------------------------------------------------

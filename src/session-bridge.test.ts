@@ -178,12 +178,12 @@ describe("SessionBridge", () => {
       setSessionClient(mockClient)
       await promptAgent("sess-abc", {
         toolName: "omo_rule",
-        mcpTool: "ctx_memory",
+        mcpTool: "agentmemory_memory_save",
         mcpArgs: { category: "ARCHITECTURE", content: "use bun:sqlite" },
         preamble: "Save this durable ARCHITECTURE rule to Magic Context.",
       })
       expect(capturedText).toContain("Save this durable ARCHITECTURE rule")
-      expect(capturedText).toContain("ctx_memory")
+      expect(capturedText).toContain("agentmemory_memory_save")
       expect(capturedText).toContain('"category": "ARCHITECTURE"')
     })
   })

@@ -19,14 +19,8 @@ import {
   buildOmoImpactTool,
   buildOmoRememberTool,
   buildOmoRecallMcpTool,
-  buildOmoRuleTool,
-  buildOmoHistoryTool,
-  buildOmoNoteTool,
   buildOmoPathTool,
   buildOmoExplainTool,
-  buildOmoOutlineTool,
-  buildOmoCheckpointTool,
-  buildOmoUndoTool,
 } from "./custom-tools"
 import type { GraphInvocationResult, GraphRetrieval, GraphRetrievalConfig } from "./graph-retrieval"
 import type { SqliteBackend } from "./sqlite-backend"
@@ -65,33 +59,6 @@ function makeFakeGraphRetrieval(
         result: "explanation",
         timedOut: false,
         durationMs: 3,
-        ...result,
-      }) satisfies GraphInvocationResult,
-    invokeAFTOutline: async () =>
-      ({
-        kind: "aft" as const,
-        query: "out",
-        result: "outline",
-        timedOut: false,
-        durationMs: 4,
-        ...result,
-      }) satisfies GraphInvocationResult,
-    invokeAFTCheckpoint: async () =>
-      ({
-        kind: "aft" as const,
-        query: "checkpoint",
-        result: "checkpoint done",
-        timedOut: false,
-        durationMs: 4,
-        ...result,
-      }) satisfies GraphInvocationResult,
-    invokeAFTUndo: async () =>
-      ({
-        kind: "aft" as const,
-        query: "undo",
-        result: "undone",
-        timedOut: false,
-        durationMs: 4,
         ...result,
       }) satisfies GraphInvocationResult,
   } as unknown as GraphRetrieval
@@ -259,7 +226,7 @@ describe("buildOmoImpactTool", () => {
   })
 })
 
-describe("bridge tools (omo_remember, omo_recall_mcp, omo_rule, omo_history, omo_note)", () => {
+describe("bridge tools (omo_remember, omo_recall_mcp)", () => {
   it("buildOmoRememberTool returns a tool that takes content + concepts", () => {
     const t = buildOmoRememberTool({ cwd: "/tmp" })
     expect(t.args).toBeDefined()
@@ -272,71 +239,7 @@ describe("bridge tools (omo_remember, omo_recall_mcp, omo_rule, omo_history, omo
     expect(typeof t.execute).toBe("function")
   })
 
-  it("buildOmoRuleTool returns a tool that takes content + category", () => {
-    const t = buildOmoRuleTool({ cwd: "/tmp" })
-    expect(t.args).toBeDefined()
-    expect(typeof t.execute).toBe("function")
-  })
-
-  it("buildOmoHistoryTool returns a tool that takes a query", () => {
-    const t = buildOmoHistoryTool({ cwd: "/tmp" })
-    expect(t.args).toBeDefined()
-    expect(typeof t.execute).toBe("function")
-  })
-
-  it("buildOmoNoteTool returns a tool that takes content", () => {
-    const t = buildOmoNoteTool({ cwd: "/tmp" })
-    expect(t.args).toBeDefined()
-    expect(typeof t.execute).toBe("function")
-  })
-})
-
-describe("graph-based tools (omo_path, omo_explain, omo_outline)", () => {
-  it("buildOmoPathTool accepts from and to args", () => {
-    const t = buildOmoPathTool({ cwd: "/tmp" })
-    expect(t.args).toBeDefined()
-    expect(typeof t.execute).toBe("function")
-    expect(t.description).toContain("path")
-  })
-
-  it("buildOmoExplainTool accepts concept arg", () => {
-    const t = buildOmoExplainTool({ cwd: "/tmp" })
-    expect(t.args).toBeDefined()
-    expect(typeof t.execute).toBe("function")
-  })
-
-  it("buildOmoOutlineTool accepts target arg", () => {
-    const t = buildOmoOutlineTool({ cwd: "/tmp" })
-    expect(t.args).toBeDefined()
-    expect(typeof t.execute).toBe("function")
-  })
-})
-
-describe("AFT state tools (omo_checkpoint, omo_undo)", () => {
-  it("buildOmoCheckpointTool accepts name arg", () => {
-    const t = buildOmoCheckpointTool({})
-    expect(t.args).toBeDefined()
-    expect(typeof t.execute).toBe("function")
-  })
-
-  it("buildOmoUndoTool accepts no args (undo last)", () => {
-    const t = buildOmoUndoTool({})
-    expect(t.args).toBeDefined()
-    expect(typeof t.execute).toBe("function")
-  })
-})
-
-describe("tool argument validation", () => {
-  it("omo_search args schema requires a string query (min 3 chars)", () => {
-    const t = buildOmoSearchTool({
-      graphRetrieval: makeFakeGraphRetrieval(),
-      cwd: "/tmp",
-    })
-    // The schema is a Zod object; just verify it's an object
-    expect(typeof t.args).toBe("object")
-  })
-
-  it("all 15 tools export a description, args, and execute", () => {
+it("all 9 tools export a description, args, and execute", () => {
     const tools = [
       buildOmoSearchTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
       buildOmoRecallTool({ sqlite: makeFakeSqlite(), cwd: "/tmp" }),
@@ -345,16 +248,10 @@ describe("tool argument validation", () => {
       buildOmoImpactTool({ cwd: "/tmp" }),
       buildOmoRememberTool({ cwd: "/tmp" }),
       buildOmoRecallMcpTool({ cwd: "/tmp" }),
-      buildOmoRuleTool({ cwd: "/tmp" }),
-      buildOmoHistoryTool({ cwd: "/tmp" }),
-      buildOmoNoteTool({ cwd: "/tmp" }),
-      buildOmoPathTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+                  buildOmoPathTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
       buildOmoExplainTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
-      buildOmoOutlineTool({ cwd: "/tmp" }),
-      buildOmoCheckpointTool({}),
-      buildOmoUndoTool({}),
-    ]
-    expect(tools).toHaveLength(15)
+                ]
+    expect(tools).toHaveLength(9)
     for (const t of tools) {
       expect(t.description).toBeDefined()
       expect(t.args).toBeDefined()
