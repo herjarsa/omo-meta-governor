@@ -386,6 +386,11 @@ export interface InterventionConfig {
    */
   readonly persistToSession: boolean;
   /**
+   * v0.24.0: TUI toast notifications on intervention. Default true;
+   * false disables all TUI toasts.
+   */
+  readonly toasts: boolean;
+  /**
    * Max number of times a single session may receive an intervention
    * before the plugin auto-disables intervention for that session.
    * v0.10.0: prevents infinite instruction loops. Default: 3.

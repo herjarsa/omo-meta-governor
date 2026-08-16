@@ -79,6 +79,9 @@ describe("generateSchema", () => {
 it("then has intervention with enum constraints", () => {
       expect(props.intervention).toBeDefined()
       const iv = props.intervention.properties!
+expect(iv.toasts).toBeDefined();
+expect(iv.toasts.type).toBe("boolean");
+expect(iv.toasts.default).toBe(true);
       expect(iv.mode.enum).toEqual(["silent", "message", "system"])
       expect(iv.mode.default).toBe("silent")
       expect(iv.minActionForMessage.enum).toEqual(["warn", "escalate", "stop"])
