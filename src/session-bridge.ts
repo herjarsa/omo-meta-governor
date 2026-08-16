@@ -42,7 +42,10 @@ import { AsyncLocalStorage } from "node:async_hooks";
 export interface OpencodeClientLike {
   session: {
     prompt(input: {
-      sessionID: string;
+      // OpenCode SDK v1: path params live under `path` (url: /session/{id}/message).
+      // v2-style `sessionID` at the root is NOT read by the v1 client and leaves
+      // the `{id}` placeholder unresolved -> /session/%7Bid%7D/message -> 400.
+      path: { id: string };
       body: {
         // Accept any shape — the SDK allows parts as a discriminated union
         parts: Array<{ type: string; text?: string; [k: string]: unknown }>;
@@ -188,7 +191,7 @@ export async function promptAgent(
   const part = { type: "text", text: instruction };
   try {
     const result = await raceWithTimeout(
-      client.session.prompt({ sessionID, body: { parts: [part] } }),
+      client.session.prompt({ path: { id: sessionID }, body: { parts: [part] } }),
       timeoutMs,
       `session.prompt for ${options.mcpTool}`,
     );
@@ -256,7 +259,7 @@ export async function persistSessionMessage(
   const part = { type: "text", text };
   try {
     const result = await raceWithTimeout(
-      client.session.prompt({ sessionID, body: { parts: [part] } }),
+      client.session.prompt({ path: { id: sessionID }, body: { parts: [part] } }),
       timeoutMs,
       `session.prompt persist for ${sessionID}`,
     );

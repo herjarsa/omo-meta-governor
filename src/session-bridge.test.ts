@@ -100,10 +100,10 @@ describe("SessionBridge", () => {
       expect(result.durationMs).toBeGreaterThanOrEqual(0)
       // Verify the args passed to the SDK include the right MCP tool + args
       const args = capturedArgs as {
-        sessionID: string
+        path: { id: string }
         body: { parts: Array<{ type: string; text: string }> }
       }
-      expect(args.sessionID).toBe("sess-abc")
+      expect(args.path.id).toBe("sess-abc")
       expect(args.body.parts.length).toBe(1)
       expect(args.body.parts[0]?.type).toBe("text")
       expect(args.body.parts[0]?.text).toContain("agentmemory_memory_save")
@@ -237,10 +237,10 @@ describe("SessionBridge", () => {
       expect(result.ok).toBe(true)
       expect(result.messageID).toBe("msg-456")
       const args = capturedArgs as {
-        sessionID: string
+        path: { id: string }
         body: { parts: Array<{ type: string; text: string }> }
       }
-      expect(args.sessionID).toBe("sess-abc")
+      expect(args.path.id).toBe("sess-abc")
       expect(args.body.parts.length).toBe(1)
       expect(args.body.parts[0]?.type).toBe("text")
       // Verbatim — persistSessionMessage must NOT add tool-call instructions

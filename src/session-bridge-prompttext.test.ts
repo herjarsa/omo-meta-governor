@@ -30,10 +30,10 @@ describe("SessionBridge #promptAgentText", () => {
     await promptAgentText("s1", "push now")
 
     const args = capturedArgs as {
-      sessionID: string
+      path: { id: string }
       body: { parts: Array<{ type: string; text: string }> }
     }
-    expect(args.sessionID).toBe("s1")
+    expect(args.path.id).toBe("s1")
     expect(args.body.parts.length).toBe(1)
     expect(args.body.parts[0]?.type).toBe("text")
     expect(args.body.parts[0]?.text).toBe("push now")

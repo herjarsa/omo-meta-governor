@@ -12,9 +12,9 @@ function makeFakeClient(label: string) {
     label,
     seen,
     session: {
-      prompt: async (input: { sessionID: string; body: { parts: unknown[] } }) => {
-        seen.push(input.sessionID)
-        return { data: { info: { id: `msg-${label}-${input.sessionID}` } } }
+      prompt: async (input: { path: { id: string }; body: { parts: unknown[] } }) => {
+        seen.push(input.path.id)
+        return { data: { info: { id: `msg-${label}-${input.path.id}` } } }
       },
     },
   }
