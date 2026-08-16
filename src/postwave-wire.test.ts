@@ -21,10 +21,13 @@ function makeMockInput(prompts: CapturedPrompt[]) {
       session: {
         prompt: async (args: unknown) => {
           const a = args as {
-            sessionID: string
+            sessionID?: string
+            path?: { id?: string }
             body: { parts: Array<{ type: string; text: string }> }
           }
-          prompts.push({ sessionID: a.sessionID, text: a.body.parts[0]?.text ?? "" })
+          // v0.24.0: session-bridge uses the SDK v1 shape { path: { id }, body }.
+          const sessionID = a.path?.id ?? a.sessionID
+          prompts.push({ sessionID: sessionID ?? "", text: a.body.parts[0]?.text ?? "" })
           return { data: { info: { id: "msg-x" } } }
         },
       },
