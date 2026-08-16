@@ -32,6 +32,48 @@ import { join } from "node:path"
 
 export type GraphToolKind = "codegraph" | "graphify" | null
 
+/**
+ * v0.25.0: explicit routing preference between codegraph and graphify.
+ * - "auto" (default): codegraph first, graphify as fallback.
+ * - "codegraph": always codegraph when available (never graphify).
+ * - "graphify": always graphify when available (never codegraph).
+ * - "alternate": deterministic per-query round-robin (hash parity).
+ */
+export type GraphToolPreference = "auto" | "codegraph" | "graphify" | "alternate"
+
+/**
+ * v0.25.0: pure selection logic — pick which graph tool to invoke.
+ * Deterministic (same inputs → same choice), platform-independent,
+ * unit-testable without subprocesses.
+ */
+export function selectGraphTool(
+  preference: GraphToolPreference,
+  codegraphAvailable: boolean,
+  graphifyAvailable: boolean,
+  query?: string,
+): { kind: "codegraph" | "graphify"; cmd: string; args: string[] } | null {
+  const both = codegraphAvailable && graphifyAvailable
+  if (preference === "codegraph") {
+    return codegraphAvailable ? { kind: "codegraph", cmd: "codegraph", args: [] } : null
+  }
+  if (preference === "graphify") {
+    return graphifyAvailable ? { kind: "graphify", cmd: "graphify", args: [] } : null
+  }
+  if (preference === "alternate" && both) {
+    // Deterministic parity split: same query → same tool every time (cache-stable).
+    // Sum of char codes gives even distribution across short queries.
+    const sum = (query ?? "").trim().toLowerCase().split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0)
+    const even = sum % 2 === 0
+    return even
+      ? { kind: "codegraph", cmd: "codegraph", args: [] }
+      : { kind: "graphify", cmd: "graphify", args: [] }
+  }
+  // auto (or alternate with a single tool): codegraph-first, graphify fallback.
+  if (codegraphAvailable) return { kind: "codegraph", cmd: "codegraph", args: [] }
+  if (graphifyAvailable) return { kind: "graphify", cmd: "graphify", args: [] }
+  return null
+}
+
 export interface GraphInvocationResult {
   /** Which tool was actually invoked. */
   kind: GraphToolKind
@@ -52,6 +94,8 @@ export interface GraphRetrievalConfig {
   cacheTtlMs?: number
   /** Max cache entries per session. Default: 10. */
   maxEntriesPerSession?: number
+  /** v0.25.0: explicit codegraph/graphify routing. Default "auto". */
+  preferredTool?: GraphToolPreference
 }
 
 export interface InvokeOptions {
@@ -63,6 +107,8 @@ export interface InvokeOptions {
   timeoutMs?: number
   /** v0.16.0: project working directory. Defaults to process.cwd(). */
   projectDir?: string
+  /** v0.25.0: per-call routing override. Default: instance preference. */
+  preferredTool?: GraphToolPreference
 }
 
 // ---------------------------------------------------------------------------
@@ -105,11 +151,19 @@ export class GraphRetrieval {
   private readonly cacheTtlMs: number
   private readonly maxEntriesPerSession: number
   private readonly cache: Map<string, SessionCache> = new Map()
+  /** v0.25.0: routing preference. Mutable — configureDefaultGraphRetrieval updates it. */
+  private preferredTool: GraphToolPreference
 
   constructor(config: GraphRetrievalConfig = {}) {
     this.timeoutMs = config.timeoutMs ?? 5_000
     this.cacheTtlMs = config.cacheTtlMs ?? 300_000
     this.maxEntriesPerSession = config.maxEntriesPerSession ?? 10
+    this.preferredTool = config.preferredTool ?? "auto"
+  }
+
+  /** v0.25.0: runtime routing update (used by configureDefaultGraphRetrieval). */
+  setPreferredTool(preference: GraphToolPreference): void {
+    this.preferredTool = preference
   }
 
   // -------- Directory detection (lazy, fixes race condition) --------
@@ -205,9 +259,10 @@ export class GraphRetrieval {
    * Invoke a graph tool for the given query. Returns structured result.
    * Never throws — all errors are caught and returned as `result: null`.
    *
-   * Selection logic:
-   * 1. If `.codegraph/` exists and `codegraph` CLI is found → invoke codegraph
-   * 2. Else if `graphify-out/` exists and `graphify` CLI is found → invoke graphify
+   * Selection logic (v0.25.0 — explicit routing via selectGraphTool):
+   * - preferredTool "auto": codegraph first, graphify fallback.
+   * - "codegraph" / "graphify": only that tool (when available).
+   * - "alternate": deterministic hash-parity round-robin when both exist.
    * 3. Else → return null result
    */
   async invoke(
@@ -218,22 +273,25 @@ export class GraphRetrieval {
     const start = Date.now()
     const timeoutMs = options.timeoutMs ?? this.timeoutMs
 
-    // Resolve which tool to use
+    // Resolve which tool to use (v0.25.0: explicit routing).
     const codegraphAvailable = this.hasCodegraphDir(projectDir)
     const graphifyAvailable = this.hasGraphifyDir(projectDir)
+    const preference = options.preferredTool ?? this.preferredTool
+    const selected = selectGraphTool(preference, codegraphAvailable, graphifyAvailable, query)
 
     let kind: GraphToolKind = null
     let cmd: string | null = null
     let args: string[] = []
 
-    if (codegraphAvailable) {
-      cmd = options.codegraphBin ?? "codegraph"
-      args = ["explore", query, "--project-path", projectDir]
-      kind = "codegraph"
-    } else if (graphifyAvailable) {
-      cmd = options.graphifyBin ?? "graphify"
-      args = ["query", query, "--graph", join(projectDir, "graphify-out")]
-      kind = "graphify"
+    if (selected) {
+      kind = selected.kind
+      if (kind === "codegraph") {
+        cmd = options.codegraphBin ?? "codegraph"
+        args = ["explore", query, "--project-path", projectDir]
+      } else {
+        cmd = options.graphifyBin ?? "graphify"
+        args = ["query", query, "--graph", join(projectDir, "graphify-out")]
+      }
     }
 
     if (!cmd || !kind) {
@@ -470,6 +528,17 @@ let _default: GraphRetrieval | null = null
 export function getDefaultGraphRetrieval(): GraphRetrieval {
   if (!_default) _default = new GraphRetrieval()
   return _default
+}
+
+/**
+ * v0.25.0: update the singleton's routing preference WITHOUT replacing the
+ * instance — tools capture the reference at build time (omo_search) or
+ * resolve it at execute time (omo_path/omo_explain); replacing would
+ * strand the captured instance.
+ */
+export function configureDefaultGraphRetrieval(config: GraphRetrievalConfig): void {
+  const inst = getDefaultGraphRetrieval()
+  if (config.preferredTool) inst.setPreferredTool(config.preferredTool)
 }
 
 // Re-export existsSync for tests

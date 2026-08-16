@@ -657,6 +657,16 @@ export interface OrchestratorConfig {
     /** When true (default), graph-sync init sweeps orphaned graphify/codegraph processes. */
     readonly killOrphanedOnInit?: boolean;
   };
+  /**
+   * v0.25.0: explicit routing between codegraph and graphify.
+   * - "auto" (default): codegraph first, graphify as fallback.
+   * - "codegraph": always prefer codegraph (never graphify when both exist).
+   * - "graphify": always prefer graphify (never codegraph when both exist).
+   * - "alternate": deterministic round-robin per query (hash parity) when both exist.
+   */
+  readonly graphRetrieval: {
+    readonly preferredTool: "auto" | "codegraph" | "graphify" | "alternate";
+  };
 }
 
 /**

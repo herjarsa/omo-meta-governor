@@ -53,7 +53,7 @@ import {
 } from "./config";
 import { loadMetaGovernorConfig } from "./config-file";
 import { storeDecision, takeDecision } from "./decision-store";
-import { GraphRetrieval, getDefaultGraphRetrieval } from "./graph-retrieval";
+import { GraphRetrieval, getDefaultGraphRetrieval, configureDefaultGraphRetrieval } from "./graph-retrieval";
 import { AuditStateCache } from "./audit-state-cache";
 import { DEFAULT_VERSION } from "./metrics";
 import { statSync, readFileSync } from "node:fs";
@@ -284,6 +284,11 @@ export function createMetaGovernorPlugin(
       });
       throw err;
     }
+    // v0.25.0: explicit codegraph/graphify routing — push the config into the
+    // GraphRetrieval singleton so omo_search/omo_path/omo_explain honor it.
+    configureDefaultGraphRetrieval({
+      preferredTool: mergedConfig.graphRetrieval.preferredTool,
+    });
     if (fileConfigSource.sources.length > 0) {
       logToFile("info", `v${DEFAULT_VERSION} config_loaded`, {
         version: DEFAULT_VERSION,
@@ -1246,10 +1251,12 @@ export function createMetaGovernorPlugin(
               {
                 type: "text",
                 text: [
-                  "[META-GOVERNOR] codegraph y graphify ya están inicializados en este repo.",
-                  "Usa las tools de navegación en vez de grep: `omo_search` (semántico),",
-                  "`omo_find` (símbolos), `omo_impact` (impacto), `omo_path`/`omo_explain`",
-                  "(graphify). Actualizan tras cada commit.",
+                  "[META-GOVERNOR] codegraph y graphify ya están inicializados en este repo. ",
+                  "ROUTING EXPLÍCITO (v0.25.0): ",
+                  "• Símbolos/definiciones/callers/impacto (código) → CODEGRAPH: omo_find, omo_impact, omo_search. ",
+                  "• Conceptos/arquitectura/conexiones/explicaciones → GRAPHIFY: omo_path, omo_explain (y omo_search en modo alternate). ",
+                  "• Vista general del repo → lee graphify-out/GRAPH_REPORT.md. ",
+                  "Actualizan tras cada commit.",
                 ].join(" "),
                 synthetic: true,
               },

@@ -302,6 +302,29 @@ describe("loadOrchestratorConfig — protocolEnforcement", () => {
   })
 })
 
+describe("loadOrchestratorConfig — graphRetrieval", () => {
+  describe("#given undefined graphRetrieval config", () => {
+    const config: MetaGovernorPluginConfig = { enabled: true }
+    const result = loadOrchestratorConfig(config)
+
+    it("then graphRetrieval.preferredTool defaults to 'auto'", () => {
+      expect(result.graphRetrieval.preferredTool).toBe("auto")
+    })
+  })
+
+  describe("#given custom graphRetrieval config", () => {
+    const config: MetaGovernorPluginConfig = {
+      enabled: true,
+      graphRetrieval: { preferredTool: "graphify" },
+    }
+    const result = loadOrchestratorConfig(config)
+
+    it("then graphRetrieval.preferredTool reflects override", () => {
+      expect(result.graphRetrieval.preferredTool).toBe("graphify")
+    })
+  })
+})
+
 describe("loadOrchestratorConfig — skillPriming", () => {
   describe("#given undefined skillPriming config", () => {
     const config: MetaGovernorPluginConfig = { enabled: true }

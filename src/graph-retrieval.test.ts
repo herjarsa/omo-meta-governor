@@ -17,6 +17,7 @@ import { join } from "node:path"
 import {
   GraphRetrieval,
   hashQuery,
+  selectGraphTool,
   type GraphToolKind,
   type GraphInvocationResult,
 } from "./graph-retrieval"
@@ -192,6 +193,55 @@ echo "should not reach here"
           resolve()
         }, 100)
       })
+    })
+  })
+
+  describe("#selectGraphTool (explicit routing, v0.25.0)", () => {
+    test("auto: codegraph wins when both exist (codegraph-first)", () => {
+      const s = selectGraphTool("auto", true, true)
+      expect(s?.kind).toBe("codegraph")
+    })
+
+    test("auto: falls back to graphify when only graphify exists", () => {
+      const s = selectGraphTool("auto", false, true)
+      expect(s?.kind).toBe("graphify")
+    })
+
+    test("auto: returns null when neither exists", () => {
+      expect(selectGraphTool("auto", false, false)).toBeNull()
+    })
+
+    test("graphify: prefers graphify even when both exist", () => {
+      const s = selectGraphTool("graphify", true, true)
+      expect(s?.kind).toBe("graphify")
+    })
+
+    test("codegraph: prefers codegraph even when both exist", () => {
+      const s = selectGraphTool("codegraph", true, true)
+      expect(s?.kind).toBe("codegraph")
+    })
+
+    test("graphify: returns null when graphify missing even if codegraph exists", () => {
+      expect(selectGraphTool("graphify", true, false)).toBeNull()
+    })
+
+    test("alternate: distributes deterministically by query hash parity", () => {
+      // Both dirs exist; same query must map to the SAME tool every time.
+      const a1 = selectGraphTool("alternate", true, true, "find auth")
+      const a2 = selectGraphTool("alternate", true, true, "find auth")
+      expect(a1?.kind).toBe(a2?.kind)
+      // And across enough queries both tools are reachable.
+      const seen = new Set<string>()
+      for (const q of ["a", "b", "c", "d", "e", "f", "g", "h"]) {
+        const s = selectGraphTool("alternate", true, true, q)
+        if (s?.kind) seen.add(s.kind)
+      }
+      expect(seen.size).toBe(2)
+    })
+
+    test("alternate: single available tool is always used", () => {
+      const s = selectGraphTool("alternate", false, true, "any query")
+      expect(s?.kind).toBe("graphify")
     })
   })
 })

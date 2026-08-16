@@ -119,6 +119,13 @@ export interface MetaGovernorPluginConfig {
 
   /** Post-wave workflow gate (v0.21.0): landing directives after Oracle-approved waves. */
   postWave?: PostWaveConfig
+  /**
+   * v0.25.0: explicit routing between codegraph and graphify.
+   * "auto" (default) | "codegraph" | "graphify" | "alternate".
+   */
+  graphRetrieval?: {
+    preferredTool?: "auto" | "codegraph" | "graphify" | "alternate"
+  }
 }
 
 /**
@@ -284,6 +291,10 @@ export function loadOrchestratorConfig(
     // v0.22.0: project graphSync killOrphanedOnInit with default true.
     graphSync: {
       killOrphanedOnInit: full.graphSync?.killOrphanedOnInit ?? true,
+    },
+    // v0.25.0: explicit codegraph/graphify routing.
+    graphRetrieval: {
+      preferredTool: full.graphRetrieval?.preferredTool ?? "auto",
     },
   }
 }

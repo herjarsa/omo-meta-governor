@@ -81,6 +81,10 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
     trigger: "firstImplement",
     router: "both",
   },
+  // v0.25.0: explicit codegraph/graphify routing — default auto.
+  graphRetrieval: {
+    preferredTool: "auto",
+  },
 });
 
 const EMPTY_MEMORY_READ: MemoryRead = {
