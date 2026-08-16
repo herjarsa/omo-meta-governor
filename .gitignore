@@ -6,5 +6,3 @@ graphify-out
 package-lock.json
 .omo/
 .cortexkit/
-
-.omc/

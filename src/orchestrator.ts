@@ -67,8 +67,6 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
     phaseAwareDoneSignal: false,
     // v0.19.0: persist interventions to the session (TUI-visible).
     persistToSession: true,
-    // v0.24.0: TUI toast notifications on intervention (top-right of TUI).
-    toasts: true,
   },
   protocolEnforcement: {
     enabled: false,

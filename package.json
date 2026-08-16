@@ -1,45 +1,46 @@
 {
-  "name": "@herjarsa/omo-meta-governor",
-  "version": "0.24.0",
-  "type": "module",
-  "description": "Self-judging agent orchestration layer for OpenCode. Reads memory, scores sessions, dispatches decisions.",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+    "name": "@herjarsa/omo-meta-governor",
+    "version": "0.23.0",
+    "type": "module",
+    "description": "Self-judging agent orchestration layer for OpenCode. Reads memory, scores sessions, dispatches decisions.",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        },
+        "./lib": {
+            "types": "./dist/lib.d.ts",
+            "import": "./dist/lib.js"
+        }
     },
-    "./lib": {
-      "types": "./dist/lib.d.ts",
-      "import": "./dist/lib.js"
+    "types": "./dist/index.d.ts",
+    "main": "./dist/index.js",
+    "files": [
+        "dist",
+        "README.md"
+    ],
+    "scripts": {
+        "build": "bun build.ts",
+        "typecheck": "tsc --noEmit",
+        "test": "bun test"
+    },
+    "peerDependencies": {
+        "@opencode-ai/plugin": ">=1.0.0"
+    },
+    "publishConfig": {
+        "access": "public",
+        "registry": "https://registry.npmjs.org/"
+    },
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/herjarsa/omo-meta-governor.git"
+    },
+    "devDependencies": {
+        "@colbymchenry/codegraph": "^1.5.0",
+        "@opencode-ai/plugin": "^1.17.4",
+        "@types/node": "^25.9.3",
+        "typescript": "^7.0.2"
     }
-  },
-  "types": "./dist/index.d.ts",
-  "main": "./dist/index.js",
-  "files": [
-    "dist",
-    "README.md"
-  ],
-  "scripts": {
-    "build": "bun build.ts",
-    "typecheck": "tsc --noEmit",
-    "test": "bun test"
-  },
-  "peerDependencies": {
-    "@opencode-ai/plugin": ">=1.0.0"
-  },
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
-  },
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/herjarsa/omo-meta-governor.git"
-  },
-  "devDependencies": {
-    "@colbymchenry/codegraph": "^1.5.0",
-    "@opencode-ai/plugin": "^1.17.4",
-    "@types/node": "^25.9.3",
-    "typescript": "^7.0.2"
-  }
 }
+

@@ -254,11 +254,6 @@
           "type": "boolean",
           "description": "v0.15.0: split per-phase hint from terminal signal. When true, <promise>PLAN-COMPLETE</promise> is the only terminal marker (DONE / PHASE-N-COMPLETE are per-phase hints).",
           "default": false
-        },
-        "toasts": {
-          "type": "boolean",
-          "description": "v0.24.0: when true (default), plugin shows TUI toast notifications in opencode TUI (top-right) every time it intervenes in session.",
-          "default": true
         }
       }
     },

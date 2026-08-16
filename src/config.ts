@@ -89,8 +89,6 @@ export interface MetaGovernorPluginConfig {
     phaseAwareDoneSignal?: boolean
     /** v0.19.0: persist intervention messages to the session (TUI-visible). */
     persistToSession?: boolean
-    /** v0.24.0: TUI toast notifications on intervention. Default true. */
-    toasts?: boolean
   }
 
   /** Sisyphus protocol enforcement config. */
@@ -252,8 +250,6 @@ export function loadOrchestratorConfig(
       // them in the TUI. The transform push reaches the model but is never
       // persisted in OpenCode 1.18.x (no write path for synthetic messages).
       persistToSession: full.intervention?.persistToSession ?? true,
-      // v0.24.0: TUI toast notifications on intervention (top-right of TUI).
-      toasts: full.intervention?.toasts ?? true,
     } as InterventionConfig,
     // v0.21.0: project all postWave fields with defaults. `enabled` derives
     // from phaseAwareDoneSignal when the user hasn't set it explicitly.

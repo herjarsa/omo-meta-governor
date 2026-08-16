@@ -170,12 +170,8 @@ describe("loadOrchestratorConfig — intervention", () => {
     it("then intervention.minActionForMessage defaults to 'stop' (v0.10.0)", () => {
       expect(result.intervention.minActionForMessage).toBe("stop")
     })
-
-    it("then intervention.toasts defaults to true (v0.24.0)", () => {
-      expect(result.intervention.toasts).toBe(true)
     })
   })
-})
 
   describe("#given custom intervention config", () => {
     const config: MetaGovernorPluginConfig = {
@@ -185,7 +181,6 @@ describe("loadOrchestratorConfig — intervention", () => {
         includeDecisionHistory: false,
         maxHistoryMessages: 10,
         minActionForMessage: "stop",
-        toasts: false,
       },
     }
     const result = loadOrchestratorConfig(config)
@@ -204,10 +199,6 @@ describe("loadOrchestratorConfig — intervention", () => {
 
     it("then intervention.minActionForMessage reflects override", () => {
       expect(result.intervention.minActionForMessage).toBe("stop")
-    })
-
-    it("then intervention.toasts reflects override", () => {
-      expect(result.intervention.toasts).toBe(false)
     })
   })
 
