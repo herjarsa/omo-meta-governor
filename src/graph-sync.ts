@@ -325,6 +325,7 @@ function startWatch(projectDir: string, tool: "codegraph" | "graphify"): void {
         {
           stdio: "ignore",
           detached: true,
+          shell: false,  // v0.23.1: prevent cmd.exe window on Windows
           env: { ...process.env, OMO_MG_SPAWN: "1" },
         },
       )
@@ -333,6 +334,7 @@ function startWatch(projectDir: string, tool: "codegraph" | "graphify"): void {
         cwd: projectDir,
         stdio: "ignore",
         detached: true,
+        shell: false,  // v0.23.1: prevent cmd.exe window on Windows
         env: { ...process.env, OMO_MG_SPAWN: "1" },
       })
     }
@@ -938,12 +940,13 @@ export function shouldUpgrade(
   registryLatest: string | null | undefined,
   cache: UpgradeCache | null,
   ttlMs: number,
+  latestField: "codegraphLatest" | "graphifyLatest" = "codegraphLatest",
 ): boolean {
   // Determine the "effective" latest version to compare against.
   // If cache is fresh and has a value, prefer it (avoids extra registry calls).
   let effectiveLatest = registryLatest
   if (isCacheFresh(cache, ttlMs)) {
-    effectiveLatest = cache?.codegraphLatest ?? effectiveLatest
+    effectiveLatest = cache?.[latestField] ?? effectiveLatest
   }
   if (!installed && !effectiveLatest) return false
   if (!effectiveLatest) return false
@@ -969,35 +972,35 @@ export async function fetchCodegraphLatestVersion(): Promise<string | null> {
   }
 }
 
-/**
- * v0.12.0: fetch the latest version of graphify from pip.
- * Returns null on failure (best-effort, never throws).
- */
-export async function fetchGraphifyLatestVersion(): Promise<string | null> {
-  const { execSync } = await import("node:child_process")
-  // Try `pip index versions graphifyy` first, then `pip install graphifyy== 2>&1 | head`
-  try {
-    const out = execSync("python3 -m pip index versions graphifyy", {
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 10_000,
-    })
-    // Output looks like "graphifyy (1.2.3)\nAvailable versions: ..."
-    // Parse the first version.
-    const first = out.toString().split("\n")[0] ?? ""
-    const m = first.match(/graphifyy\s*\(?([0-9]+\.[0-9]+\.[0-9]+[^\s)]*)/)
-    if (m) return m[1]!
-  } catch { /* fall through */ }
-  try {
-    // Fallback: query PyPI directly via pip search-equivalent
-    const out = execSync(
-      "python3 -c \"import urllib.request, json; d=json.load(urllib.request.urlopen('https://pypi.org/pypi/graphifyy/json')); print(d['info']['version'])\"",
-      { stdio: ["ignore", "pipe", "ignore"], timeout: 10_000 },
-    )
-    const v = out.toString().trim()
-    return v.length > 0 ? v : null
-  } catch {
-    return null
+export async function fetchGraphifyLatestVersion(
+  runner: typeof execSync = execSync,
+): Promise<string | null> {
+  // v0.25.2: try `python` first (Windows: `python3` may resolve to a stub
+  // without the package — e.g. python3=3.14.4 stub, python=3.14.2 with graphifyy).
+  // Probe by importing graphifyy; fall back to `python3` on failure.
+  for (const py of ["python", "python3"]) {
+    try {
+      const out = runner(`${py} -m pip index versions graphifyy`, {
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 10_000,
+      } as never)
+      const first = String(out).split("\n")[0] ?? ""
+      const m = first.match(/graphifyy\s*\(?([0-9]+\.[0-9]+\.[0-9]+[^\s)]*)/)
+      if (m) return m[1]!
+    } catch { /* try next */ }
   }
+  // Last-resort: query PyPI directly via the working interpreter
+  for (const py of ["python", "python3"]) {
+    try {
+      const out = runner(
+        `${py} -c "import urllib.request, json; d=json.load(urllib.request.urlopen('https://pypi.org/pypi/graphifyy/json')); print(d['info']['version'])"`,
+        { stdio: ["ignore", "pipe", "ignore"], timeout: 10_000 } as never,
+      )
+      const v = String(out).trim()
+      if (v.length > 0) return v
+    } catch { /* try next */ }
+  }
+  return null
 }
 
 /**

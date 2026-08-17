@@ -502,6 +502,9 @@ export function createMetaGovernorPlugin(
       iteration: number;
       /** v0.17.0 (F5.4): count of lessons saved this session. Used to enforce maxLessonsPerSession. */
       lessonCount: number;
+      /** v0.23.1: timestamp of last violation injection. Used by cooldown to break
+       *  the feedback loop where violations trigger more violations. */
+      lastViolationInjectionAtMs: number;
       /** v0.22.0 (post-wave W3): post-wave tracking fields. Consumed by the
        *  wave-gate (W4/W5) — purely additive in this wave; no behavior yet. */
       postWave: {
@@ -632,6 +635,7 @@ export function createMetaGovernorPlugin(
             interventionCount: 0,
             interventionDisabled: false,
             lessonCount: 0,
+            lastViolationInjectionAtMs: 0,
             iteration: 0,
             postWave: {
               currentWaveN: null,
@@ -669,36 +673,59 @@ export function createMetaGovernorPlugin(
         });
 
         if (violations.length > 0) {
-          logToFile(
-            "warn",
-            `protocol violations on tool ${toolInput.tool}`,
-            violations,
-          );
-          const existing =
-            pendingViolations.get(toolInput.sessionID)?.items ?? [];
-          for (const v of violations) {
-            existing.push(
-              `[${v.severity.toUpperCase()}] ${v.rule}: ${v.detail}`,
+          // v0.23.1: cooldown check — prevent feedback loop where violations
+          // trigger more violations. During cooldown, log but don't queue.
+          const COOLDOWN_MS = 30_000; // 30 seconds
+          const lastInjection = state.lastViolationInjectionAtMs ?? 0;
+          if (lastInjection > 0 && Date.now() - lastInjection < COOLDOWN_MS) {
+            logToFile(
+              "info",
+              `violation during cooldown (${Math.round((COOLDOWN_MS - (Date.now() - lastInjection)) / 1000)}s remaining), skipping queue`,
             );
+            // Still accumulate deviations for scoring, but don't queue for injection
+            const newDeviations = violations.map((v) => ({
+              severity: v.severity,
+              category: v.rule,
+              detail: v.detail,
+            }));
+            state.accumulatedDeviations = [
+              ...state.accumulatedDeviations,
+              ...newDeviations,
+            ].slice(-5);
+          } else {
+            logToFile(
+              "warn",
+              `protocol violations on tool ${toolInput.tool}`,
+              violations,
+            );
+            const existing =
+              pendingViolations.get(toolInput.sessionID)?.items ?? [];
+            for (const v of violations) {
+              existing.push(
+                `[${v.severity.toUpperCase()}] ${v.rule}: ${v.detail}`,
+              );
+            }
+            pendingViolations.set(toolInput.sessionID, {
+              items: existing,
+              expiresAtMs: Date.now() + PENDING_TTL_MS,
+            });
+            // v0.17.2 (Gap C): accumulate violations in state so the
+            // deviation-detector signal actually fires downstream. Decay the
+            // window to the last 5 violations per session so a single bad
+            // day doesn't poison scoring forever. Convert ProtocolViolation
+            // → Deviation shape (rule → category).
+            const newDeviations = violations.map((v) => ({
+              severity: v.severity,
+              category: v.rule,
+              detail: v.detail,
+            }));
+            state.accumulatedDeviations = [
+              ...state.accumulatedDeviations,
+              ...newDeviations,
+            ].slice(-5);
+            // v0.23.1: record injection timestamp for cooldown
+            state.lastViolationInjectionAtMs = Date.now();
           }
-          pendingViolations.set(toolInput.sessionID, {
-            items: existing,
-            expiresAtMs: Date.now() + PENDING_TTL_MS,
-          });
-          // v0.17.2 (Gap C): accumulate violations in state so the
-          // deviation-detector signal actually fires downstream. Decay the
-          // window to the last 5 violations per session so a single bad
-          // day doesn't poison scoring forever. Convert ProtocolViolation
-          // â†’ Deviation shape (rule â†’ category).
-          const newDeviations = violations.map((v) => ({
-            severity: v.severity,
-            category: v.rule,
-            detail: v.detail,
-          }));
-          state.accumulatedDeviations = [
-            ...state.accumulatedDeviations,
-            ...newDeviations,
-          ].slice(-5);
         } else {
           logToFile("info", `audit OK on tool ${toolInput.tool}`);
         }
@@ -1349,6 +1376,11 @@ export function createMetaGovernorPlugin(
               `injected ${violations.length} violation(s) to model`,
             );
             persistIntervention(currentSessionID, violationText);
+            // v0.23.1: record injection timestamp for cooldown
+            const injectState = auditSessions.get(currentSessionID);
+            if (injectState) {
+              injectState.lastViolationInjectionAtMs = Date.now();
+            }
           }
         }
 
@@ -1391,6 +1423,7 @@ export function createMetaGovernorPlugin(
             interventionDisabled: false,
             lessonCount: 0,
             iteration: 0,
+            lastViolationInjectionAtMs: 0,
             postWave: {
               currentWaveN: null,
               lastInjectedWaveN: null,

@@ -146,10 +146,11 @@ export function runGuarded(
   return new Promise((resolve) => {
     let child: ReturnType<typeof spawn>
     try {
-      child = spawn(cmd, args, {
+    child = spawn(cmd, args, {
         cwd: opts.cwd,
         stdio: ["ignore", "pipe", "pipe"],
         shell: process.platform === "win32",
+        windowsHide: true,  // v0.23.1: prevent cmd.exe window on Windows
         env: { ...process.env, OMO_MG_SPAWN: "1", ...opts.env },
       })
     } catch {
@@ -221,12 +222,13 @@ export function runGuardedSync(
   let result: ReturnType<typeof spawnSync>
   try {
     result = spawnSync(cmd, args, {
-      cwd: opts.cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: process.platform === "win32",
-      env: { ...process.env, OMO_MG_SPAWN: "1", ...opts.env },
-      timeout: opts.timeoutMs,
-    })
+        cwd: opts.cwd,
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: process.platform === "win32",
+        windowsHide: true,  // v0.23.1: prevent cmd.exe window on Windows
+        env: { ...process.env, OMO_MG_SPAWN: "1", ...opts.env },
+        timeout: opts.timeoutMs,
+      })
   } catch {
     return { stdout: "", stderr: "", code: null, timedOut: false }
   }

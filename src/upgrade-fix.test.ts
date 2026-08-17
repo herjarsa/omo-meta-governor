@@ -175,3 +175,52 @@ describe("runGraphSync with autoUpgrade=false (v0.12.0 S4)", () => {
     expect(result.codes).not.toContain("graphify-upgraded")
   }, 30_000)
 })
+
+// ─── S5: graphify auto-upgrade fix (v0.25.2) ────────────────────
+
+describe("graphify auto-upgrade fix (v0.25.2)", () => {
+  describe("#shouldUpgrade with graphify cache field", () => {
+    it("then uses cache.graphifyLatest for the graphify tool (not codegraphLatest)", async () => {
+      const { shouldUpgrade } = await import("./graph-sync")
+      const freshCache = { checkedAtMs: Date.now(), graphifyLatest: "0.9.45", codegraphLatest: "1.0.0" }
+      // installed 0.8.30 < cached graphifyLatest 0.9.45 → upgrade
+      expect(shouldUpgrade("0.8.30", null, freshCache, 24 * 60 * 60 * 1000, "graphifyLatest")).toBe(true)
+    })
+
+    it("then does NOT use codegraphLatest when evaluating graphify", async () => {
+      const { shouldUpgrade } = await import("./graph-sync")
+      const freshCache = { checkedAtMs: Date.now(), codegraphLatest: "1.0.0" } // no graphifyLatest
+      // No graphifyLatest known → cannot decide → false (no registry hammer)
+      expect(shouldUpgrade("0.8.30", null, freshCache, 24 * 60 * 60 * 1000, "graphifyLatest")).toBe(false)
+    })
+  })
+
+  describe("#getInstalledGraphifyVersion python fallback", () => {
+    it.skip("then falls back to `python` when `python3` lacks the package (Windows dual-python bug)", async () => {
+      // TODO: implement runner DI for getInstalledGraphifyVersion
+      // const { getInstalledGraphifyVersion } = await import("./graph-sync")
+      // const runner = ((cmd: string) => {
+      //   if (cmd.startsWith("python3")) throw new Error("python3 has no graphifyy")
+      //   if (cmd.startsWith("python -m pip show graphifyy")) return "Version: 0.8.30\nLocation: C:\\Python314\\Lib\\site-packages\n"
+      //   throw new Error(`unexpected: ${cmd}`)
+      // }) as typeof import("node:child_process").execSync
+      // const v = await getInstalledGraphifyVersion(runner as never)
+      // expect(v).toBe("0.8.30")
+    })
+  })
+
+  describe("#fetchGraphifyLatestVersion python fallback", () => {
+    it("then falls back to `python` when `python3` pip index fails", async () => {
+      const { fetchGraphifyLatestVersion } = await import("./graph-sync")
+      const runner = ((cmd: string) => {
+        if (cmd.startsWith("python3")) throw new Error("python3 pip broken")
+        if (cmd.startsWith("python -m pip index versions graphifyy")) {
+          return "graphifyy (0.9.45)\nAvailable versions: 0.9.45, 0.8.30, ...\n"
+        }
+        throw new Error(`unexpected: ${cmd}`)
+      }) as typeof import("node:child_process").execSync
+      const v = await fetchGraphifyLatestVersion(runner as never)
+      expect(v).toBe("0.9.45")
+    })
+  })
+})
