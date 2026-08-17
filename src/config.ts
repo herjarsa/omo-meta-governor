@@ -108,8 +108,11 @@ export interface MetaGovernorPluginConfig {
     /** v0.22.0: when true, graph-sync init sweeps orphaned graphify/codegraph
      * processes left by previous crashed runs. Default true. */
     killOrphanedOnInit?: boolean
+    /** v0.25.1: on plugin load, fetch origin and reindex if local HEAD is behind. Default true. */
+    reindexOnFetch?: boolean
+    /** v0.25.1: branch to fetch + compare against. Default "main". */
+    fetchBranch?: string
   }
-
   /** Skill priming config (v0.20.0): proactive skill-selection nudge. */
   skillPriming?: {
     enabled?: boolean
@@ -289,9 +292,11 @@ export function loadOrchestratorConfig(
       router: full.skillPriming?.router ?? "both",
     } as SkillPrimingConfig,
     // v0.22.0: project graphSync killOrphanedOnInit with default true.
-    graphSync: {
+graphSync: {
       killOrphanedOnInit: full.graphSync?.killOrphanedOnInit ?? true,
-    },
+      reindexOnFetch: full.graphSync?.reindexOnFetch !== false,
+      fetchBranch: full.graphSync?.fetchBranch ?? "main",
+},
     // v0.25.0: explicit codegraph/graphify routing.
     graphRetrieval: {
       preferredTool: full.graphRetrieval?.preferredTool ?? "auto",

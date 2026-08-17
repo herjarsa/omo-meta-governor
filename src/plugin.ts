@@ -15,8 +15,9 @@ import {
   runGraphSync,
   trackSession,
   untrackSession,
-  isGitCommitCommand,
+isGitCommitCommand,
   triggerReindex,
+  detectRemoteNewCommits,
 } from "./graph-sync";
 import { runMetaGovernor } from "./orchestrator";
 import { getDefaultSqliteBackend } from "./sqlite-backend";
@@ -371,7 +372,25 @@ export function createMetaGovernorPlugin(
           }
         })
         .catch(() => {});
-      trackSession(sessionProjectDir);
+      // v0.25.1: origin-fetch reindex watcher — if local HEAD is behind origin,
+      // fetch and reindex so the agent sees fresh graph results on next tool call.
+      // Fire-and-forget; never blocks the factory. Sits INSIDE the
+      // graphSyncEnabledAtInvocation guard so tests with graphSync:{enabled:false}
+      // never spawn real git processes.
+      queueMicrotask(() => {
+        try {
+          const fetchBranch = mergedConfig.graphSync.fetchBranch
+          const behind = detectRemoteNewCommits(sessionProjectDir, fetchBranch)
+          if (behind > 0) {
+            logToFile("info", `reindexOnFetch: ${behind} new commits on origin/${fetchBranch}, reindexing`)
+            void triggerReindex(sessionProjectDir).catch((err) => {
+              logToFile("warn", `reindexOnFetch failed: ${String(err)}`)
+            })
+          }
+        } catch {
+          // best-effort
+        }
+      })
     }
 
     // 2. If disabled, return empty hooks

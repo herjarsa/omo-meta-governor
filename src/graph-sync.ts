@@ -1023,24 +1023,65 @@ export async function getInstalledCodegraphVersion(): Promise<string | null> {
  * Returns null on failure.
  */
 export async function getInstalledGraphifyVersion(): Promise<string | null> {
-  const { execSync } = await import("node:child_process")
-  try {
-    const out = execSync("python3 -m pip show graphifyy", {
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 10_000,
-    })
-    const m = out.toString().match(/Version:\s*([0-9]+\.[0-9]+\.[0-9]+[^\s]*)/)
-    if (m) return m[1]!
-  } catch { /* fall through */ }
-  try {
-    const out = execSync("python3 -m pip show graphify", {
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 10_000,
-    })
-    const m = out.toString().match(/Version:\s*([0-9]+\.[0-9]+\.[0-9]+[^\s]*)/)
-    if (m) return m[1]!
-  } catch {
-    return null
-  }
-  return null
+const { execSync } = await import("node:child_process")
+try {
+const out = execSync("python3 -m pip show graphifyy", {
+stdio: ["ignore", "pipe", "ignore"],
+timeout: 10_000,
+})
+const m = out.toString().match(/Version:\s*([0-9]+\.[0-9]+\.[0-9]+[^\s]*)/)
+if (m) return m[1]!
+} catch { /* fall through */ }
+try {
+const out = execSync("python3 -m pip show graphify", {
+stdio: ["ignore", "pipe", "ignore"],
+timeout: 10_000,
+})
+const m = out.toString().match(/Version:\s*([0-9]+\.[0-9]+\.[0-9]+[^\s]*)/)
+if (m) return m[1]!
+} catch {
+return null
+}
+return null
+}
+
+/**
+* v0.25.1: count commits the local HEAD is behind origin/&lt;branch&gt;.
+* Best-effort, never throws — returns 0 on any failure (no git, offline, no remote).
+* Used by the plugin-load watcher to decide whether to trigger a reindex.
+*/
+export function detectRemoteNewCommits(
+projectDir: string,
+branch: string | undefined,
+runner?: typeof execSync,
+): number {
+const exec = runner ?? (require("node:child_process") as typeof import("node:child_process")).execSync
+let targetBranch: string | undefined = branch
+try {
+if (!targetBranch) {
+const out = exec("git rev-parse --abbrev-ref HEAD", {
+cwd: projectDir,
+stdio: ["ignore", "pipe", "ignore"],
+timeout: 5_000,
+} as never)
+targetBranch = String(out).trim()
+}
+exec(`git fetch origin ${targetBranch}`, {
+cwd: projectDir,
+stdio: ["ignore", "pipe", "ignore"],
+timeout: 30_000,
+} as never)
+const out = exec(
+`git rev-list --count HEAD..origin/${targetBranch}`,
+{
+cwd: projectDir,
+stdio: ["ignore", "pipe", "ignore"],
+timeout: 10_000,
+} as never,
+)
+const n = Number.parseInt(String(out).trim(), 10)
+return Number.isFinite(n) && n > 0 ? n : 0
+} catch {
+return 0
+}
 }

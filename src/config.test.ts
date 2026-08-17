@@ -364,10 +364,25 @@ describe("loadOrchestratorConfig — skillPriming", () => {
     }
     const result = loadOrchestratorConfig(config)
 
-    it("then trigger and router keep defaults", () => {
-      expect(result.skillPriming.enabled).toBe(true)
-      expect(result.skillPriming.trigger).toBe("firstImplement")
-      expect(result.skillPriming.router).toBe("both")
-    })
-  })
+it("then trigger and router keep defaults", () => {
+expect(result.skillPriming.enabled).toBe(true)
+expect(result.skillPriming.trigger).toBe("firstImplement")
+expect(result.skillPriming.router).toBe("both")
+})
+})
+})
+
+describe("loadOrchestratorConfig — graphSync (v0.25.1 reindexOnFetch)", () => {
+describe("#given undefined graphSync reindexOnFetch", () => {
+const config: MetaGovernorPluginConfig = { enabled: true }
+const result = loadOrchestratorConfig(config)
+
+it("then graphSync.reindexOnFetch defaults to true", () => {
+expect(result.graphSync.reindexOnFetch).toBe(true)
+})
+
+it("then graphSync.fetchBranch defaults to 'main'", () => {
+expect(result.graphSync.fetchBranch).toBe("main")
+})
+})
 })

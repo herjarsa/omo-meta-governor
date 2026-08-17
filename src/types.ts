@@ -652,27 +652,30 @@ export interface OrchestratorConfig {
   readonly skillPriming: SkillPrimingConfig;
   /** Post-wave workflow gate (v0.21.0): landing directives after Oracle-approved waves. */
   readonly postWave?: PostWaveConfig;
-  /** Graph sync config (v0.22.0): orphan process sweep on init. */
-  readonly graphSync?: {
-    /** When true (default), graph-sync init sweeps orphaned graphify/codegraph processes. */
-    readonly killOrphanedOnInit?: boolean;
-  };
-  /**
-   * v0.25.0: explicit routing between codegraph and graphify.
-   * - "auto" (default): codegraph first, graphify as fallback.
-   * - "codegraph": always prefer codegraph (never graphify when both exist).
-   * - "graphify": always prefer graphify (never codegraph when both exist).
-   * - "alternate": deterministic round-robin per query (hash parity) when both exist.
-   */
-  readonly graphRetrieval: {
-    readonly preferredTool: "auto" | "codegraph" | "graphify" | "alternate";
-  };
+/** Graph sync config (v0.22.0): orphan process sweep on init. */
+readonly graphSync: {
+readonly killOrphanedOnInit: boolean;
+/** v0.25.1: on plugin load, fetch origin and reindex if local HEAD is behind. */
+readonly reindexOnFetch: boolean;
+/** v0.25.1: branch to fetch + compare against. Default "main". */
+readonly fetchBranch: string;
+};
+/**
+* v0.25.0: explicit routing between codegraph and graphify.
+* - "auto" (default): codegraph first, graphify as fallback.
+* - "codegraph": always codegraph when available (never graphify).
+* - "graphify": always graphify when available (never codegraph).
+* - "alternate": deterministic per-query round-robin (hash parity).
+*/
+readonly graphRetrieval: {
+readonly preferredTool: "auto" | "codegraph" | "graphify" | "alternate";
+};
 }
 
 /**
- * Input to runMetaGovernor(). All signals the orchestrator needs to
- * build a DecisionContext and dispatch a decision.
- */
+* Input to runMetaGovernor(). All signals the orchestrator needs to
+* build a DecisionContext and dispatch a decision.
+*/
 export interface MetaGovernorInput {
   readonly sessionID: string;
   readonly toolName: string;

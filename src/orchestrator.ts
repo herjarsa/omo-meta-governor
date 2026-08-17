@@ -81,10 +81,17 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
     trigger: "firstImplement",
     router: "both",
   },
-  // v0.25.0: explicit codegraph/graphify routing — default auto.
-  graphRetrieval: {
-    preferredTool: "auto",
-  },
+  // v0.22.0: graphSync orphan-sweep defaults.
+graphSync: {
+killOrphanedOnInit: true,
+// v0.25.1: origin-fetch reindex watcher defaults.
+reindexOnFetch: true,
+fetchBranch: "main",
+},
+// v0.25.0: explicit codegraph/graphify routing — default auto.
+graphRetrieval: {
+preferredTool: "auto",
+},
 });
 
 const EMPTY_MEMORY_READ: MemoryRead = {
