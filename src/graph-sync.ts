@@ -323,16 +323,25 @@ function startWatch(projectDir: string, tool: "codegraph" | "graphify"): void {
       // codegraph has no built-in watch; use periodic update loop
       // v0.22.0: `OMO_MG_WATCH` marker lets the orphan sweep find this
       // process via its CommandLine even if it outlives a crashed run.
+      // v0.24.1: use spawn with windowsHide:true instead of execSync
+      // to prevent cmd.exe window on Windows every 30s.
       child = spawn(
         "node",
         [
           "-e",
           `
           const OMO_MG_WATCH = 1;
-          const {execSync} = require("child_process");
+          const {spawn} = require("child_process");
           const run = () => {
-            try { execSync("npx codegraph update 2>/dev/null", {cwd: ${JSON.stringify(projectDir)}, stdio: "ignore"}); }
-            catch(e) { /* best effort */ }
+            try {
+              const c = spawn("npx", ["codegraph", "update"], {
+                cwd: ${JSON.stringify(projectDir)},
+                stdio: "ignore",
+                windowsHide: true,
+                shell: false,
+              });
+              c.unref();
+            } catch(e) { /* best effort */ }
           };
           run();
           setInterval(run, 30_000);
@@ -341,7 +350,7 @@ function startWatch(projectDir: string, tool: "codegraph" | "graphify"): void {
         {
           stdio: "ignore",
           detached: true,
-          shell: false,  // v0.23.1: prevent cmd.exe window on Windows
+          shell: false,
           env: { ...process.env, OMO_MG_SPAWN: "1" },
         },
       )
