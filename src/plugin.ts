@@ -500,6 +500,15 @@ export function createMetaGovernorPlugin(
        *  was always 0 in the orchestrator input, making the 0.15-weight
        *  iteration-budget signal dead. */
       iteration: number;
+      /** v0.24.0: true while a background Oracle task is in flight (run_in_background=true).
+       *  Suppresses interventions during the Oracle execution window so the agent isn't
+       *  pestered with directives while waiting for Oracle to return a verdict. */
+      oracleInFlight: boolean;
+      /** v0.24.0: timestamp when oracleInFlight was set. Used for timeout safety net (5 min). */
+      oracleInFlightSinceMs: number | null;
+      /** v0.24.0: timestamp when planCompleteSignal was last set. Used by clear gate to
+       *  prevent stale latches from immediately clearing oracleInFlight. */
+      signalAtMs: number;
       /** v0.17.0 (F5.4): count of lessons saved this session. Used to enforce maxLessonsPerSession. */
       lessonCount: number;
       /** v0.23.1: timestamp of last violation injection. Used by cooldown to break
@@ -637,6 +646,9 @@ export function createMetaGovernorPlugin(
             lessonCount: 0,
             lastViolationInjectionAtMs: 0,
             iteration: 0,
+            oracleInFlight: false,
+            oracleInFlightSinceMs: null,
+            signalAtMs: 0,
             postWave: {
               currentWaveN: null,
               lastInjectedWaveN: null,
@@ -648,6 +660,12 @@ export function createMetaGovernorPlugin(
             },
           };
           auditSessions.set(toolInput.sessionID, state);
+        }
+
+        // v0.24.0: skip audit + deviation accumulation when Oracle is in flight.
+        // The agent is correctly idle waiting for Oracle, not making errors.
+        if (state?.oracleInFlight) {
+          return;
         }
 
         if (systemInjection) {
@@ -846,11 +864,24 @@ export function createMetaGovernorPlugin(
             }
           }
 
-          if (
-            toolInput.tool === "task" &&
-            (toolOutput.output ?? "").includes("subagent_type=oracle")
-          ) {
-            sessionState.oracleInvoked = true;
+          if (toolInput.tool === "task") {
+            const out = toolOutput.output ?? "";
+            const args = toolInput.args as
+              | { subagent_type?: string; run_in_background?: boolean }
+              | undefined;
+            const invokedOracle =
+              args?.subagent_type === "oracle" ||
+              out.includes("subagent_type=oracle");
+            if (invokedOracle) {
+              sessionState.oracleInvoked = true;
+              // v0.24.0: if Oracle is running in background, suppress interventions
+              // until Oracle returns. Without this, the agent's idle window triggers
+              // noProgress + accumulating deviations -> intervention pile-up.
+              if (args?.run_in_background === true) {
+                sessionState.oracleInFlight = true;
+                sessionState.oracleInFlightSinceMs = Date.now();
+              }
+            }
           }
 
           const outLower = (toolOutput.output ?? "").toLowerCase();
@@ -883,6 +914,7 @@ export function createMetaGovernorPlugin(
 
           if (!sessionState.taskDoneSignal && detectDoneSignal(textToScan)) {
             sessionState.taskDoneSignal = true;
+            sessionState.signalAtMs = Date.now();
             logToFile(
               "info",
               `task_done_signal detected (legacy) for session ${toolInput.sessionID}`,
@@ -893,6 +925,7 @@ export function createMetaGovernorPlugin(
             detectPhaseCompleteSignal(textToScan)
           ) {
             sessionState.phaseCompleteSignal = true;
+            sessionState.signalAtMs = Date.now();
             logToFile(
               "info",
               `phase_complete_signal detected for session ${toolInput.sessionID}`,
@@ -903,10 +936,53 @@ export function createMetaGovernorPlugin(
             detectPlanCompleteSignal(textToScan)
           ) {
             sessionState.planCompleteSignal = true;
+            sessionState.signalAtMs = Date.now();
             logToFile(
               "info",
               `plan_complete_signal detected for session ${toolInput.sessionID}`,
             );
+          }
+
+          // v0.24.0: clear oracleInFlight when Oracle's verdict has been processed.
+          // 3-tier clear strategy (Oracle-reviewed v2):
+          // (a) Promise signal detected AFTER oracleInFlight was set — agent completed
+          // (b) Timeout — safety net (5 minutes since invocation)
+          // (c) Foreground Oracle call — agent is explicitly waiting
+          if (sessionState.oracleInFlight) {
+            const ORACLE_FLIGHT_TIMEOUT_MS = 5 * 60 * 1000;
+            const timedOut =
+              sessionState.oracleInFlightSinceMs !== null &&
+              Date.now() - sessionState.oracleInFlightSinceMs > ORACLE_FLIGHT_TIMEOUT_MS;
+            // Tier (a): only clear on signals that fired AFTER oracleInFlight started,
+            // not stale latches from a previous phase.
+            const signalAfterFlight =
+              sessionState.oracleInFlightSinceMs !== null &&
+              sessionState.signalAtMs > sessionState.oracleInFlightSinceMs;
+            if (
+              signalAfterFlight ||
+              timedOut
+            ) {
+              sessionState.oracleInFlight = false;
+              sessionState.oracleInFlightSinceMs = null;
+              logToFile(
+                "info",
+                `oracle_completed: re-enabling intervention for session ${toolInput.sessionID}${timedOut ? " (timeout)" : ""}`,
+              );
+            }
+            // Tier (c): foreground Oracle call means agent is explicitly waiting for
+            // a NEW Oracle, so any previous background Oracle is effectively abandoned.
+            if (
+              toolInput.tool === "task" &&
+              (toolInput.args as Record<string, unknown>)?.subagent_type === "oracle" &&
+              (toolInput.args as Record<string, unknown>)?.run_in_background === false
+            ) {
+              sessionState.oracleInFlight = false;
+              sessionState.oracleInFlightSinceMs = null;
+              logToFile(
+                "info",
+                `oracle_completed (foreground call): re-enabling intervention for session ${toolInput.sessionID}`,
+              );
+            }
           }
         }
 
@@ -1001,8 +1077,10 @@ export function createMetaGovernorPlugin(
               "task",
             ].includes(t),
           );
+        // v0.24.0: suppress noProgress when oracleInFlight — agent is correctly idle
+        // waiting for Oracle, not stagnating.
         const noProgress = sessionState
-          ? recentProgressTools.length === 0
+          ? !sessionState.oracleInFlight && recentProgressTools.length === 0
           : false;
 
         // v0.17.2 (Gap C): accumulate protocol violations as Deviations so
@@ -1105,6 +1183,19 @@ export function createMetaGovernorPlugin(
 
           if (mergedConfig.intervention.mode !== "silent" && sessionState) {
             const decision = output.decision;
+
+            // v0.24.0: oracleInFlight gate. While a background Oracle task is
+            // running, suppress ALL interventions. The agent is intentionally idle
+            // waiting for Oracle's verdict; firing directives during this window
+            // (noProgress + accumulated deviations) would pile up duplicate
+            // reminders that arrive AFTER Oracle finishes, confusing the agent.
+            if (sessionState.oracleInFlight) {
+              logToFile(
+                "info",
+                `oracle_in_flight: skipping intervention for session ${toolInput.sessionID} (score ${decision.score.toFixed(2)})`,
+              );
+              return;
+            }
 
             // v0.15.0: terminal-signal gate. Latches intervention when:
             //   respectDoneSignal is true (master switch from v0.10.0), AND
@@ -1423,6 +1514,10 @@ export function createMetaGovernorPlugin(
             interventionDisabled: false,
             lessonCount: 0,
             iteration: 0,
+            oracleInFlight: false,
+            oracleInFlightSinceMs: null,
+            signalAtMs: 0,
+            lastViolationInjectionAtMs: 0,
             lastViolationInjectionAtMs: 0,
             postWave: {
               currentWaveN: null,

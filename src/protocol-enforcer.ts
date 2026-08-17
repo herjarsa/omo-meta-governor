@@ -88,6 +88,7 @@ export function buildSystemInjection(_protocolText: string): string {
     "   - For multi-file changes, verify Oracle was invoked.",
     "   - For codebase exploration, verify codegraph/graphify was tried before grep/read.",
     "   - After discovering something non-obvious, save it with `agentmemory_memory_save` so future sessions benefit.",
+    "   - Do NOT save routine operations (file reads, greps, list commands), trivial decisions, or facts already covered by existing memory. Save only novel insights, non-obvious patterns, or corrections to previous assumptions.",
     "",
   )
 
@@ -226,8 +227,11 @@ export function auditToolCall(
   }
 
   // ── Rule: Memory discovery not saved ────────────────────────────
-  // After reading/searching files, if no memory save was used to persist discoveries
-  const discoveryTools = ["grep", "glob", "read", "codegraph_explore", "graphify query"]
+  // v0.24.0: narrowed to architecture-level tools only. Routine grep/glob/read
+  // are explicitly excluded by the memory save directive ("Do NOT save routine
+  // operations"). Only codegraph/graphify queries — which surface non-obvious
+  // architectural insights — trigger the save reminder.
+  const discoveryTools = ["codegraph_explore", "graphify query"]
   if (discoveryTools.includes(toolName) && recentToolCalls.length >= 2) {
     // Check whether any memory save happened
     if (!memorySaved) {
