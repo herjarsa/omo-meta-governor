@@ -959,13 +959,11 @@ export function shouldUpgrade(
  * Returns null on failure (best-effort, never throws).
  */
 export async function fetchCodegraphLatestVersion(): Promise<string | null> {
-  const { execSync } = await import("node:child_process")
   try {
-    const out = execSync("npm view @colbymchenry/codegraph version", {
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 10_000,
+    const res = runGuardedSync("npm", ["view", "@colbymchenry/codegraph", "version"], {
+      timeoutMs: 10_000,
     })
-    const v = out.toString().trim()
+    const v = res.stdout.trim()
     return v.length > 0 ? v : null
   } catch {
     return null
@@ -977,14 +975,13 @@ export async function fetchGraphifyLatestVersion(
 ): Promise<string | null> {
   // v0.25.2: try `python` first (Windows: `python3` may resolve to a stub
   // without the package — e.g. python3=3.14.4 stub, python=3.14.2 with graphifyy).
-  // Probe by importing graphifyy; fall back to `python3` on failure.
+  // Use runGuardedSync to get windowsHide:true on Windows.
   for (const py of ["python", "python3"]) {
     try {
-      const out = runner(`${py} -m pip index versions graphifyy`, {
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 10_000,
-      } as never)
-      const first = String(out).split("\n")[0] ?? ""
+      const res = runGuardedSync(py, ["-m", "pip", "index", "versions", "graphifyy"], {
+        timeoutMs: 10_000,
+      })
+      const first = res.stdout.split("\n")[0] ?? ""
       const m = first.match(/graphifyy\s*\(?([0-9]+\.[0-9]+\.[0-9]+[^\s)]*)/)
       if (m) return m[1]!
     } catch { /* try next */ }
@@ -992,11 +989,13 @@ export async function fetchGraphifyLatestVersion(
   // Last-resort: query PyPI directly via the working interpreter
   for (const py of ["python", "python3"]) {
     try {
-      const out = runner(
-        `${py} -c "import urllib.request, json; d=json.load(urllib.request.urlopen('https://pypi.org/pypi/graphifyy/json')); print(d['info']['version'])"`,
-        { stdio: ["ignore", "pipe", "ignore"], timeout: 10_000 } as never,
-      )
-      const v = String(out).trim()
+      const res = runGuardedSync(py, [
+        "-c",
+        "import urllib.request, json; d=json.load(urllib.request.urlopen('https://pypi.org/pypi/graphifyy/json')); print(d['info']['version'])",
+      ], {
+        timeoutMs: 10_000,
+      })
+      const v = res.stdout.trim()
       if (v.length > 0) return v
     } catch { /* try next */ }
   }
@@ -1008,13 +1007,11 @@ export async function fetchGraphifyLatestVersion(
  * Returns null on failure.
  */
 export async function getInstalledCodegraphVersion(): Promise<string | null> {
-  const { execSync } = await import("node:child_process")
   try {
-    const out = execSync("npx --yes codegraph --version", {
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 10_000,
+    const res = runGuardedSync("npx", ["--yes", "codegraph", "--version"], {
+      timeoutMs: 10_000,
     })
-    const v = out.toString().trim()
+    const v = res.stdout.trim()
     return v.length > 0 ? v : null
   } catch {
     return null
@@ -1026,26 +1023,33 @@ export async function getInstalledCodegraphVersion(): Promise<string | null> {
  * Returns null on failure.
  */
 export async function getInstalledGraphifyVersion(): Promise<string | null> {
-const { execSync } = await import("node:child_process")
-try {
-const out = execSync("python3 -m pip show graphifyy", {
-stdio: ["ignore", "pipe", "ignore"],
-timeout: 10_000,
-})
-const m = out.toString().match(/Version:\s*([0-9]+\.[0-9]+\.[0-9]+[^\s]*)/)
-if (m) return m[1]!
-} catch { /* fall through */ }
-try {
-const out = execSync("python3 -m pip show graphify", {
-stdio: ["ignore", "pipe", "ignore"],
-timeout: 10_000,
-})
-const m = out.toString().match(/Version:\s*([0-9]+\.[0-9]+\.[0-9]+[^\s]*)/)
-if (m) return m[1]!
-} catch {
-return null
-}
-return null
+  // Try graphify binary first (Windows: pip installs as "graphify")
+  try {
+    const res = runGuardedSync("graphify", ["--version"], {
+      timeoutMs: 10_000,
+    })
+    if (res.code === 0) {
+      const m = res.stdout.match(/([0-9]+\.[0-9]+\.[0-9]+)/)
+      if (m) return m[1]!
+    }
+  } catch { /* fall through */ }
+  // Try python (Windows: real interpreter at C:\Python314)
+  try {
+    const res = runGuardedSync("python", ["-m", "pip", "show", "graphifyy"], {
+      timeoutMs: 10_000,
+    })
+    const m = res.stdout.match(/Version:\s*([0-9]+\.[0-9]+\.[0-9]+[^\s]*)/)
+    if (m) return m[1]!
+  } catch { /* fall through */ }
+  // Fallback: python3
+  try {
+    const res = runGuardedSync("python3", ["-m", "pip", "show", "graphifyy"], {
+      timeoutMs: 10_000,
+    })
+    const m = res.stdout.match(/Version:\s*([0-9]+\.[0-9]+\.[0-9]+[^\s]*)/)
+    if (m) return m[1]!
+  } catch { /* fall through */ }
+  return null
 }
 
 /**
@@ -1054,37 +1058,30 @@ return null
 * Used by the plugin-load watcher to decide whether to trigger a reindex.
 */
 export function detectRemoteNewCommits(
-projectDir: string,
-branch: string | undefined,
-runner?: typeof execSync,
+  projectDir: string,
+  branch: string | undefined,
+  runner?: typeof execSync,
 ): number {
-const exec = runner ?? (require("node:child_process") as typeof import("node:child_process")).execSync
-let targetBranch: string | undefined = branch
-try {
-if (!targetBranch) {
-const out = exec("git rev-parse --abbrev-ref HEAD", {
-cwd: projectDir,
-stdio: ["ignore", "pipe", "ignore"],
-timeout: 5_000,
-} as never)
-targetBranch = String(out).trim()
-}
-exec(`git fetch origin ${targetBranch}`, {
-cwd: projectDir,
-stdio: ["ignore", "pipe", "ignore"],
-timeout: 30_000,
-} as never)
-const out = exec(
-`git rev-list --count HEAD..origin/${targetBranch}`,
-{
-cwd: projectDir,
-stdio: ["ignore", "pipe", "ignore"],
-timeout: 10_000,
-} as never,
-)
-const n = Number.parseInt(String(out).trim(), 10)
-return Number.isFinite(n) && n > 0 ? n : 0
-} catch {
-return 0
-}
+  let targetBranch: string | undefined = branch
+  try {
+    if (!targetBranch) {
+      const res = runGuardedSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+        cwd: projectDir,
+        timeoutMs: 5_000,
+      })
+      targetBranch = res.stdout.trim()
+    }
+    runGuardedSync("git", ["fetch", "origin", targetBranch!], {
+      cwd: projectDir,
+      timeoutMs: 30_000,
+    })
+    const res = runGuardedSync("git", ["rev-list", "--count", `HEAD..origin/${targetBranch}`], {
+      cwd: projectDir,
+      timeoutMs: 10_000,
+    })
+    const n = Number.parseInt(res.stdout.trim(), 10)
+    return Number.isFinite(n) && n > 0 ? n : 0
+  } catch {
+    return 0
+  }
 }
