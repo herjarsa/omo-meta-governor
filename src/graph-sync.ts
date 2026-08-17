@@ -180,42 +180,42 @@ export async function checkToolAvailability(
   const codegraphIndexExists = await fileExists(resolve(projectDir, ".codegraph", "codegraph.db"))
   const graphifyIndexExists = await fileExists(resolve(projectDir, "graphify-out", "graph.json"))
 
+  // v0.23.1: use runGuardedSync for windowsHide:true on Windows when no custom runner
+  const execProbe = (cmd: string, opts?: { cwd?: string; timeout?: number }) => {
+    if (runner !== execSync) return runner(cmd, { stdio: "ignore", ...opts } as never)
+    const parts = cmd.split(" ")
+    const c = parts[0]!
+    const a = parts.slice(1)
+    const res = runGuardedSync(c, a, { cwd: opts?.cwd ?? projectDir, timeoutMs: opts?.timeout ?? 10_000 })
+    if (res.code !== 0) throw new Error(`exit ${res.code}`)
+  }
+
   try {
-    runner("npx --yes codegraph --version", {
-      stdio: "ignore",
-      timeout: 10_000,
-    } as never)
+    execProbe("npx --yes codegraph --version", { timeout: 10_000 })
     codegraph = true
   } catch {
     try {
-      runner("node node_modules/.bin/codegraph --version", {
-        cwd: projectDir,
-        stdio: "ignore",
-        timeout: 5_000,
-      } as never)
+      execProbe("node node_modules/.bin/codegraph --version", { cwd: projectDir, timeout: 5_000 })
       codegraph = true
     } catch {
       // Not available
     }
   }
 
-  // v0.21.0: try the `graphify` BINARY first — on Windows the pip package
-  // `graphifyy` installs a binary named `graphify` (not `graphifyy`), and
-  // `python3` may resolve to a WindowsApps stub without the package.
   try {
-    runner("graphify --version", { stdio: "ignore", timeout: 5_000 } as never)
+    execProbe("graphify --version", { timeout: 5_000 })
     graphify = true
   } catch {
     try {
-      runner("graphifyy --version", { stdio: "ignore", timeout: 5_000 } as never)
+      execProbe("graphifyy --version", { timeout: 5_000 })
       graphify = true
     } catch {
       try {
-        runner('python -c "import graphifyy"', { stdio: "ignore", timeout: 5_000 } as never)
+        execProbe('python -c "import graphifyy"', { timeout: 5_000 })
         graphify = true
       } catch {
         try {
-          runner('python3 -c "import graphifyy"', { stdio: "ignore", timeout: 5_000 } as never)
+          execProbe('python3 -c "import graphifyy"', { timeout: 5_000 })
           graphify = true
         } catch {
           // Not available
@@ -241,11 +241,19 @@ export async function initCodegraph(
   runner: typeof execSync = execSync,
 ): Promise<boolean> {
   try {
-    runner("npx --yes codegraph init", {
-      cwd: projectDir,
-      stdio: "ignore",
-      timeout: timeoutMs,
-    } as never)
+    if (runner !== execSync) {
+      runner("npx --yes codegraph init", {
+        cwd: projectDir,
+        stdio: "ignore",
+        timeout: timeoutMs,
+      } as never)
+    } else {
+      const res = runGuardedSync("npx", ["--yes", "codegraph", "init"], {
+        cwd: projectDir,
+        timeoutMs,
+      })
+      if (res.code !== 0) throw new Error(`exit ${res.code}`)
+    }
     return true
   } catch {
     return false
@@ -268,17 +276,25 @@ export async function initGraphify(
   runner: typeof execSync = execSync,
 ): Promise<boolean> {
   const candidates = [
-    "graphify . --no-viz",
-    "python -m graphify . --no-viz",
-    "python3 -m graphify . --no-viz",
+    { bin: "graphify", args: [".", "--no-viz"] },
+    { bin: "python", args: ["-m", "graphify", ".", "--no-viz"] },
+    { bin: "python3", args: ["-m", "graphify", ".", "--no-viz"] },
   ]
-  for (const cmd of candidates) {
+  for (const c of candidates) {
     try {
-      runner(cmd, {
-        cwd: projectDir,
-        stdio: "ignore",
-        timeout: timeoutMs,
-      } as never)
+      if (runner !== execSync) {
+        runner(`${c.bin} ${c.args.join(" ")}`, {
+          cwd: projectDir,
+          stdio: "ignore",
+          timeout: timeoutMs,
+        } as never)
+      } else {
+        const res = runGuardedSync(c.bin, c.args, {
+          cwd: projectDir,
+          timeoutMs,
+        })
+        if (res.code !== 0) throw new Error(`exit ${res.code}`)
+      }
       return true
     } catch {
       // Try next candidate
