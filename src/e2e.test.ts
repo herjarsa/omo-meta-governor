@@ -103,7 +103,8 @@ describe("e2e: omo-meta-governor v0.13.0 visible commander", () => {
       backend.close()
     })
 
-    test("the plugin factory accepts custom backends and uses them", () => {
+    // v0.25.0: bump timeout to 15s — cold-start on Windows CI runners can hit 5s+
+    test("the plugin factory accepts custom backends and uses them", { timeout: 15_000 }, () => {
       const backend = new SqliteBackend(join(workDir, "test.db"))
       const plugin = createMetaGovernorPlugin(
         { enabled: true },
@@ -228,12 +229,14 @@ exit 1
   })
 
   describe("#plugin factory smoke test", () => {
-    test("createMetaGovernorPlugin returns a function", () => {
+    // v0.25.0: bump timeout to 15s — cold-start on Windows CI runners can hit 5s+
+    test("createMetaGovernorPlugin returns a function", { timeout: 15_000 }, () => {
       const plugin = createMetaGovernorPlugin({ enabled: true })
       expect(typeof plugin).toBe("function")
     })
 
-    test("createMetaGovernorPlugin accepts a real SqliteBackend via deps", () => {
+    // v0.25.0: bump timeout to 15s — cold-start on Windows CI runners can hit 5s+
+    test("createMetaGovernorPlugin accepts a real SqliteBackend via deps", { timeout: 15_000 }, () => {
       const backend = new SqliteBackend(join(workDir, "test.db"))
       const plugin = createMetaGovernorPlugin(
         { enabled: true, intervention: { mode: "message", minActionForMessage: "warn" } },
