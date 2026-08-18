@@ -756,6 +756,44 @@ On plugin load, queries npm/pip registries to check whether newer versions
 of **codegraph** or **graphify** exist. Config: `graphSync.autoUpgrade` (default `true`),
 `graphSync.upgradeCheckTtlMs` (default `86400000`).
 
+## v0.24.3 — Background Oracle intervention suppression + memory hygiene
+
+### Highlights
+
+#### Background Oracle intervention suppression (v0.24.0)
+
+When the agent invokes Oracle via `task(subagent_type="oracle", run_in_background=true)`, the plugin now detects the background task and suppresses all interventions until Oracle returns. Previously, the agent's idle window during Oracle execution triggered noProgress + accumulated deviations → intervention pile-up.
+
+New `AuditState` fields:
+- `oracleInFlight: boolean` — true while a background Oracle task is running
+- `signalAtMs: number` — timestamp of the last done/phase signal, used to prevent stale latches from immediately clearing oracleInFlight
+
+Detection uses `toolInput.args` (not `toolOutput.output`) to correctly identify background Oracle calls.
+
+3-tier clear strategy (Oracle-reviewed):
+1. Promise signal detected AFTER oracleInFlight was set (signal timestamp > oracleInFlightSinceMs)
+2. Timeout safety net (5 minutes since invocation)
+3. Foreground Oracle call (agent explicitly waiting for a new Oracle)
+
+#### Memory save directive (v0.24.0)
+
+Added explicit negative guidance to the protocol-enforcer memory save directive:
+> "Do NOT save routine operations (file reads, greps, list commands), trivial decisions, or facts already covered by existing memory."
+
+Narrowed `save-discovery-to-memory` audit rule from 5 tools (grep, glob, read, codegraph_explore, graphify query) to 2 (codegraph_explore, graphify query) to align with the directive.
+
+#### Stale-cache detection (v0.24.3)
+
+On plugin load, an async npm version check runs in the background. If the loaded version differs from the latest published version, a warning is logged with cache-clearing instructions. This prevents silent stale-cache issues where `@latest` does not force re-fetch from opencode's package cache.
+
+### Migration
+
+No user action required. This is a transparent improvement. If you see a `STALE_CACHE` warning in your meta-governor.log, run:
+```bash
+npm cache clean --force && rm -rf ~/.cache/opencode/packages/@herjarsa/omo-meta-governor*
+```
+Then restart opencode.
+
 ## License
 
 MIT

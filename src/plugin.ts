@@ -219,6 +219,28 @@ export function createMetaGovernorPlugin(
     projectHasGraphify: graphRetrieval.hasGraphifyDir(cwd),
   });
 
+  // v0.24.3: detect stale npm cache. When opencode caches an older version,
+  // the plugin loads silently with outdated code. This async check runs
+  // once at load time and warns the user if a newer version exists.
+  (async () => {
+    try {
+      const { execSync } = await import("node:child_process");
+      const latest = execSync("npm view @herjarsa/omo-meta-governor version", {
+        timeout: 5000,
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+      }).trim();
+      if (latest && latest !== DEFAULT_VERSION) {
+        logToFile(
+          "warn",
+          `STALE_CACHE: loaded v${DEFAULT_VERSION} but npm has v${latest}. Run: npm cache clean --force && rm -rf ~/.cache/opencode/packages/@herjarsa/omo-meta-governor*`,
+        );
+      }
+    } catch {
+      // npm unreachable or not installed — don't block plugin load
+    }
+  })();
+
   const plugin: Plugin = async (
     _input: PluginInput,
     options?: PluginOptions,
