@@ -1338,6 +1338,41 @@ export function createMetaGovernorPlugin(
         } catch {
           // bot feedback is best-effort
         }
+
+        // v0.25.0: CI monitor — detect `git push` and fire async CI polling.
+        // This is fire-and-forget: the rest of tool.execute.after continues
+        // immediately. The poll happens in an async IIFE in the background,
+        // and on failure a session.prompt is injected into the next LLM
+        // turn via `experimental.chat.messages.transform` (handled below).
+        try {
+          const cmd = (toolInput.args as { command?: string } | undefined)?.command;
+          if (toolInput.tool === "bash" && isGitPushCommand(cmd)) {
+            const cfg = mergedConfig.ciMonitor;
+            if (cfg?.enabled) {
+              const sha = getCurrentSha(cwd);
+              const branch = getCurrentBranch(cwd);
+              if (sha && branch) {
+                logToFile(
+                  "info",
+                  `ci_monitor: git push detected on ${branch}@${sha.slice(0, 7)} — starting background poll`,
+                );
+                void runCIMonitor(
+                  sha,
+                  branch,
+                  cfg,
+                  toolInput.sessionID,
+                ).catch((err: unknown) => {
+                  logToFile(
+                    "warn",
+                    `ci_monitor: background poll failed: ${err instanceof Error ? err.message : String(err)}`,
+                  );
+                });
+              }
+            }
+          }
+        } catch {
+          // ci monitor is best-effort
+        }
       },
       // - Messages transform (injects decisions + protocol violations as synthetic user messages)
       "experimental.chat.messages.transform": async (
@@ -1772,6 +1807,177 @@ export function isGhPrCommand(command: string | undefined | null): boolean {
   if (typeof command !== "string" || command.length === 0) return false;
   const normalized = command.replace(/\\\n/g, " ").replace(/\s*\n\s*/g, " ");
   return /(?:^|[\s;&|])gh\s+pr(?:\s|$)/.test(normalized);
+}
+
+// ─── v0.25.0: CI monitor helpers ─────────────────────────────────────────────
+
+/**
+ * Detect `git push ...` in a shell command. Handles `&&` chaining and line
+ * continuations so commands like `git add . && git commit -m "..." && git push`
+ * are still detected. Excludes `git push` to a local file path (rare but
+ * possible: `git push <file> <refspec>`).
+ */
+export function isGitPushCommand(command: string | undefined | null): boolean {
+  if (typeof command !== "string" || command.length === 0) return false
+  const normalized = command.replace(/\\\n/g, " ").replace(/\s*\n\s*/g, " ")
+  // Match `git push` not followed by a slash (would be `git push origin ...`
+  // which is fine — that's the remote case).
+  // Negative lookahead: skip if next non-space chars are `--help`/`-h`
+  // (informational only).
+  return /(?:^|[\s;&|])git\s+push(?:\s|$)/.test(normalized)
+}
+
+/** Get current HEAD SHA (short, 8 chars) for a project dir. */
+function getCurrentSha(projectDir: string): string | null {
+  try {
+    const { execFileSync } = require("node:child_process") as typeof import("node:child_process")
+    const out = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: projectDir,
+      encoding: "utf-8",
+      timeout: 5_000,
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    })
+    return out.toString().trim() || null
+  } catch {
+    return null
+  }
+}
+
+/** Get current branch name for a project dir. */
+function getCurrentBranch(projectDir: string): string | null {
+  try {
+    const { execFileSync } = require("node:child_process") as typeof import("node:child_process")
+    const out = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: projectDir,
+      encoding: "utf-8",
+      timeout: 5_000,
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    })
+    const branch = out.toString().trim()
+    return branch && branch !== "HEAD" ? branch : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Per-session CI monitor state. Stored on `sessionState` (if mutable) or
+ * on a module-level Map keyed by sessionID.
+ *
+ * Track the SHA we've dispatched CI for so we don't double-trigger on
+ * subsequent tool calls within the same session.
+ */
+const ciMonitorState = new Map<
+  string,
+  {
+    lastPolledSha: string | null
+    lastFailureInjectionAtMs: number
+    pending: Set<string> // SHAs currently being polled
+  }
+>()
+
+/**
+ * Background CI monitor. Returns immediately; does NOT block the tool call.
+ *
+ * Flow:
+ * 1. Trigger workflow_dispatch for the branch (if CI doesn't auto-run on push)
+ * 2. Wait briefly, then poll `gh run list --commit <sha>` until status=completed
+ * 3. On failure: persist a session message via persistSessionMessage() so the
+ *    next LLM turn sees the failure context with logs attached
+ */
+async function runCIMonitor(
+  sha: string,
+  branch: string,
+  cfg: { workflow: string; pollIntervalMs: number; maxWaitMs: number; failOnly: boolean },
+  sessionID: string,
+): Promise<void> {
+  const ci = await import("./ci-monitor")
+  const state = ciMonitorState.get(sessionID) ?? {
+    lastPolledSha: null,
+    lastFailureInjectionAtMs: 0,
+    pending: new Set<string>(),
+  }
+  state.pending.add(sha)
+  ciMonitorState.set(sessionID, state)
+
+  try {
+    // Step 1: try workflow_dispatch (fast-fail if workflow file lacks the
+    // workflow_dispatch trigger or if GH_TOKEN has insufficient scopes)
+    ci.triggerWorkflow(cfg.workflow, branch)
+
+    // Step 2: poll until complete (with backoff per cfg)
+    const startMs = Date.now()
+    let run: import("./ci-monitor").CIRunStatus | null = null
+    while (Date.now() - startMs < cfg.maxWaitMs) {
+      // Try SHA-specific lookup first, fall back to latest
+      run = ci.getLatestRunForSha(sha)
+      if (!run) {
+        // brief delay before retry
+        await new Promise((r) => setTimeout(r, cfg.pollIntervalMs))
+        continue
+      }
+      if (run.status === "completed") break
+      await new Promise((r) => setTimeout(r, cfg.pollIntervalMs))
+    }
+    if (!run || run.status !== "completed") {
+      // Timed out — surface as ambiguous
+      logToFile(
+        "warn",
+        `ci_monitor: timeout waiting for run on ${sha.slice(0, 7)} (${cfg.maxWaitMs}ms)`,
+      )
+      return
+    }
+
+    // Step 3: act on result
+    state.lastPolledSha = sha
+    if (run.conclusion === "failure") {
+      // Throttle: don't inject the same failure twice within 60s
+      const now = Date.now()
+      if (now - state.lastFailureInjectionAtMs < 60_000) return
+      state.lastFailureInjectionAtMs = now
+
+      const logs = ci.getFailedLogs(run.databaseId, 4000)
+      const text = [
+        `[CI Monitor] GitHub Actions run #${run.databaseId} FAILED on ${branch}@${sha.slice(0, 7)}.`,
+        "",
+        `Title: ${run.displayTitle}`,
+        `URL:   ${run.url}`,
+        `Conclusion: ${run.conclusion}`,
+        "",
+        "── FAILED-STEP LOGS (truncated) ──",
+        logs || "(no failed-log output available — run `gh run view " + run.databaseId + " --log-failed` for full output)",
+        "",
+        "── ACTION ──",
+        cfg.failOnly
+          ? "Read the failed logs above, identify which tests broke, run them locally to reproduce, fix, and re-push. Use `bun run typecheck` first (fastest signal), then run only the failing test files."
+          : "Review the run and take action.",
+      ].join("\n")
+
+      logToFile("warn", `ci_monitor: CI failed for ${sha.slice(0, 7)} — ${run.url}`)
+      // Use persistSessionMessage so it appears in the LLM context immediately
+      // for the next turn (no tool call from the LLM required).
+      const sb = await import("./session-bridge")
+      const res = await sb.persistSessionMessage(sessionID, text, 10_000)
+      if (!res.ok) {
+        logToFile(
+          "warn",
+          `ci_monitor: failed to inject failure message: ${res.error ?? "unknown"}`,
+        )
+      }
+    } else if (run.conclusion === "success") {
+      logToFile("info", `ci_monitor: run #${run.databaseId} passed for ${sha.slice(0, 7)}`)
+    } else {
+      logToFile(
+        "info",
+        `ci_monitor: run #${run.databaseId} conclusion=${run.conclusion} for ${sha.slice(0, 7)}`,
+      )
+    }
+  } finally {
+    state.pending.delete(sha)
+    ciMonitorState.set(sessionID, state)
+  }
 }
 
 /**

@@ -652,6 +652,8 @@ export interface OrchestratorConfig {
   readonly skillPriming: SkillPrimingConfig;
   /** Post-wave workflow gate (v0.21.0): landing directives after Oracle-approved waves. */
   readonly postWave?: PostWaveConfig;
+  /** CI monitor (v0.25.0): auto-trigger GH Actions on git push and surface failures. */
+  readonly ciMonitor?: CIMonitorConfig;
 /** Graph sync config (v0.22.0): orphan process sweep on init. */
 readonly graphSync: {
 readonly killOrphanedOnInit: boolean;
@@ -673,9 +675,21 @@ readonly preferredTool: "auto" | "codegraph" | "graphify" | "alternate";
 }
 
 /**
-* Input to runMetaGovernor(). All signals the orchestrator needs to
-* build a DecisionContext and dispatch a decision.
-*/
+ * Input to runMetaGovernor(). All signals the orchestrator needs to
+ * build a DecisionContext and dispatch a decision.
+ */
+export interface CIMonitorConfig {
+  readonly enabled: boolean;
+  readonly workflow: string;
+  readonly pollIntervalMs: number;
+  readonly maxWaitMs: number;
+  readonly failOnly: boolean;
+}
+
+/**
+ * Input to runMetaGovernor(). All signals the orchestrator needs to
+ * build a DecisionContext and dispatch a decision.
+ */
 export interface MetaGovernorInput {
   readonly sessionID: string;
   readonly toolName: string;
