@@ -1214,7 +1214,7 @@ export function createMetaGovernorPlugin(
             if (sessionState.oracleInFlight) {
               logToFile(
                 "info",
-                `oracle_in_flight: skipping intervention for session ${toolInput.sessionID} (score ${decision.score.toFixed(2)})`,
+                `oracle_in_flight: skipping intervention for session ${toolInput.sessionID} (score ${output.scoringResult.rawScore.toFixed(2)})`,
               );
               return;
             }
@@ -1539,7 +1539,6 @@ export function createMetaGovernorPlugin(
             oracleInFlight: false,
             oracleInFlightSinceMs: null,
             signalAtMs: 0,
-            lastViolationInjectionAtMs: 0,
             lastViolationInjectionAtMs: 0,
             postWave: {
               currentWaveN: null,
