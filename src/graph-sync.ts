@@ -1087,24 +1087,43 @@ export function detectRemoteNewCommits(
   branch: string | undefined,
   runner?: typeof execSync,
 ): number {
+  // v0.25.1 DI: when runner is provided (tests), use it instead of runGuardedSync.
+  // runner is execSync-style: (cmd, opts) => string | Buffer.
+  const exec = runner
+    ? (cmd: string) => runner(cmd, { cwd: projectDir }).toString()
+    : undefined
   let targetBranch: string | undefined = branch
   try {
     if (!targetBranch) {
-      const res = runGuardedSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-        cwd: projectDir,
-        timeoutMs: 5_000,
-      })
-      targetBranch = res.stdout.trim()
+      if (exec) {
+        targetBranch = exec("git rev-parse --abbrev-ref HEAD").trim()
+      } else {
+        const res = runGuardedSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+          cwd: projectDir,
+          timeoutMs: 5_000,
+        })
+        targetBranch = res.stdout.trim()
+      }
     }
-    runGuardedSync("git", ["fetch", "origin", targetBranch!], {
-      cwd: projectDir,
-      timeoutMs: 30_000,
-    })
-    const res = runGuardedSync("git", ["rev-list", "--count", `HEAD..origin/${targetBranch}`], {
-      cwd: projectDir,
-      timeoutMs: 10_000,
-    })
-    const n = Number.parseInt(res.stdout.trim(), 10)
+    if (exec) {
+      exec(`git fetch origin ${targetBranch!}`)
+    } else {
+      runGuardedSync("git", ["fetch", "origin", targetBranch!], {
+        cwd: projectDir,
+        timeoutMs: 30_000,
+      })
+    }
+    let count: string
+    if (exec) {
+      count = exec(`git rev-list --count HEAD..origin/${targetBranch}`)
+    } else {
+      const res = runGuardedSync("git", ["rev-list", "--count", `HEAD..origin/${targetBranch}`], {
+        cwd: projectDir,
+        timeoutMs: 10_000,
+      })
+      count = res.stdout
+    }
+    const n = Number.parseInt(count.trim(), 10)
     return Number.isFinite(n) && n > 0 ? n : 0
   } catch {
     return 0
