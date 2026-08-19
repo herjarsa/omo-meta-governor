@@ -768,3 +768,172 @@ export function buildOmoExplainTool(deps: OmoExplainDeps) {
     },
   })
 }
+
+// ---------------------------------------------------------------------------
+// omo_files — list indexed files (.codegraph or graphify-out)
+// ---------------------------------------------------------------------------
+
+export interface OmoFilesDeps {
+  /** Optional pre-configured GraphRetrieval. Defaults to getDefaultGraphRetrieval(). */
+  graphRetrieval?: GraphRetrieval
+  cwd: string
+}
+
+/**
+ * Build the `omo_files` tool. Lists files indexed by codegraph or graphify.
+ * Uses `codegraph files --project-path <cwd>` (falls back to graphify's
+ * graphify-out/wiki/index.md when codegraph is unavailable).
+ */
+export function buildOmoFilesTool(deps: OmoFilesDeps) {
+  return tool({
+    description:
+      "List files indexed by the codebase graph (codegraph or graphify). " +
+      "USAGE: returns a list of indexed file paths. Use this when you need to " +
+      "discover which files are in the graph before drilling into a specific one.",
+    args: {},
+    async execute(args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeFiles(deps.cwd, { timeoutMs: 5_000 })
+      if (!result.result) {
+        return {
+          title: "omo_files: no index",
+          output:
+            "No indexed files found. If `.codegraph/` doesn't exist, run `npx codegraph init` first. " +
+            "If `graphify-out/` doesn't exist, run `graphify . --no-viz` first.",
+          metadata: {
+            tool: "omo_files",
+            kind: result.kind,
+            durationMs: Date.now() - start,
+            sessionID: ctx.sessionID,
+          },
+        }
+      }
+      return {
+        title: `omo_files: ${result.kind ?? "unknown"} backend`,
+        output: result.result,
+        metadata: {
+          tool: "omo_files",
+          kind: result.kind,
+          durationMs: Date.now() - start,
+          sessionID: ctx.sessionID,
+        },
+      }
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// omo_callers — list call sites of a symbol
+// ---------------------------------------------------------------------------
+
+export interface OmoCallersDeps {
+  graphRetrieval?: GraphRetrieval
+  cwd: string
+}
+
+/**
+ * Build the `omo_callers` tool. Lists all call sites of a symbol.
+ * Uses `codegraph callers <symbol> --project-path <cwd>`. Returns null
+ * when codegraph is unavailable (codegraph-specific subcommand).
+ */
+export function buildOmoCallersTool(deps: OmoCallersDeps) {
+  return tool({
+    description:
+      "List all call sites of a symbol in the codebase graph. " +
+      "USAGE: omo_callers with symbol='UserService.create' returns every file:line " +
+      "where that symbol is called. Codegraph-only — returns null if .codegraph/ is missing.",
+    args: {
+      symbol: z.string().min(1).describe("The symbol to find callers for (function, class, method, variable)"),
+    },
+    async execute(args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeCallers(args.symbol, deps.cwd, { timeoutMs: 5_000 })
+      if (!result.result) {
+        return {
+          title: `omo_callers: ${args.symbol} (no callers or no codegraph)`,
+          output:
+            `No call sites found for "${args.symbol}". Either the symbol is unused, or ` +
+            `codegraph is not installed / has no index. Run \`npx codegraph init\` to create the index.`,
+          metadata: {
+            tool: "omo_callers",
+            symbol: args.symbol,
+            kind: result.kind,
+            durationMs: Date.now() - start,
+            sessionID: ctx.sessionID,
+          },
+        }
+      }
+      return {
+        title: `omo_callers: ${args.symbol}`,
+        output: result.result,
+        metadata: {
+          tool: "omo_callers",
+          symbol: args.symbol,
+          kind: result.kind,
+          durationMs: Date.now() - start,
+          sessionID: ctx.sessionID,
+        },
+      }
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// omo_node — get source code + direct callers of a symbol
+// ---------------------------------------------------------------------------
+
+export interface OmoNodeDeps {
+  graphRetrieval?: GraphRetrieval
+  cwd: string
+}
+
+/**
+ * Build the `omo_node` tool. Returns the source code of a symbol and its
+ * direct callers. Uses `codegraph node <symbol> --project-path <cwd>`.
+ * Returns null when codegraph is unavailable.
+ */
+export function buildOmoNodeTool(deps: OmoNodeDeps) {
+  return tool({
+    description:
+      "Get the source code of a symbol (function/class/method/variable) and its direct callers. " +
+      "USAGE: omo_node with symbol='UserService.create' returns the symbol's definition and " +
+      "every direct call site. Distinct from omo_find (which only returns a definition summary) — " +
+      "this tool returns the full source body. Codegraph-only.",
+    args: {
+      symbol: z.string().min(1).describe("The symbol to resolve (function, class, method, variable)"),
+    },
+    async execute(args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeNode(args.symbol, deps.cwd, { timeoutMs: 5_000 })
+      if (!result.result) {
+        return {
+          title: `omo_node: ${args.symbol} not found`,
+          output:
+            `Symbol "${args.symbol}" was not found in the codegraph index. ` +
+            `Run \`npx codegraph init\` if the index doesn't exist, or \`npx codegraph sync\` to refresh.`,
+          metadata: {
+            tool: "omo_node",
+            symbol: args.symbol,
+            kind: result.kind,
+            durationMs: Date.now() - start,
+            sessionID: ctx.sessionID,
+          },
+        }
+      }
+      return {
+        title: `omo_node: ${args.symbol}`,
+        output: result.result,
+        metadata: {
+          tool: "omo_node",
+          symbol: args.symbol,
+          kind: result.kind,
+          durationMs: Date.now() - start,
+          sessionID: ctx.sessionID,
+        },
+      }
+    },
+  })
+}
