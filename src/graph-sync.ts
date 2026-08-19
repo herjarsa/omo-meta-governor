@@ -1126,8 +1126,13 @@ export async function getInstalledCodegraphVersion(
     try {
       let stdout: string
       if (runner) {
-        const r = runner(`${bin} ${args.join(" ")}`, { stdio: "ignore", timeout: 10_000 } as never)
-        stdout = typeof r === "string" ? r : (r.stdout ?? "")
+        // execSync returns string | Buffer; the DI runner matches that shape.
+        // The cast to the options overload keeps TS happy without `as never`.
+        const r: string | Buffer = runner(
+          `${bin} ${args.join(" ")}`,
+          { stdio: "ignore", timeout: 10_000 } as Parameters<typeof execSync>[1],
+        )
+        stdout = typeof r === "string" ? r : r.toString()
       } else {
         stdout = runGuardedSync(bin, args, { timeoutMs: 10_000 }).stdout
       }
@@ -1149,9 +1154,14 @@ export async function getInstalledGraphifyVersion(
   // checks align. Order: graphify binary → python → python3.
   const execProbe = (bin: string, args: string[]): string => {
     if (runner) {
-      const r = runner(`${bin} ${args.join(" ")}`, { stdio: "ignore", timeout: 10_000 } as never)
-      return typeof r === "string" ? r : (r.stdout ?? "")
+      const r: string | Buffer = runner(
+        `${bin} ${args.join(" ")}`,
+        { stdio: "ignore", timeout: 10_000 } as Parameters<typeof execSync>[1],
+      )
+      return typeof r === "string" ? r : r.toString()
     }
+    return runGuardedSync(bin, args, { timeoutMs: 10_000
+    }).stdout
     return runGuardedSync(bin, args, { timeoutMs: 10_000 }).stdout
   }
   // Probe 1: graphify binary (Windows: pip installs as `graphify`)
