@@ -19,11 +19,32 @@
 // hardcoded literal. The build copies package.json next to dist/ via
 // the bundler (see build.ts). When running from source, we fall back
 // to a default.
+// v0.26.4: read from the directory of the running bundle at RUNTIME
+// (not build-time). The previous `require("../package.json")` got
+// statically resolved by the bundler and baked the version string
+// into the bundle, so when the user updated npm to v0.26.3 the bundle
+// still reported v0.26.2 (the version at compile time). Now we
+// resolve the package.json next to the bundle file using
+// `import.meta.url`, which always points to the actual loaded file.
+import { readFileSync } from "node:fs"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+
 let _pluginVersion = "0.0.0"
 try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  _pluginVersion = require("../package.json").version as string
-} catch { /* package.json not available at runtime; fall back to literal below */ }
+  const bundleDir = dirname(fileURLToPath(import.meta.url))
+  // Walk up from dist/index.js to find the package.json. The bundle
+  // sits at <pkg-root>/dist/index.js, so package.json is one level up.
+  const packageJsonPath = resolve(bundleDir, "..", "package.json")
+  const pkg = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
+    version?: string
+  }
+  if (typeof pkg.version === "string" && pkg.version.length > 0) {
+    _pluginVersion = pkg.version
+  }
+} catch {
+  // package.json not available at runtime; fall back to literal below
+}
 export const DEFAULT_VERSION = _pluginVersion
 
 export type MetricEvent =
