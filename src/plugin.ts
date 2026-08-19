@@ -31,6 +31,9 @@ import {
   buildOmoRecallMcpTool,
   buildOmoPathTool,
   buildOmoExplainTool,
+  buildOmoFilesTool,
+  buildOmoCallersTool,
+  buildOmoNodeTool,
 } from "./custom-tools";
 import { getMCPClient } from "./mcp-client";
 import {
@@ -205,7 +208,11 @@ export function createMetaGovernorPlugin(
   });
   const omoPathTool = buildOmoPathTool({ cwd });
   const omoExplainTool = buildOmoExplainTool({ cwd });
-
+  // v0.26.0: omo_files / omo_callers / omo_node — thin wrappers around
+  // GraphRetrieval.invokeFiles / invokeCallers / invokeNode.
+  const omoFilesTool = buildOmoFilesTool({ graphRetrieval, cwd });
+  const omoCallersTool = buildOmoCallersTool({ graphRetrieval, cwd });
+  const omoNodeTool = buildOmoNodeTool({ graphRetrieval, cwd });
   // Log startup so the user can see the plugin is loaded. The version is
   // prepended to the message (and included in the structured fields) so
   // OpenChamber's startup log shows exactly which release is loaded —
@@ -429,8 +436,11 @@ export function createMetaGovernorPlugin(
           omo_recall_mcp: omoRecallMcpTool,
           omo_path: omoPathTool,
           omo_explain: omoExplainTool,
+          omo_files: omoFilesTool,
+          omo_callers: omoCallersTool,
+          omo_node: omoNodeTool,
         },
-      };
+    };
     }
 
     // 3. Resolve model settings from override or session
@@ -1716,6 +1726,9 @@ export function createMetaGovernorPlugin(
         omo_recall_mcp: omoRecallMcpTool,
         omo_path: omoPathTool,
         omo_explain: omoExplainTool,
+        omo_files: omoFilesTool,
+        omo_callers: omoCallersTool,
+        omo_node: omoNodeTool,
       },
 
       // v0.13.1: inject lesson context at compaction time so learned patterns
