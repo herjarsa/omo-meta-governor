@@ -87,6 +87,10 @@ killOrphanedOnInit: true,
 // v0.25.1: origin-fetch reindex watcher defaults.
 reindexOnFetch: true,
 fetchBranch: "main",
+// v0.26.0: auto-upgrade + graphify check-update defaults.
+autoUpgrade: true,
+upgradeCachePath: undefined,
+checkGraphifyNeedsUpdate: true,
 },
 // v0.25.0: explicit codegraph/graphify routing — default auto.
 graphRetrieval: {

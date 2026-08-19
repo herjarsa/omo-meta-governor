@@ -18,6 +18,7 @@ omo-meta-governor/
 ├── src/                     # All source code (flat, no subdirectories)
 ├── ARCHITECTURE.md          # Architecture documentation
 ├── STRUCTURE.md             # This file
+├── CHANGELOG.md             # Release history (Keep a Changelog format)
 ├── README.md                # Package README with usage docs
 ├── build.ts                 # Build script (bun)
 ├── bun.lock                 # Bun lockfile
@@ -70,7 +71,7 @@ All source files live flat in `src/` — no subdirectories. Files are organized 
 | `mcp-client.ts` | Wrapper over OpenCode server API for direct MCP tool invocation |
 | `codegraph-tools.ts` | High-level wrappers for codegraph sub-commands (node, impact, files) |
 | `protocol-enforcer.ts` | Load Sisyphus protocol; build system injection; audit tool calls for violations |
-| `custom-tools.ts` | All 15 `omo_*` tool definitions (Zod-validated args, graceful error handling) |
+| `custom-tools.ts` | All 12 `omo_*` tool definitions (Zod-validated args, graceful error handling) |
 
 ### Observability
 
@@ -116,7 +117,8 @@ All source files live flat in `src/` — no subdirectories. Files are organized 
 | `generate-schema.test.ts` | Schema generation correctness |
 | `intervention-fix.test.ts` | Intervention rate limiting fixes |
 | `graphsink-fix.test.ts` | Graph sink error handling fixes |
-| `upgrade-fix.test.ts` | Auto-upgrade logic fixes |
+| `upgrade-fix.test.ts` | Auto-upgrade logic fixes (v0.23.1) |
+| `upgrade-autofix.test.ts` | **v0.26.0** — auto-upgrade regression tests (AUT-1..AUT-7): tiered probe, pip `--upgrade`, graphify check-update, cache write-once |
 | `session-bridge-iso.test.ts` | Session bridge isolation tests |
 | `multiphase-gap.test.ts` | Multi-phase plan signal detection |
 | `e2e.test.ts` | End-to-end plugin lifecycle |

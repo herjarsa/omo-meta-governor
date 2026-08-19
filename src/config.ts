@@ -112,6 +112,16 @@ export interface MetaGovernorPluginConfig {
     reindexOnFetch?: boolean
     /** v0.25.1: branch to fetch + compare against. Default "main". */
     fetchBranch?: string
+    /** v0.26.0: auto-upgrade installed codegraph and graphify binaries on graph-sync init.
+     * Default true. Tiered probe + pip --upgrade flag fixes 6 silent-failure bugs from v0.24.x. */
+    autoUpgrade?: boolean
+    /** v0.26.0: filesystem path for the upgrade cache file (tracks latest-known
+     * codegraph/graphify versions to avoid re-fetching the npm/PyPI registry on every load). */
+    upgradeCachePath?: string
+    /** v0.26.0: when true, run 'graphify check-update' after upgrade and emit a
+     * 'graphify-reextract-triggered' diagnostic code if the schema changed.
+     * Default true. */
+    checkGraphifyNeedsUpdate?: boolean
   }
   /** Skill priming config (v0.20.0): proactive skill-selection nudge. */
   skillPriming?: {
@@ -296,6 +306,10 @@ graphSync: {
       killOrphanedOnInit: full.graphSync?.killOrphanedOnInit ?? true,
       reindexOnFetch: full.graphSync?.reindexOnFetch !== false,
       fetchBranch: full.graphSync?.fetchBranch ?? "main",
+      // v0.26.0: auto-upgrade + graphify check-update defaults.
+      autoUpgrade: full.graphSync?.autoUpgrade !== false,
+      upgradeCachePath: full.graphSync?.upgradeCachePath,
+      checkGraphifyNeedsUpdate: full.graphSync?.checkGraphifyNeedsUpdate !== false,
 },
     // v0.25.0: explicit codegraph/graphify routing.
     graphRetrieval: {

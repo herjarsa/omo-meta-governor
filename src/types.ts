@@ -661,6 +661,12 @@ readonly killOrphanedOnInit: boolean;
 readonly reindexOnFetch: boolean;
 /** v0.25.1: branch to fetch + compare against. Default "main". */
 readonly fetchBranch: string;
+/** v0.26.0: auto-upgrade installed codegraph and graphify binaries on graph-sync init. */
+readonly autoUpgrade: boolean;
+/** v0.26.0: filesystem path for the upgrade cache file (tracks latest-known versions). */
+readonly upgradeCachePath: string | undefined;
+/** v0.26.0: when true, run 'graphify check-update' after upgrade and emit a diagnostic if schema changed. */
+readonly checkGraphifyNeedsUpdate: boolean;
 };
 /**
 * v0.25.0: explicit routing between codegraph and graphify.

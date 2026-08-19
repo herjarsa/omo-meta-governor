@@ -2,7 +2,7 @@
 
 ## Overview
 
-`@herjarsa/omo-meta-governor` is an OpenCode plugin that acts as a self-judging agent orchestration layer. It observes tool executions, reads cross-system memory, scores session progress via weighted evidence, and dispatches decisions (continue / warn / escalate / stop) that are injected into the agent's context. The plugin registers 9 custom tools the LLM can invoke for code search, memory, rules, and safety.
+`@herjarsa/omo-meta-governor` is an OpenCode plugin that acts as a self-judging agent orchestration layer. It observes tool executions, reads cross-system memory, scores session progress via weighted evidence, and dispatches decisions (continue / warn / escalate / stop) that are injected into the agent's context. The plugin registers **12 custom tools** the LLM can invoke for code search, memory, file/symbol lookup, and safety status.
 
 ## Plugin Integration
 
@@ -52,22 +52,23 @@ Input (MetaGovernorInput)
 
 | Evidence Source | Weight | Raw Score Range |
 |----------------|--------|----------------|
-| `oracle-verified` | 0.25 | 0 (not verified) or +0.6 (verified) |
-| `no-progress-detector` | 0.20 | 0 or -0.8 |
+| `progress-detector` | 0.30 | 0 or +0.6 (verified forward progress) |
 | `deviation-detector` | 0.20 | 0 to -0.9 (severity-weighted) |
+| `no-progress-detector` | 0.20 | 0 or -0.8 |
 | `iteration-budget` | 0.15 | 0 to -0.8 (linear ramp) |
-| `lesson-recall` | 0.10 | -0.7 to +0.3 per lesson (advice-weighted) |
-| `token-predictor` | 0.10 | Reserved (currently informational) |
+| `oracle-burn` | 0.10 | 0 to -0.6 (recent oracle issues) |
+| `stop-advice` | 0.05 | 0 to -0.7 (lesson-recommended stop) |
 
 ### Score → Action Thresholds (defaults)
 
 | Score Range | Action |
 |-------------|--------|
-| ≥ +0.3 | continue (silent) |
-| [-0.3, +0.3] | continue (logged) |
-| [-0.6, -0.3] | warn |
-| [-0.8, -0.6] | escalate |
-| < -0.8 | stop |
+| ≥ `continueThreshold` (0.05) | continue (silent) |
+| ≤ -`warnThreshold` (0.3) | warn |
+| ≤ -`escalateThreshold` (0.45) | escalate |
+| ≤ -`stopThreshold` (0.55) | stop |
+
+Thresholds are configurable via `scoring.{continueThreshold, warnThreshold, escalateThreshold, stopThreshold}`. Worst-case math (no oracle, no progress, 2 grave deviations, iteration at limit, stop-advice lessons) produces score ≈ -0.55 → `stop` action fires (Gap C fix).
 
 Paralysis prevention: 3+ consecutive stops forces `continue` with a warning, regardless of score.
 
@@ -141,10 +142,44 @@ On first session load in a project:
 1. Auto-installs codegraph (`npm i -D @colbymchenry/codegraph`) and graphify (`pip install graphifyy`) if missing.
 2. Runs `codegraph init` + `graphify . --no-viz` to build initial indexes.
 3. Runs `graphify hook install` to wire `post-commit` and `post-checkout` git hooks.
+4. **v0.26.0: Auto-upgrade** installed codegraph + graphify binaries (see below).
 
 On each `git commit`:
 - **Primary path**: native git hook runs `graphify update` in background.
 - **Backup path**: `tool.execute.after` detects `git commit` in bash commands and runs `codegraph sync -q [path]`.
+
+#### Auto-Upgrade (v0.26.0)
+
+`src/graph-sync.ts:runGraphSync` runs an auto-upgrade block at the end
+of `initGraphSync` whenever `graphSync.autoUpgrade !== false`:
+
+1. **Tiered version probe** — `getInstalledCodegraphVersion` tries
+   `npx codegraph --version` → `node node_modules/.bin/codegraph
+   --version`. `getInstalledGraphifyVersion` tries `graphify --version`
+   → `python -m pip show graphifyy` → `python3 -m pip show graphifyy`.
+2. **Latest-version fetch** — `resolveLatest()` reads from
+   `upgradeCachePath` (default: `~/.omo-meta-governor/upgrade-cache.json`)
+   and falls back to `npm view @colbymchenry/codegraph version` /
+   `pip index versions graphifyy`.
+3. **Compare + decide** — `shouldUpgrade(installed, latest, cache)`
+   returns true when installed < latest AND cache differs.
+4. **Install with --upgrade flag** — `installCodegraph` / `installGraphify`
+   now pass `--upgrade` to pip/uv so the binary actually upgrades
+   (the most visible v0.24.x bug: `pip install` without `--upgrade`
+   returned 0 with "Requirement already satisfied" but did NOT upgrade).
+5. **Cache write-once** — cache is written exactly once at the end of
+   the block (was being fetched 3× per run before the fix).
+6. **Post-upgrade probe** — verifies the new binary is actually
+   installed; on failure emits `codegraph-upgrade-broken` diagnostic.
+7. **Graphify semantic check** — when `checkGraphifyNeedsUpdate: true`,
+   runs `graphify check-update` and emits `graphify-reextract-triggered`
+   if the schema changed (signals semantic re-extraction is pending).
+
+New config fields: `graphSync.autoUpgrade`, `graphSync.upgradeCachePath`,
+`graphSync.checkGraphifyNeedsUpdate`.
+
+New `GraphSyncCode` union members: `codegraph-upgrade-broken`,
+`graphify-reextract-triggered`, `upgrade-cache-written`.
 
 ### Process Zombie Safeguards (`proc-guard.ts`, v0.22.0)
 
@@ -172,7 +207,7 @@ Wraps codegraph sub-commands for the custom tools:
 - `codegraph node <symbol>` — source + callers
 - `codegraph impact <symbol>` — full impact analysis
 
-## 9 Custom Tools
+## 12 Custom Tools
 
 Registered via the `tool` hook. Available even when governance is disabled.
 
@@ -194,10 +229,13 @@ Registered via the `tool` hook. Available even when governance is disabled.
 | `omo_recall_mcp` | `promptAgent` → AgentMemory MCP | Cross-session memory search |
 | `omo_remember` | `promptAgent` → AgentMemory MCP | Save a fact/observation |
 
-### Rules & Notes
+### File & Symbol Lookup (v0.26.0)
 
 | Tool | Backend | Purpose |
 |------|---------|---------|
+| `omo_files` | `graph-retrieval.ts` | List files indexed by codegraph or graphify |
+| `omo_callers` | `codegraph-tools.ts` | List all call sites of a symbol via `codegraph callers` |
+| `omo_node` | `codegraph-tools.ts` | Get source + direct callers of a symbol via `codegraph node` |
 
 ### Safety & Status
 
@@ -247,6 +285,20 @@ Per-session state tracked by `AuditStateCache` (`audit-state-cache.ts`) — a TT
 - `taskDoneSignal` / `phaseCompleteSignal` / `planCompleteSignal` — completion signal tracking
 - `interventionCount` / `interventionDisabled` — intervention rate limiting
 - `recentToolCalls` / `recentWriteContents` — rolling window for pattern detection
+
+## CI Monitor (v0.25.0)
+
+`src/ci-monitor.ts` wires `git push` detection in `tool.execute.after`:
+
+1. Detect `git push` in bash commands.
+2. Poll the GitHub Actions API for the resulting run (5s initial delay,
+   exponential backoff).
+3. On failure, inject a synthetic message with the failed logs into the
+   agent's context via `experimental.chat.messages.transform` so it can
+   fix and retry.
+
+Configuration via `meta_governor.ciMonitor` (disabled by default — opt-in
+feature).
 
 ## Configuration
 
