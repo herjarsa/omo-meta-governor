@@ -244,3 +244,8 @@ fix: prevent graphify black window on Windows (v0.23.1)
 - **Low Risk**: Both fixes are isolated to specific code paths
 - **Cooldown fix**: Only affects violation injection timing, not detection
 - **Python resolution**: Uses same pattern as existing `initGraphify()`
+
+
+## Implementation roadmap
+
+- [Wave 3 + Wave 4: codegraph + graphify integration](./.omo/plans/codegraph-graphify-integration.md) — completed in v0.27.0 + v0.27.1 (33 omo_* tools, 3 new config knobs, observability fields in omo_health).

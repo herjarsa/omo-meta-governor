@@ -44,6 +44,48 @@ export interface PluginHealth {
     firstSeenISO: string
     lastSeenISO: string
   }
+  // v0.27.0 Wave 4 — observability for graph sync + tool counters.
+  graphSync?: {
+    lastUpgradeAtISO: string | null
+    lastUpgradeResult: "success" | "failed" | "skipped" | "unknown"
+    lastUpgradeTarget: "codegraph" | "graphify" | null
+    lastUpgradeMs: number | null
+  }
+  graphToolsUsed: {
+    omo_search: number
+    omo_recall: number
+    omo_health: number
+    omo_find: number
+    omo_impact: number
+    omo_remember: number
+    omo_recall_mcp: number
+    omo_path: number
+    omo_explain: number
+    omo_files: number
+    omo_callers: number
+    omo_node: number
+    omo_context: number
+    omo_affected_cg: number
+    omo_status: number
+    omo_unlock: number
+    omo_mark_dirty: number
+    omo_sync_if_dirty: number
+    omo_index: number
+    omo_visualize: number
+    omo_serve: number
+    omo_uninit: number
+    omo_diagnose: number
+    omo_merge_graphs: number
+    omo_save_result: number
+    omo_extract: number
+    omo_cluster_only: number
+    omo_label: number
+    omo_tree: number
+    omo_clone: number
+    omo_add: number
+    omo_check_update: number
+    omo_hook_status: number
+  }
 }
 
 /**

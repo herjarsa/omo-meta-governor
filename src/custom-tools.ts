@@ -297,7 +297,52 @@ export function buildOmoHealthTool(deps: OmoHealthDeps) {
           interventionsSkipped: decisionsSkipped,
           firstSeenISO: snap.startedAtISO,
           lastSeenISO: new Date().toISOString(),
-        },
+},
+      // v0.27.0 Wave 4: graphSync upgrade telemetry + per-tool usage counters.
+      // graphToolsUsed starts at 0 for each tool — incremented in tool
+      // execution via deps.metrics.recordCounter (wired in a follow-up; for
+      // now the field exists so omo_health has a stable schema).
+      graphSync: {
+        lastUpgradeAtISO: null,
+        lastUpgradeResult: "unknown" as const,
+        lastUpgradeTarget: null,
+        lastUpgradeMs: null,
+      },
+      graphToolsUsed: {
+        omo_search: 0,
+        omo_recall: 0,
+        omo_health: 0,
+        omo_find: 0,
+        omo_impact: 0,
+        omo_remember: 0,
+        omo_recall_mcp: 0,
+        omo_path: 0,
+        omo_explain: 0,
+        omo_files: 0,
+        omo_callers: 0,
+        omo_node: 0,
+        omo_context: 0,
+        omo_affected_cg: 0,
+        omo_status: 0,
+        omo_unlock: 0,
+        omo_mark_dirty: 0,
+        omo_sync_if_dirty: 0,
+        omo_index: 0,
+        omo_visualize: 0,
+        omo_serve: 0,
+        omo_uninit: 0,
+        omo_diagnose: 0,
+        omo_merge_graphs: 0,
+        omo_save_result: 0,
+        omo_extract: 0,
+        omo_cluster_only: 0,
+        omo_label: 0,
+        omo_tree: 0,
+        omo_clone: 0,
+        omo_add: 0,
+        omo_check_update: 0,
+        omo_hook_status: 0,
+      },
       }
       try {
         writeHealthToFile(health, deps.healthFilePath)
