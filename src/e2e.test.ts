@@ -30,7 +30,16 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createMetaGovernorPlugin } from "./plugin"
+import { createMetaGovernorPlugin, type MetaGovernorPluginDeps } from "./plugin"
+
+// v0.28.0: hermetic no-op so the factory's cli-anything sync never spawns
+// real pip/uv/npx under bun:test (matches __test_runGraphSync pattern).
+const fakeRunCliAnythingSync = (async () => ({
+  attempted: false,
+  codes: ["cli-anything-upgrade-skipped"],
+  availability: { cliHub: false, cliHubVersion: null, metaSkill: false },
+  alreadyInitialized: true,
+})) as unknown as NonNullable<MetaGovernorPluginDeps["__test_runCliAnythingSync"]>
 import { getDefaultSqliteBackend, SqliteBackend } from "./sqlite-backend"
 import { getDefaultGraphRetrieval, GraphRetrieval } from "./graph-retrieval"
 import { createMetricsCollector } from "./metrics"
@@ -114,6 +123,7 @@ describe("e2e: omo-meta-governor v0.13.0 visible commander", () => {
                       boulderState: backend,
           },
           writeBackend: backend,
+          __test_runCliAnythingSync: fakeRunCliAnythingSync,
         },
       )
       // The plugin function should be created without error
@@ -231,7 +241,10 @@ exit 1
   describe("#plugin factory smoke test", () => {
     // v0.25.0: bump timeout to 15s — cold-start on Windows CI runners can hit 5s+
     test("createMetaGovernorPlugin returns a function", { timeout: 15_000 }, () => {
-      const plugin = createMetaGovernorPlugin({ enabled: true })
+      const plugin = createMetaGovernorPlugin(
+        { enabled: true },
+        { __test_runCliAnythingSync: fakeRunCliAnythingSync },
+      )
       expect(typeof plugin).toBe("function")
     })
 
@@ -246,6 +259,7 @@ exit 1
             boulderState: backend,
           },
           writeBackend: backend,
+          __test_runCliAnythingSync: fakeRunCliAnythingSync,
         },
       )
       expect(typeof plugin).toBe("function")

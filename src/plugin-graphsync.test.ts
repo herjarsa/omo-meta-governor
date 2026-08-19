@@ -33,6 +33,16 @@ const fakeRunGraphSync = (async () => ({
   alreadyInitialized: false,
 })) as unknown as NonNullable<MetaGovernorPluginDeps["__test_runGraphSync"]>
 
+// v0.28.0: Fake CliAnythingSyncResult — the real runCliAnythingSync would
+// spawn pip/uv/npx. Mirror fakeRunGraphSync shape so the plugin factory
+// never blocks hermetic tests on subprocess IO.
+const fakeRunCliAnythingSync = (async () => ({
+  attempted: false,
+  codes: ["cli-anything-upgrade-skipped"],
+  availability: { cliHub: false, cliHubVersion: null, metaSkill: false },
+  alreadyInitialized: true,
+})) as unknown as NonNullable<MetaGovernorPluginDeps["__test_runCliAnythingSync"]>
+
 // Fake where BOTH index tools are available — marks the project ready so
 // messages.transform nudges the agent to use codegraph/graphify.
 const readyRunGraphSync = (async () => ({
@@ -65,6 +75,7 @@ function makeDeps(seen: string[]): MetaGovernorPluginDeps {
       seen.push(projectDir)
     },
     __test_runGraphSync: fakeRunGraphSync,
+    __test_runCliAnythingSync: fakeRunCliAnythingSync,
   }
 }
 

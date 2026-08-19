@@ -16,10 +16,11 @@ import {
   runGraphSync,
   trackSession,
   untrackSession,
-isGitCommitCommand,
+  isGitCommitCommand,
   triggerReindex,
   detectRemoteNewCommits,
-} from "./graph-sync";
+  } from "./graph-sync";
+import { runCliAnythingSync } from "./cli-anything-sync";
 import { runMetaGovernor } from "./orchestrator";
 import { getDefaultSqliteBackend } from "./sqlite-backend";
 import {
@@ -57,6 +58,11 @@ import {
   buildOmoAddTool,
   buildOmoCheckUpdateTool,
   buildOmoHookStatusTool,
+  // v0.28.0: CLI-Anything hub discovery tools
+  buildOmoCliAnythingInstallTool,
+  buildOmoCliAnythingListTool,
+  buildOmoCliAnythingSearchTool,
+  buildOmoCliAnythingInfoTool,
 } from "./custom-tools";
 import { getMCPClient } from "./mcp-client";
 import {
@@ -121,7 +127,9 @@ export interface MetaGovernorPluginDeps {
   /** v0.21.0: test-only DI seam — replaces the REAL runGraphSync so hermetic
    * placement tests never spawn npx/pip/graphify. Avoids mock.module (which
    * leaks across test files sharing a Bun worker — broke CI on macOS). */
-  __test_runGraphSync?: typeof import("./graph-sync").runGraphSync;
+__test_runGraphSync?: typeof import("./graph-sync").runGraphSync;
+  /** v0.28.0: test-only DI seam for runCliAnythingSync — same hermetic rationale. */
+  __test_runCliAnythingSync?: typeof import("./cli-anything-sync").runCliAnythingSync;
 }
 
 // - Helpers
@@ -258,6 +266,11 @@ export function createMetaGovernorPlugin(
   const omoAddTool = buildOmoAddTool({ graphRetrieval, cwd });
   const omoCheckUpdateTool = buildOmoCheckUpdateTool({ graphRetrieval, cwd });
   const omoHookStatusTool = buildOmoHookStatusTool({ cwd });
+  // v0.28.0: CLI-Anything hub discovery tools
+  const omoCliAnythingInstallTool = buildOmoCliAnythingInstallTool({ cwd });
+  const omoCliAnythingListTool = buildOmoCliAnythingListTool({ cwd });
+  const omoCliAnythingSearchTool = buildOmoCliAnythingSearchTool({ cwd });
+  const omoCliAnythingInfoTool = buildOmoCliAnythingInfoTool({ cwd });
   // Log startup so the user can see the plugin is loaded. The version is
   // prepended to the message (and included in the structured fields) so
   // OpenChamber's startup log shows exactly which release is loaded —
@@ -422,8 +435,10 @@ export function createMetaGovernorPlugin(
     // graphSync block: the init seam resolves immediately and its .then
     // microtask runs during the first await of this invocation — a const
     // declared later in the same scope would hit the TDZ (14/08/2026).
-    const graphSyncReadyProjects = new Set<string>();
+const graphSyncReadyProjects = new Set<string>();
     const graphSyncReadyNotified = new Set<string>();
+    // session-promotion nudge (mirrors graphSyncReadyProjects).
+    const cliAnythingReadyProjects = new Set<string>();
 
     // v0.21.0: graphSync init runs at FACTORY INVOCATION with the session's
     // project directory, not at module load with process.cwd() (which under
@@ -470,9 +485,44 @@ export function createMetaGovernorPlugin(
           if (res?.attempted && res.availability.codegraph && res.availability.graphify) {
             graphSyncReadyProjects.add(sessionProjectDir);
           }
-        })
+})
         .catch(() => {});
-      // v0.25.1: origin-fetch reindex watcher — if local HEAD is behind origin,
+      // v0.28.0: CLI-Anything hub auto-install + auto-upgrade (parallel to graph-sync).
+      // Fire-and-forget; never blocks the factory. Mirrors graph-sync so the
+      // same caching, TTL, and runner DI seams apply.
+      // v0.28.0: default-on (opt-out), same as graph-sync v0.26.0. Tests that
+      // don't mock the runner should inject __test_runCliAnythingSync to
+      // avoid spawning real pip/npx under factory invocation.
+      if (mergedConfig.cliAnything?.enabled !== false) {
+        const rawCliAnything =
+          (fileConfigSource.config as MetaGovernorPluginConfig | undefined)
+            ?.cliAnything ??
+          (options?.meta_governor as MetaGovernorPluginConfig | undefined)
+            ?.cliAnything;
+        const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
+        runCliSyncImpl({
+          enabled: true,
+          autoInstall: rawCliAnything?.autoInstall ?? true,
+          autoUpgrade: rawCliAnything?.autoUpgrade ?? true,
+          cachePath:
+            rawCliAnything?.cachePath ??
+            `${process.env.HOME || process.env.USERPROFILE || "~"}/.config/opencode/omo-cli-anything-upgrade-check.json`,
+          upgradeCheckTtlMs: rawCliAnything?.upgradeCheckTtlMs ?? 24 * 60 * 60 * 1000,
+          projectDir: sessionProjectDir,
+          installScope: rawCliAnything?.installScope ?? "global",
+          cliHubBin: rawCliAnything?.cliHubBin ?? "cli-hub",
+          skillsBin: rawCliAnything?.skillsBin ?? "npx skills",
+        })
+          .then((res) => {
+            if (res?.attempted && res.availability.cliHub) {
+              cliAnythingReadyProjects.add(sessionProjectDir);
+            }
+          })
+          .catch((err) => {
+            logToFile("warn", `cli-anything sync failed: ${String(err)}`);
+          });
+      }
+      // v0.25.1: origin-fetch reindex watcher —
       // fetch and reindex so the agent sees fresh graph results on next tool call.
       // Fire-and-forget; never blocks the factory. Sits INSIDE the
       // graphSyncEnabledAtInvocation guard so tests with graphSync:{enabled:false}
@@ -532,6 +582,11 @@ export function createMetaGovernorPlugin(
           omo_add: omoAddTool,
           omo_check_update: omoCheckUpdateTool,
           omo_hook_status: omoHookStatusTool,
+          // v0.28.0: CLI-Anything hub discovery tools
+          omo_cli_anything_install: omoCliAnythingInstallTool,
+          omo_cli_anything_list: omoCliAnythingListTool,
+          omo_cli_anything_search: omoCliAnythingSearchTool,
+          omo_cli_anything_info: omoCliAnythingInfoTool,
         },
     };
     }
@@ -1844,6 +1899,11 @@ export function createMetaGovernorPlugin(
         omo_add: omoAddTool,
         omo_check_update: omoCheckUpdateTool,
         omo_hook_status: omoHookStatusTool,
+        // v0.28.0: CLI-Anything hub discovery tools
+        omo_cli_anything_install: omoCliAnythingInstallTool,
+        omo_cli_anything_list: omoCliAnythingListTool,
+        omo_cli_anything_search: omoCliAnythingSearchTool,
+        omo_cli_anything_info: omoCliAnythingInfoTool,
       },
 
       // v0.13.1: inject lesson context at compaction time so learned patterns

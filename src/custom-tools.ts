@@ -1573,3 +1573,171 @@ export function buildOmoHookStatusTool(deps: OmoHookStatusDeps) {
     },
   })
 }
+
+
+// ============================================================================
+// v0.28.0: CLI-Anything hub discovery tools
+// ============================================================================
+
+export interface OmoCliAnythingDeps {
+  cwd: string
+  /** Optional runner DI seam for tests. When undefined, uses real execSync. */
+  runner?: (cmd: string, opts?: { timeoutMs?: number }) => string
+}
+
+function cliAnythingResultToTool(
+  toolName: string,
+  meta: Record<string, unknown>,
+  result: { ok: boolean; data: unknown; rawOutput: string | null; stderr: string; code: string; durationMs: number },
+  start: number,
+  ctx: ToolContext,
+  friendlyHint: string,
+): ToolResult {
+  const durationMs = Date.now() - start
+  if (!result.ok) {
+    return {
+      title: `${toolName}: ${result.code}`,
+      output: `${friendlyHint}\n\nDiagnostic: ${result.code}\nstderr: ${result.stderr || "(empty)"}`,
+      metadata: { tool: toolName, code: result.code, durationMs, sessionID: ctx.sessionID, ...meta },
+    }
+  }
+  // Prefer structured data when present (JSON parse succeeded), otherwise raw
+  const output =
+    result.data !== null && result.data !== undefined
+      ? typeof result.data === "string"
+        ? result.data
+        : JSON.stringify(result.data, null, 2)
+      : result.rawOutput ?? ""
+  return {
+    title: toolName,
+    output,
+    metadata: { tool: toolName, code: result.code, durationMs, sessionID: ctx.sessionID, ...meta },
+  }
+}
+
+// -------- omo_cli_anything_install --------
+
+/** Install a CLI from the CLI-Anything hub (e.g. `gimp`, `blender`, `drawio`). */
+export function buildOmoCliAnythingInstallTool(deps: OmoCliAnythingDeps) {
+  return tool({
+    description:
+      "Install a CLI from the CLI-Anything hub so the agent can drive that software. " +
+      "USAGE: omo_cli_anything_install with name='gimp' installs `cli-anything-gimp`, which " +
+      "exposes a `cli-anything-gimp` command. Browse the catalog with omo_cli_anything_list. " +
+      "See https://github.com/HKUDS/CLI-Anything for the full registry.",
+    args: {
+      name: z.string().min(1).describe("The CLI name to install (e.g. 'gimp', 'blender', 'drawio')"),
+    },
+async execute(args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const { installCli } = await import("./cli-anything")
+      const result = installCli(args.name, deps.runner, 120_000, "cli-hub")
+      return cliAnythingResultToTool(
+        "omo_cli_anything_install",
+        { name: args.name },
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `Could not install '${args.name}'. Check that cli-anything-hub is installed (omo_health) and the name is correct.`,
+      )
+    },
+  })
+}
+
+// -------- omo_cli_anything_list --------
+
+/** List all CLIs available in the CLI-Anything hub. */
+export function buildOmoCliAnythingListTool(deps: OmoCliAnythingDeps) {
+  return tool({
+    description:
+      "List all CLIs available in the CLI-Anything hub (40+ GUI software harnesses). " +
+      "USAGE: omo_cli_anything_list with category='image' returns only image-related CLIs. " +
+      "Returns JSON with name, version, description, category, install_cmd, entry_point. " +
+      "See https://github.com/HKUDS/CLI-Anything.",
+    args: {
+      category: z
+        .string()
+        .optional()
+        .describe("Optional category filter (e.g. 'image', 'devops', '3d', 'audio')"),
+      source: z
+        .enum(["harness", "public", "npm", "all"])
+        .optional()
+        .describe("Optional source filter. 'all' includes harness + public + npm."),
+    },
+    async execute(args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const { listClis } = await import("./cli-anything")
+const result = listClis(
+        { category: args.category, source: args.source },
+        deps.runner,
+        30_000,
+        "cli-hub",
+      )
+      return cliAnythingResultToTool(
+        "omo_cli_anything_list",
+        { category: args.category, source: args.source },
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `Could not list CLIs from the hub. Make sure cli-anything-hub is installed: \`pip install cli-anything-hub\`.`,
+      )
+    },
+  })
+}
+
+// -------- omo_cli_anything_search --------
+
+/** Search the CLI-Anything hub for CLIs matching a query. */
+export function buildOmoCliAnythingSearchTool(deps: OmoCliAnythingDeps) {
+  return tool({
+    description:
+      "Search the CLI-Anything hub for CLIs matching a query (name, description, or category). " +
+      "USAGE: omo_cli_anything_search with query='cad' returns CAD-related CLIs. " +
+      "Returns JSON array. See https://github.com/HKUDS/CLI-Anything.",
+    args: {
+      query: z.string().min(1).describe("Search query (matches name, description, or category)"),
+    },
+    async execute(args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+const { searchClis } = await import("./cli-anything")
+      const result = searchClis(args.query, deps.runner, 30_000, "cli-hub")
+      return cliAnythingResultToTool(
+        "omo_cli_anything_search",
+        { query: args.query },
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `Search failed. Make sure cli-anything-hub is installed: \`pip install cli-anything-hub\`.`,
+      )
+    },
+  })
+}
+
+// -------- omo_cli_anything_info --------
+
+/** Show details (display name, version, requires, install cmd, entry point) for a CLI. */
+export function buildOmoCliAnythingInfoTool(deps: OmoCliAnythingDeps) {
+  return tool({
+    description:
+      "Show details for a specific CLI in the CLI-Anything hub. " +
+      "USAGE: omo_cli_anything_info with name='blender' returns display name, version, " +
+      "description, requirements (e.g. 'blender (apt install blender)'), entry point, install command. " +
+      "See https://github.com/HKUDS/CLI-Anything.",
+    args: {
+      name: z.string().min(1).describe("The CLI name to look up"),
+    },
+    async execute(args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+const { infoCli } = await import("./cli-anything")
+      const result = infoCli(args.name, deps.runner, 10_000, "cli-hub")
+      return cliAnythingResultToTool(
+        "omo_cli_anything_info",
+        { name: args.name },
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `Could not find '${args.name}' in the hub. Try omo_cli_anything_search to find similar names.`,
+      )
+    },
+  })
+}

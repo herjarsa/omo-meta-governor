@@ -127,6 +127,19 @@ export interface MetaGovernorPluginConfig {
      * Default false (opt-in — multi-project users want explicit control). */
     addToGlobalGraph?: boolean
   }
+  /** v0.28.0: CLI-Anything hub auto-install + auto-upgrade. Opt-in.
+   *  When enabled, the plugin ensures `cli-anything-hub` (pip) and
+   *  `cli-hub-meta-skill` (npx skills) are installed and current. */
+  cliAnything?: {
+    enabled?: boolean
+    autoInstall?: boolean
+    autoUpgrade?: boolean
+    cachePath?: string
+    upgradeCheckTtlMs?: number
+    cliHubBin?: string
+    skillsBin?: string
+    installScope?: "global" | "project"
+  }
   /** Skill priming config (v0.20.0): proactive skill-selection nudge. */
   skillPriming?: {
     enabled?: boolean
@@ -330,6 +343,17 @@ graphSync: {
       // v0.27.0: extended routing knobs.
       preferLocalCodegraph: full.graphRetrieval?.preferLocalCodegraph === true,
       contextRouting: full.graphRetrieval?.contextRouting === true,
+    },
+    // v0.28.0: CLI-Anything hub auto-install + auto-upgrade projection.
+    cliAnything: {
+      enabled: full.cliAnything?.enabled !== false,
+      autoInstall: full.cliAnything?.autoInstall !== false,
+      autoUpgrade: full.cliAnything?.autoUpgrade !== false,
+      cachePath: full.cliAnything?.cachePath,
+      upgradeCheckTtlMs: full.cliAnything?.upgradeCheckTtlMs,
+      cliHubBin: full.cliAnything?.cliHubBin ?? "cli-hub",
+      skillsBin: full.cliAnything?.skillsBin ?? "npx skills",
+      installScope: full.cliAnything?.installScope ?? "global",
     },
   }
 }

@@ -409,6 +409,52 @@ default: true,
           },
         },
       },
+      cliAnything: {
+        type: "object",
+        description: "v0.28.0: CLI-Anything hub auto-install + auto-upgrade. When enabled, the plugin ensures `cli-anything-hub` (pip) and `cli-hub-meta-skill` (npx skills) are installed and current.",
+        additionalProperties: false,
+        properties: {
+          enabled: {
+            type: "boolean",
+            description: "v0.28.0: master toggle. Set to false to disable all CLI-Anything auto-install/auto-upgrade behavior. Default true.",
+            default: true,
+          },
+          autoInstall: {
+            type: "boolean",
+            description: "v0.28.0: when true, install cli-anything-hub and cli-hub-meta-skill if missing. Default true.",
+            default: true,
+          },
+          autoUpgrade: {
+            type: "boolean",
+            description: "v0.28.0: when true, run auto-upgrade probes per the cache TTL. Default true.",
+            default: true,
+          },
+          cachePath: {
+            type: "string",
+            description: "v0.28.0: filesystem path for the upgrade-cache file (tracks latest-known cli-anything-hub version to avoid re-querying PyPI on every load). Default ~/.config/opencode/omo-cli-anything-upgrade-check.json.",
+          },
+          upgradeCheckTtlMs: {
+            type: "number",
+            description: "v0.28.0: minimum ms between PyPI queries for version checks. Default 24h.",
+          },
+          cliHubBin: {
+            type: "string",
+            description: "v0.28.0: override the cli-hub binary path. Default 'cli-hub' (looked up in PATH).",
+            default: "cli-hub",
+          },
+          skillsBin: {
+            type: "string",
+            description: "v0.28.0: override the skills invocation. Default 'npx skills' (the Vercel Labs skills CLI).",
+            default: "npx skills",
+          },
+          installScope: {
+            type: "string",
+            enum: ["global", "project"],
+            description: "v0.28.0: scope for the cli-hub-meta-skill install. 'global' (default) installs to ~/.claude/skills/, 'project' to ./.claude/skills/.",
+            default: "global",
+          },
+        },
+      },
     },
     definitions: {
       verbosity: {

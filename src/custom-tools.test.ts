@@ -46,6 +46,11 @@ buildOmoPathTool,
   buildOmoAddTool,
   buildOmoCheckUpdateTool,
   buildOmoHookStatusTool,
+  // v0.28.0: CLI-Anything hub discovery tools
+  buildOmoCliAnythingInstallTool,
+  buildOmoCliAnythingListTool,
+  buildOmoCliAnythingSearchTool,
+  buildOmoCliAnythingInfoTool,
 } from "./custom-tools"
 import type { GraphInvocationResult, GraphRetrieval, GraphRetrievalConfig } from "./graph-retrieval"
 import type { SqliteBackend } from "./sqlite-backend"
@@ -422,9 +427,14 @@ it("all 12 omo_* tools export a description, args, and execute", () => {
     buildOmoCloneTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
     buildOmoAddTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
     buildOmoCheckUpdateTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
-    buildOmoHookStatusTool({ cwd: "/tmp" }),
+buildOmoHookStatusTool({ cwd: "/tmp" }),
+    // v0.28.0: CLI-Anything hub discovery tools
+    buildOmoCliAnythingInstallTool({ cwd: "/tmp" }),
+    buildOmoCliAnythingListTool({ cwd: "/tmp" }),
+    buildOmoCliAnythingSearchTool({ cwd: "/tmp" }),
+    buildOmoCliAnythingInfoTool({ cwd: "/tmp" }),
   ]
-  expect(tools).toHaveLength(33)
+  expect(tools).toHaveLength(37)
   for (const t of tools) {
     expect(t.description).toBeDefined()
     expect(t.args).toBeDefined()
@@ -742,5 +752,51 @@ describe("Wave 3 P2 — omo_hook_status", () => {
     const result = await (t.execute as any)({}, { sessionID: "s1" })
     expect(result.metadata.installed).toBeDefined()
     expect(result.output).toMatch(/hook/)
+  })
+})
+
+
+// v0.28.0: mock runner to avoid spawning real pip/npx in tests.
+const mockRunner = (cmd: string) => {
+  if (cmd.includes("cli-hub install")) return "Installed cli-anything-fake"
+  if (cmd.includes("cli-hub list")) return JSON.stringify([{ name: "fake", version: "1.0" }])
+  if (cmd.includes("cli-hub search")) return JSON.stringify([{ name: "fake-search", version: "1.0" }])
+  if (cmd.includes("cli-hub info")) return "  Fake\n  Test entry\n"
+  throw new Error(`unmocked: ${cmd}`)
+}
+
+describe("v0.28.0 — omo_cli_anything_install", () => {
+  it("then calls installCli with the given name", async () => {
+    const t = buildOmoCliAnythingInstallTool({ cwd: "/tmp", runner: mockRunner })
+    const result = await (t.execute as any)({ name: "fake" }, { sessionID: "s1" })
+    expect(result.metadata.name).toBe("fake")
+    expect(result.metadata.code).toBe("cli-hub-install-succeeded")
+  })
+})
+
+describe("v0.28.0 — omo_cli_anything_list", () => {
+  it("then returns parsed JSON output", async () => {
+    const t = buildOmoCliAnythingListTool({ cwd: "/tmp", runner: mockRunner })
+    const result = await (t.execute as any)({}, { sessionID: "s1" })
+    expect(result.metadata.tool).toBe("omo_cli_anything_list")
+    expect(result.output).toContain("fake")
+  })
+})
+
+describe("v0.28.0 — omo_cli_anything_search", () => {
+  it("then returns the search results", async () => {
+    const t = buildOmoCliAnythingSearchTool({ cwd: "/tmp", runner: mockRunner })
+    const result = await (t.execute as any)({ query: "fake" }, { sessionID: "s1" })
+    expect(result.metadata.query).toBe("fake")
+    expect(result.output).toContain("fake-search")
+  })
+})
+
+describe("v0.28.0 — omo_cli_anything_info", () => {
+  it("then returns the info block", async () => {
+    const t = buildOmoCliAnythingInfoTool({ cwd: "/tmp", runner: mockRunner })
+    const result = await (t.execute as any)({ name: "fake" }, { sessionID: "s1" })
+    expect(result.metadata.name).toBe("fake")
+    expect(result.output).toContain("Fake")
   })
 })

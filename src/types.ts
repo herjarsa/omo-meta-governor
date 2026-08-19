@@ -684,6 +684,17 @@ readonly preferLocalCodegraph: boolean;
 /** v0.27.0: route omo_search to codegraph `context` instead of `explore`. */
 readonly contextRouting: boolean;
 };
+/** v0.28.0: CLI-Anything hub auto-install + auto-upgrade. */
+readonly cliAnything: {
+readonly enabled: boolean;
+readonly autoInstall: boolean;
+readonly autoUpgrade: boolean;
+readonly cachePath: string | undefined;
+readonly upgradeCheckTtlMs: number | undefined;
+readonly cliHubBin: string;
+readonly skillsBin: string;
+readonly installScope: "global" | "project";
+};
 }
 
 /**

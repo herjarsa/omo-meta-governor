@@ -101,6 +101,17 @@ preferredTool: "auto",
 preferLocalCodegraph: false,
 contextRouting: false,
 },
+// v0.28.0: CLI-Anything hub defaults — opt-out via cliAnything.enabled=false.
+cliAnything: {
+enabled: true,
+autoInstall: true,
+autoUpgrade: true,
+cachePath: undefined,
+upgradeCheckTtlMs: undefined,
+cliHubBin: "cli-hub",
+skillsBin: "npx skills",
+installScope: "global",
+},
 });
 
 const EMPTY_MEMORY_READ: MemoryRead = {

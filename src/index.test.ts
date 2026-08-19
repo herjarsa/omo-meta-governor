@@ -18,7 +18,16 @@
  */
 import { describe, expect, test } from "bun:test"
 import pluginModule from "./index"
-import { createMetaGovernorPlugin } from "./lib"
+import { createMetaGovernorPlugin, type MetaGovernorPluginDeps } from "./lib"
+
+// v0.28.0: hermetic no-op so the default export's factory invocation never
+// spawns real pip/uv/npx under bun:test (matches __test_runGraphSync pattern).
+const fakeRunCliAnythingSync = (async () => ({
+  attempted: false,
+  codes: ["cli-anything-upgrade-skipped"],
+  availability: { cliHub: false, cliHubVersion: null, metaSkill: false },
+  alreadyInitialized: true,
+})) as unknown as NonNullable<MetaGovernorPluginDeps["__test_runCliAnythingSync"]>
 
 describe("default export (v0.19.4 dual-shape)", () => {
   test("is a callable function (Plugin path)", () => {
@@ -48,7 +57,10 @@ describe("named exports still work", () => {
       // file (~/.config/opencode/omo-meta-governor.jsonc) — CI has none, so
       // the early-return would strip tool.execute.after (env-dependent test,
       // exposed when the CI workflow YAML was fixed on 14/08/2026).
-      { meta_governor: { enabled: true, graphSync: { enabled: false } } } as never,
+      // v0.28.0: cli-anything MUST also be opted out, otherwise the
+      // index.ts default-export factory invokes runCliAnythingSync which
+      // spawns pip/uv/npx and blocks bun:test's 5s runner.
+      { meta_governor: { enabled: true, graphSync: { enabled: false }, cliAnything: { enabled: false } } } as never,
     )
     expect(typeof hooks["tool.execute.after"]).toBe("function")
     expect(typeof hooks["experimental.session.compacting"]).toBe("function")
