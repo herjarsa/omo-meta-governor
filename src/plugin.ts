@@ -4,7 +4,8 @@ import type {
   PluginInput,
   PluginOptions,
 } from "@opencode-ai/plugin";
-import { randomUUID as crypto_randomUUID } from "node:crypto";
+import { randomUUID as crypto_randomUUID, createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import type {
   AgentmemoryWriteBackend,
   DecisionHandlerOutput,
@@ -225,10 +226,32 @@ export function createMetaGovernorPlugin(
     projectHasCodegraph: graphRetrieval.hasCodegraphDir(cwd),
     projectHasGraphify: graphRetrieval.hasGraphifyDir(cwd),
   });
+  // v0.26.3: include a short SHA-256 fingerprint of the loaded bundle so
+  // stale-cache issues are immediately diagnosable (the user can compare
+  // the fingerprint to the expected one for the installed version).
+  // The hash is read from the same file Bun actually loaded — if Bun is
+  // serving an older bundle from a cached path, the hash will NOT match
+  // the npm registry tarball for the same version.
+  let bundleFingerprint = "?";
+  try {
+    const bundleUrl = import.meta.url;
+    const bundlePath = fileURLToPath(bundleUrl);
+    const bundleBytes = readFileSync(bundlePath);
+    bundleFingerprint = createHash("sha256")
+      .update(bundleBytes)
+      .digest("hex")
+      .slice(0, 8);
+  } catch {
+    // best-effort — never fail plugin load because of the diagnostic line
+  }
   // v0.26.2: one-line console confirmation so the user sees the plugin
   // actually loaded (v0.26.1 silenced all info logs, which made the
   // startup signal invisible). The verbose data stays in meta-governor.log.
-  console.log(`[meta-governor] v${DEFAULT_VERSION} loaded`);
+  // v0.26.3: append the bundle fingerprint so the user can detect a stale
+  // Bun module cache that didn't pick up the new npm package.
+  console.log(
+    `[meta-governor] v${DEFAULT_VERSION} loaded (bundle: ${bundleFingerprint})`,
+  );
 
   // v0.24.3: detect stale npm cache. When opencode caches an older version,
   // the plugin loads silently with outdated code. This async check runs
