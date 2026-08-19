@@ -469,13 +469,14 @@ export function createMetaGovernorPlugin(
         const text = await loadProtocol(protocolPath);
         systemInjection = buildSystemInjection(text);
       } catch (err: unknown) {
-        if (
-          typeof console !== "undefined" &&
-          mergedConfig.modelOverride?.verbosity !== "silent"
-        ) {
-          console.warn(
-            "[meta-governor] could not load protocol:",
-            err instanceof Error ? err.message : err,
+        // v0.26.1: file-only log (was console.warn — leaked into TUI).
+        // The `verbosity !== "silent"` guard is preserved so users who
+        // explicitly set silent mode skip even file write (matches plugin
+        // intent across all subsystems).
+        if (mergedConfig.modelOverride?.verbosity !== "silent") {
+          logToFile(
+            "warn",
+            `could not load protocol: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
       }
@@ -701,9 +702,8 @@ export function createMetaGovernorPlugin(
         }
 
         if (systemInjection) {
-          console.log(
-            "[meta-governor] protocol loaded, system injection ready",
-          );
+          // v0.26.1: file-only log (was console.log — leaked into TUI).
+          logToFile("info", "protocol loaded, system injection ready");
         }
 
         // v0.17.1: pass _output.args (was {}) so the audit actually sees

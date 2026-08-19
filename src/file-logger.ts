@@ -175,13 +175,16 @@ function emit(level: LogLevel, message: string, data?: unknown, event?: string, 
   } catch {
     // best-effort
   }
-  // Mirror to console for journald
+  // v0.26.1: Mirror ONLY fatal errors to console.
+  // Previous design mirrored every level to console "for journald" — but
+  // opencode plugins run inside the TUI server process, so every console
+  // write leaks into the user's terminal output and pollutes the TUI.
+  // Warnings and info routes are now file-only; logs are inspectable via
+  // `tail -f ~/.config/opencode/meta-governor.log`.
+  // Errors still surface because they're the only category worth breaking
+  // the user's flow for.
   if (level === "error") {
     console.error(`[meta-governor] ${message}`)
-  } else if (level === "warn") {
-    console.warn(`[meta-governor] ${message}`)
-  } else {
-    console.log(`[meta-governor] ${message}`)
   }
 }
 
