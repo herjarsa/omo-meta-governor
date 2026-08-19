@@ -17,10 +17,10 @@
 
 import { execSync, spawn } from "node:child_process"
 import { access, stat } from "node:fs/promises"
-import { resolve } from "node:path"
+import { resolve, join } from "node:path"
 import { homedir } from "node:os"
 import { constants } from "node:fs"
-import { killProcessTree, trackPid, untrackPid, runGuardedSync, killOrphanedToolProcesses } from "./proc-guard"
+import { killProcessTree, trackPid, untrackPid, runGuardedSync, runGuarded, killOrphanedToolProcesses } from "./proc-guard"
 
 // ─── GraphSync config ──────────────────────────────────────────────
 
@@ -49,6 +49,9 @@ autoInstall: boolean
   upgradeCachePath?: string
   /** v0.26.0: also call `graphify check-update` on plugin load and trigger re-extraction when the semantic-update flag is set. Default true. */
   checkGraphifyNeedsUpdate?: boolean
+  /** v0.27.0: opt-in. Register the project graph in the global graphify
+   * registry after initial install so 'graphify global list' surfaces it. */
+  addToGlobalGraph?: boolean
 /** v0.21.0: test-only DI seam — replaces execSync so availability probes
    * never spawn real npx/pip/graphify in hermetic tests (CI Windows: the
    * npx download + 4 fallbacks exceeded the 30s test timeout). */
@@ -480,6 +483,8 @@ export type GraphSyncCode =
   | "codegraph-upgrade-broken"
   | "graphify-reextract-triggered"
   | "upgrade-cache-written"
+  | "graphify-added-to-global"
+  | "graphify-global-add-failed"
 /**
 * Run the graphSync pipeline. Best-effort, never throws.
 */
@@ -698,6 +703,22 @@ export async function runGraphSync(
     if (availability.graphify) {
       startWatch(projectDir, "graphify")
       codes.push("watch-started-graphify")
+    }
+  }
+
+  // v0.27.0: opt-in global graph registration. Only fires after a successful
+  // graphify init AND when the user explicitly opted in. Best-effort — never
+  // throws, just logs a diagnostic code on failure.
+  if (config.addToGlobalGraph === true && availability.graphify) {
+    try {
+      await runGuarded(
+        "graphify",
+        ["global", "add", join(projectDir, "graphify-out")],
+        { cwd: projectDir, timeoutMs: 10_000 },
+      )
+      codes.push("graphify-added-to-global")
+    } catch {
+      codes.push("graphify-global-add-failed")
     }
   }
 

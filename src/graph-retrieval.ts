@@ -399,6 +399,91 @@ export class GraphRetrieval {
     return this.invokeCodegraphSubcommand("files", undefined, projectDir, options)
   }
 
+  // -------- v0.27.0: extended codegraph sub-command surface --------
+
+  /** `codegraph context <task>` — task-focused context window. */
+  async invokeContext(
+    task: string,
+    projectDir: string,
+    options: InvokeOptions = {},
+  ): Promise<GraphInvocationResult> {
+    return this.invokeCodegraphSubcommand("context", task, projectDir, options)
+  }
+
+  /** `codegraph affected <file...>` — files affected by changes in the given files. */
+  async invokeAffected(
+    files: string[],
+    projectDir: string,
+    options: InvokeOptions = {},
+  ): Promise<GraphInvocationResult> {
+    return this.invokeCodegraphSubcommand("affected", files, projectDir, options)
+  }
+
+  /** `codegraph status` — codegraph health (node count, version, last update). */
+  async invokeStatus(
+    projectDir: string,
+    options: InvokeOptions = {},
+  ): Promise<GraphInvocationResult> {
+    return this.invokeCodegraphSubcommand("status", undefined, projectDir, options)
+  }
+
+  /** `codegraph unlock` — remove stale lock file. */
+  async invokeUnlock(
+    projectDir: string,
+    options: InvokeOptions = {},
+  ): Promise<GraphInvocationResult> {
+    return this.invokeCodegraphSubcommand("unlock", undefined, projectDir, options)
+  }
+
+  /** `codegraph mark-dirty` — mark the graph dirty. */
+  async invokeMarkDirty(
+    projectDir: string,
+    options: InvokeOptions = {},
+  ): Promise<GraphInvocationResult> {
+    return this.invokeCodegraphSubcommand("mark-dirty", undefined, projectDir, options)
+  }
+
+  /** `codegraph sync-if-dirty` — sync if the graph was marked dirty. */
+  async invokeSyncIfDirty(
+    projectDir: string,
+    options: InvokeOptions = {},
+  ): Promise<GraphInvocationResult> {
+    return this.invokeCodegraphSubcommand("sync-if-dirty", undefined, projectDir, options)
+  }
+
+  /** `codegraph index` — manual full index trigger. */
+  async invokeIndex(
+    projectDir: string,
+    options: InvokeOptions = {},
+  ): Promise<GraphInvocationResult> {
+    return this.invokeCodegraphSubcommand("index", undefined, projectDir, options)
+  }
+
+  /** `codegraph visualize` — generate visualization HTML. */
+  async invokeVisualize(
+    projectDir: string,
+    options: InvokeOptions = {},
+  ): Promise<GraphInvocationResult> {
+    return this.invokeCodegraphSubcommand("visualize", undefined, projectDir, options)
+  }
+
+  /** `codegraph serve --port <n>` — start the codegraph server. */
+  async invokeServe(
+    port: number,
+    projectDir: string,
+    options: InvokeOptions = {},
+  ): Promise<GraphInvocationResult> {
+    return this.invokeCodegraphSubcommand("serve", String(port), projectDir, options)
+  }
+
+  /** `codegraph uninit` — remove the codegraph index from disk. */
+  async invokeUninit(
+    projectDir: string,
+    options: InvokeOptions = {},
+  ): Promise<GraphInvocationResult> {
+    return this.invokeCodegraphSubcommand("uninit", undefined, projectDir, options)
+  }
+
   // -------- Internal: shared codegraph sub-command runner --------
 
   /**
@@ -406,8 +491,22 @@ export class GraphRetrieval {
    * Returns null result if codegraph is not available.
    */
   private async invokeCodegraphSubcommand(
-    subcommand: "node" | "callers" | "impact" | "files",
-    argument: string | undefined,
+    subcommand:
+      | "node"
+      | "callers"
+      | "impact"
+      | "files"
+      | "context"
+      | "affected"
+      | "status"
+      | "unlock"
+      | "mark-dirty"
+      | "sync-if-dirty"
+      | "index"
+      | "visualize"
+      | "serve"
+      | "uninit",
+    argument: string | string[] | undefined,
     projectDir: string,
     options: InvokeOptions,
   ): Promise<GraphInvocationResult> {
@@ -416,9 +515,15 @@ export class GraphRetrieval {
 
     // Codegraph is the only tool that supports these sub-commands.
     if (!this.hasCodegraphDir(projectDir)) {
+      const queryLabel =
+        argument === undefined
+          ? subcommand
+          : Array.isArray(argument)
+            ? argument.join(",")
+            : argument
       return {
         kind: null,
-        query: argument ?? subcommand,
+        query: queryLabel,
         result: null,
         timedOut: false,
         durationMs: Date.now() - start,
@@ -426,15 +531,27 @@ export class GraphRetrieval {
     }
 
     const cmd = options.codegraphBin ?? "codegraph"
-    const args = argument
-      ? [subcommand, argument, "--project-path", projectDir]
-      : [subcommand, "--project-path", projectDir]
+    // v0.27.0: arguments may now be a string[] for sub-commands that take
+    // multiple values (e.g. `affected <file...>`, `serve --port <n>`).
+    const argList: string[] = argument === undefined
+      ? []
+      : Array.isArray(argument)
+        ? argument
+        : [argument]
+    const args = [subcommand, ...argList, "--project-path", projectDir]
+    // v0.27.0: stringify the argument for the human-readable `query` field.
+    const queryLabel =
+      argument === undefined
+        ? subcommand
+        : Array.isArray(argument)
+          ? argument.join(",")
+          : argument
 
     try {
       const output = await this.spawnWithTimeout(cmd, args, timeoutMs, projectDir)
       return {
         kind: "codegraph",
-        query: argument ?? subcommand,
+        query: queryLabel,
         result: output.trim() || null,
         timedOut: false,
         durationMs: Date.now() - start,
@@ -443,7 +560,7 @@ export class GraphRetrieval {
       const isTimeout = err instanceof Error && /timed out/i.test(err.message)
       return {
         kind: "codegraph",
-        query: argument ?? subcommand,
+        query: queryLabel,
         result: null,
         timedOut: isTimeout,
         durationMs: Date.now() - start,
@@ -495,24 +612,79 @@ export class GraphRetrieval {
   // -------- Internal: graphify sub-command runner --------
 
   private async invokeGraphifySubcommand(
-    subcommand: "path" | "explain",
-    argument: string,
+    subcommand:
+      | "path"
+      | "explain"
+      | "diagnose"
+      | "merge-driver"
+      | "save-result"
+      | "extract"
+      | "cluster-only"
+      | "label"
+      | "tree"
+      | "clone"
+      | "add"
+      | "check-update",
+    argument: string | undefined,
     projectDir: string,
     options: InvokeOptions,
   ): Promise<GraphInvocationResult> {
     const start = Date.now()
     const timeoutMs = options.timeoutMs ?? this.timeoutMs
     if (!this.hasGraphifyDir(projectDir)) {
-      return { kind: null, query: argument, result: null, timedOut: false, durationMs: Date.now() - start }
+      return { kind: null, query: argument ?? subcommand, result: null, timedOut: false, durationMs: Date.now() - start }
     }
     const cmd = options.graphifyBin ?? "graphify"
-    const args = [subcommand, argument]
+    const args = argument === undefined ? [subcommand] : [subcommand, argument]
     try {
       const output = await this.spawnWithTimeout(cmd, args, timeoutMs, projectDir)
-      return { kind: "graphify", query: argument, result: output.trim() || null, timedOut: false, durationMs: Date.now() - start }
+      return { kind: "graphify", query: argument ?? subcommand, result: output.trim() || null, timedOut: false, durationMs: Date.now() - start }
     } catch (err) {
-      return { kind: "graphify", query: argument, result: null, timedOut: err instanceof Error && /timed out/i.test(err.message), durationMs: Date.now() - start }
+      return { kind: "graphify", query: argument ?? subcommand, result: null, timedOut: err instanceof Error && /timed out/i.test(err.message), durationMs: Date.now() - start }
     }
+  }
+
+  // -------- v0.27.0: extended graphify sub-command surface --------
+
+  /** `graphify diagnose` — find multigraph warnings and inconsistencies. */
+  async invokeDiagnose(projectDir: string, options: InvokeOptions = {}): Promise<GraphInvocationResult> {
+    return this.invokeGraphifySubcommand("diagnose", undefined, projectDir, options)
+  }
+  /** `graphify merge-driver` — 3-way merge of conflicting graph segments. */
+  async invokeMergeDriver(projectDir: string, options: InvokeOptions = {}): Promise<GraphInvocationResult> {
+    return this.invokeGraphifySubcommand("merge-driver", undefined, projectDir, options)
+  }
+  /** `graphify save-result` — persist the last query result. */
+  async invokeSaveResult(projectDir: string, options: InvokeOptions = {}): Promise<GraphInvocationResult> {
+    return this.invokeGraphifySubcommand("save-result", undefined, projectDir, options)
+  }
+  /** `graphify extract` — re-run semantic extraction over the source tree. */
+  async invokeExtract(projectDir: string, options: InvokeOptions = {}): Promise<GraphInvocationResult> {
+    return this.invokeGraphifySubcommand("extract", undefined, projectDir, options)
+  }
+  /** `graphify cluster-only` — re-run clustering only (skip extraction). */
+  async invokeClusterOnly(projectDir: string, options: InvokeOptions = {}): Promise<GraphInvocationResult> {
+    return this.invokeGraphifySubcommand("cluster-only", undefined, projectDir, options)
+  }
+  /** `graphify label <node>` — apply a label to a node. */
+  async invokeLabel(node: string, projectDir: string, options: InvokeOptions = {}): Promise<GraphInvocationResult> {
+    return this.invokeGraphifySubcommand("label", node, projectDir, options)
+  }
+  /** `graphify tree` — emit a tree visualization. */
+  async invokeTree(projectDir: string, options: InvokeOptions = {}): Promise<GraphInvocationResult> {
+    return this.invokeGraphifySubcommand("tree", undefined, projectDir, options)
+  }
+  /** `graphify clone` — clone the graph to a new path. */
+  async invokeClone(projectDir: string, options: InvokeOptions = {}): Promise<GraphInvocationResult> {
+    return this.invokeGraphifySubcommand("clone", undefined, projectDir, options)
+  }
+  /** `graphify add <files>` — add specific files to the graph. */
+  async invokeAdd(files: string, projectDir: string, options: InvokeOptions = {}): Promise<GraphInvocationResult> {
+    return this.invokeGraphifySubcommand("add", files, projectDir, options)
+  }
+  /** `graphify check-update` — check if schema or extractors changed. */
+  async invokeCheckUpdate(projectDir: string, options: InvokeOptions = {}): Promise<GraphInvocationResult> {
+    return this.invokeGraphifySubcommand("check-update", undefined, projectDir, options)
   }
 
 

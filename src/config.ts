@@ -122,6 +122,10 @@ export interface MetaGovernorPluginConfig {
      * 'graphify-reextract-triggered' diagnostic code if the schema changed.
      * Default true. */
     checkGraphifyNeedsUpdate?: boolean
+    /** v0.27.0: when true, register the project graph in the global graphify
+     * registry after initial install (so 'graphify global list' surfaces it).
+     * Default false (opt-in — multi-project users want explicit control). */
+    addToGlobalGraph?: boolean
   }
   /** Skill priming config (v0.20.0): proactive skill-selection nudge. */
   skillPriming?: {
@@ -138,6 +142,13 @@ export interface MetaGovernorPluginConfig {
    */
   graphRetrieval?: {
     preferredTool?: "auto" | "codegraph" | "graphify" | "alternate"
+    /** v0.27.0: when true, prefer the locally-installed codegraph binary
+     * (node_modules/.bin/codegraph) over the npx-resolved one. Default false. */
+    preferLocalCodegraph?: boolean
+    /** v0.27.0: route omo_search queries to codegraph `context` instead of
+     * `explore`. Default false. context returns a focused code window; explore
+     * returns a conceptual explanation. */
+    contextRouting?: boolean
   }
 }
 
@@ -310,10 +321,15 @@ graphSync: {
       autoUpgrade: full.graphSync?.autoUpgrade !== false,
       upgradeCachePath: full.graphSync?.upgradeCachePath,
       checkGraphifyNeedsUpdate: full.graphSync?.checkGraphifyNeedsUpdate !== false,
+      // v0.27.0: opt-in global graph registration.
+      addToGlobalGraph: full.graphSync?.addToGlobalGraph === true,
 },
     // v0.25.0: explicit codegraph/graphify routing.
     graphRetrieval: {
       preferredTool: full.graphRetrieval?.preferredTool ?? "auto",
+      // v0.27.0: extended routing knobs.
+      preferLocalCodegraph: full.graphRetrieval?.preferLocalCodegraph === true,
+      contextRouting: full.graphRetrieval?.contextRouting === true,
     },
   }
 }

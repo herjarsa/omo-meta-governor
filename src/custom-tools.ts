@@ -937,3 +937,594 @@ export function buildOmoNodeTool(deps: OmoNodeDeps) {
     },
   })
 }
+
+
+// ============================================================================
+// v0.27.0: Wave 3 P2 — extended graph tool wrappers (omo_context, omo_affected,
+// omo_status, omo_unlock, omo_mark_dirty, omo_sync_if_dirty, omo_index,
+// omo_visualize, omo_serve, omo_uninit, omo_diagnose, omo_merge_graphs,
+// omo_save_result, omo_extract, omo_cluster_only, omo_label, omo_tree,
+// omo_clone, omo_add, omo_check_update, omo_hook_status)
+// ============================================================================
+
+export interface OmoGraphToolDeps {
+  graphRetrieval?: GraphRetrieval
+  cwd: string
+}
+
+function graphResultToTool(
+  toolName: string,
+  meta: Record<string, unknown>,
+  result: { result: string | null; kind: string | null; durationMs: number },
+  start: number,
+  ctx: ToolContext,
+  friendlyHint: string,
+): ToolResult {
+  const durationMs = Date.now() - start
+  if (!result.result) {
+    return {
+      title: `${toolName}: no result`,
+      output: friendlyHint,
+      metadata: { tool: toolName, kind: result.kind, durationMs, sessionID: ctx.sessionID, ...meta },
+    }
+  }
+  return {
+    title: toolName,
+    output: result.result,
+    metadata: { tool: toolName, kind: result.kind, durationMs, sessionID: ctx.sessionID, ...meta },
+  }
+}
+
+// -------- codegraph: context --------
+
+/** `codegraph context <task>` — task-focused code context window. */
+export function buildOmoContextTool(deps: OmoGraphToolDeps) {
+  return tool({
+    description:
+      "Get a focused code context window for a given task. " +
+      "USAGE: omo_context with task='validate JWT tokens' returns relevant code blocks (file paths + line ranges). " +
+      "Codegraph-only — returns null if .codegraph/ is missing.",
+    args: {
+      task: z.string().min(1).describe("The task to extract context for"),
+    },
+    async execute(args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeContext(args.task, deps.cwd, { timeoutMs: 5_000 })
+      return graphResultToTool(
+        "omo_context",
+        { task: args.task },
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `No context for task "${args.task}". Run \`npx codegraph init\` if the index doesn't exist.`,
+      )
+    },
+  })
+}
+
+// -------- codegraph: affected --------
+
+/** `codegraph affected <files>` — files affected by changes in the given files. */
+export function buildOmoAffectedCgTool(deps: OmoGraphToolDeps) {
+  return tool({
+    description:
+      "List files affected by changes in the given source files. " +
+      "USAGE: omo_affected_cg with files=['src/auth.ts'] returns the set of test files, callers, and dependent modules. " +
+      "Codegraph-only.",
+    args: {
+      files: z.array(z.string().min(1)).min(1).describe("Source file paths to analyze (relative to cwd)"),
+    },
+    async execute(args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeAffected(args.files, deps.cwd, { timeoutMs: 5_000 })
+      return graphResultToTool(
+        "omo_affected_cg",
+        { files: args.files.join(",") },
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `Could not compute affected files for [${args.files.join(", ")}]. Run \`npx codegraph init\` if needed.`,
+      )
+    },
+  })
+}
+
+// -------- codegraph: status --------
+
+/** `codegraph status` — codegraph health (node count, version, last update). */
+export function buildOmoStatusTool(deps: OmoGraphToolDeps) {
+  return tool({
+    description:
+      "Show codegraph health: node count, version, last update timestamp. " +
+      "USAGE: omo_status returns a multi-line report. Codegraph-only.",
+    args: {},
+    async execute(_args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeStatus(deps.cwd, { timeoutMs: 5_000 })
+      return graphResultToTool(
+        "omo_status",
+        {},
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `codegraph is not installed or has no index. Run \`npx codegraph init\` to create one.`,
+      )
+    },
+  })
+}
+
+// -------- codegraph: unlock --------
+
+/** `codegraph unlock` — remove stale lock file. */
+export function buildOmoUnlockTool(deps: OmoGraphToolDeps) {
+  return tool({
+    description:
+      "Remove a stale codegraph lock file (left behind after a crash). " +
+      "USAGE: omo_unlock clears the lock so the next sync can run. Codegraph-only.",
+    args: {},
+    async execute(_args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeUnlock(deps.cwd, { timeoutMs: 5_000 })
+      return graphResultToTool(
+        "omo_unlock",
+        {},
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `codegraph is not installed.`,
+      )
+    },
+  })
+}
+
+// -------- codegraph: mark-dirty --------
+
+/** `codegraph mark-dirty` — mark the graph as needing a re-sync. */
+export function buildOmoMarkDirtyTool(deps: OmoGraphToolDeps) {
+  return tool({
+    description:
+      "Mark the codegraph index as dirty so the next sync re-extracts. " +
+      "USAGE: omo_mark_dirty when you know source files changed without git hooks firing.",
+    args: {},
+    async execute(_args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeMarkDirty(deps.cwd, { timeoutMs: 5_000 })
+      return graphResultToTool(
+        "omo_mark_dirty",
+        {},
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `codegraph is not installed.`,
+      )
+    },
+  })
+}
+
+// -------- codegraph: sync-if-dirty --------
+
+/** `codegraph sync-if-dirty` — sync only if the graph was marked dirty. */
+export function buildOmoSyncIfDirtyTool(deps: OmoGraphToolDeps) {
+  return tool({
+    description:
+      "Trigger a codegraph sync ONLY if the graph was previously marked dirty. " +
+      "USAGE: omo_sync_if_dirty is a cheap daily check; omo_status shows the dirty flag.",
+    args: {},
+    async execute(_args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeSyncIfDirty(deps.cwd, { timeoutMs: 30_000 })
+      return graphResultToTool(
+        "omo_sync_if_dirty",
+        {},
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `codegraph is not installed or no index exists.`,
+      )
+    },
+  })
+}
+
+// -------- codegraph: index --------
+
+/** `codegraph index` — manual full index trigger. */
+export function buildOmoIndexTool(deps: OmoGraphToolDeps) {
+  return tool({
+    description:
+      "Manually trigger a full codegraph reindex. " +
+      "USAGE: omo_index when you want a guaranteed-fresh graph (bypasses the dirty-flag check).",
+    args: {},
+    async execute(_args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeIndex(deps.cwd, { timeoutMs: 60_000 })
+      return graphResultToTool(
+        "omo_index",
+        {},
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `codegraph is not installed. Run \`npm i -D @colbymchenry/codegraph\` first.`,
+      )
+    },
+  })
+}
+
+// -------- codegraph: visualize --------
+
+/** `codegraph visualize` — generate visualization HTML. */
+export function buildOmoVisualizeTool(deps: OmoGraphToolDeps) {
+  return tool({
+    description:
+      "Generate an HTML visualization of the codegraph. " +
+      "USAGE: omo_visualize returns the path to the generated HTML file.",
+    args: {},
+    async execute(_args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeVisualize(deps.cwd, { timeoutMs: 30_000 })
+      return graphResultToTool(
+        "omo_visualize",
+        {},
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `codegraph is not installed.`,
+      )
+    },
+  })
+}
+
+// -------- codegraph: serve --------
+
+/** `codegraph serve --port <n>` — start the codegraph server. */
+export function buildOmoServeTool(deps: OmoGraphToolDeps) {
+  return tool({
+    description:
+      "Start the codegraph HTTP server on the given port. " +
+      "USAGE: omo_serve with port=3030 starts the server in the background. Returns the port + status.",
+    args: {
+      port: z.number().int().min(1).max(65535).describe("TCP port to bind the codegraph server to"),
+    },
+    async execute(args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeServe(args.port, deps.cwd, { timeoutMs: 5_000 })
+      return graphResultToTool(
+        "omo_serve",
+        { port: args.port },
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `codegraph is not installed. Run \`npm i -D @colbymchenry/codegraph\` first.`,
+      )
+    },
+  })
+}
+
+// -------- codegraph: uninit --------
+
+/** `codegraph uninit` — remove the codegraph index from disk. */
+export function buildOmoUninitTool(deps: OmoGraphToolDeps) {
+  return tool({
+    description:
+      "Remove the codegraph index (.codegraph/) from disk. " +
+      "USAGE: omo_uninit when you want a clean slate — next sync will rebuild from scratch.",
+    args: {},
+    async execute(_args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeUninit(deps.cwd, { timeoutMs: 5_000 })
+      return graphResultToTool(
+        "omo_uninit",
+        {},
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `codegraph is not installed.`,
+      )
+    },
+  })
+}
+
+// -------- graphify: diagnose --------
+
+/** `graphify diagnose` — find multigraph warnings and inconsistencies. */
+export function buildOmoDiagnoseTool(deps: OmoGraphToolDeps) {
+  return tool({
+    description:
+      "Diagnose the graphify graph for inconsistencies, multigraph warnings, and stale nodes. " +
+      "USAGE: omo_diagnose returns a JSON-like report. Graphify-only.",
+    args: {},
+    async execute(_args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeDiagnose(deps.cwd, { timeoutMs: 10_000 })
+      return graphResultToTool(
+        "omo_diagnose",
+        {},
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `graphify is not installed. Run \`pip install graphifyy\` first.`,
+      )
+    },
+  })
+}
+
+// -------- graphify: merge-graphs --------
+
+/** `graphify merge-driver` — 3-way merge of conflicting graph segments. */
+export function buildOmoMergeGraphsTool(deps: OmoGraphToolDeps) {
+  return tool({
+    description:
+      "Run graphify's 3-way merge driver to resolve conflicting graph segments. " +
+      "USAGE: omo_merge_graphs when git reports a conflict in graphify-out/. Graphify-only.",
+    args: {},
+    async execute(_args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeMergeDriver(deps.cwd, { timeoutMs: 30_000 })
+      return graphResultToTool(
+        "omo_merge_graphs",
+        {},
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `graphify is not installed.`,
+      )
+    },
+  })
+}
+
+// -------- graphify: save-result --------
+
+/** `graphify save-result` — persist the last query result. */
+export function buildOmoSaveResultTool(deps: OmoGraphToolDeps) {
+  return tool({
+    description:
+      "Persist the result of the last graphify query to disk for later inspection. " +
+      "USAGE: omo_save_result after omo_explain or omo_path returns a useful output.",
+    args: {},
+    async execute(_args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeSaveResult(deps.cwd, { timeoutMs: 5_000 })
+      return graphResultToTool(
+        "omo_save_result",
+        {},
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `graphify is not installed.`,
+      )
+    },
+  })
+}
+
+// -------- graphify: extract --------
+
+/** `graphify extract` — re-run semantic extraction over the source tree. */
+export function buildOmoExtractTool(deps: OmoGraphToolDeps) {
+  return tool({
+    description:
+      "Re-run graphify's semantic extraction over the entire source tree. " +
+      "USAGE: omo_extract when the graph schema changed and you want a fresh semantic layer.",
+    args: {},
+    async execute(_args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeExtract(deps.cwd, { timeoutMs: 60_000 })
+      return graphResultToTool(
+        "omo_extract",
+        {},
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `graphify is not installed.`,
+      )
+    },
+  })
+}
+
+// -------- graphify: cluster-only --------
+
+/** `graphify cluster-only` — re-run clustering only. */
+export function buildOmoClusterOnlyTool(deps: OmoGraphToolDeps) {
+  return tool({
+    description:
+      "Re-run graphify's clustering step (skip semantic extraction). " +
+      "USAGE: omo_cluster_only after minor node additions to refresh the topic map.",
+    args: {},
+    async execute(_args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeClusterOnly(deps.cwd, { timeoutMs: 30_000 })
+      return graphResultToTool(
+        "omo_cluster_only",
+        {},
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `graphify is not installed.`,
+      )
+    },
+  })
+}
+
+// -------- graphify: label --------
+
+/** `graphify label <node>` — apply a label to a node. */
+export function buildOmoLabelTool(deps: OmoGraphToolDeps) {
+  return tool({
+    description:
+      "Apply a label to a graphify node (e.g. for categorization or human notes). " +
+      "USAGE: omo_label with node='validateToken' applies a label.",
+    args: {
+      node: z.string().min(1).describe("The graph node to label"),
+    },
+    async execute(args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeLabel(args.node, deps.cwd, { timeoutMs: 5_000 })
+      return graphResultToTool(
+        "omo_label",
+        { node: args.node },
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `graphify is not installed.`,
+      )
+    },
+  })
+}
+
+// -------- graphify: tree --------
+
+/** `graphify tree` — emit a tree visualization. */
+export function buildOmoTreeTool(deps: OmoGraphToolDeps) {
+  return tool({
+    description:
+      "Emit a tree visualization of the graphify graph (hierarchical topic layout). " +
+      "USAGE: omo_tree for a structural overview of the topic map. Graphify-only.",
+    args: {},
+    async execute(_args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeTree(deps.cwd, { timeoutMs: 10_000 })
+      return graphResultToTool(
+        "omo_tree",
+        {},
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `graphify is not installed.`,
+      )
+    },
+  })
+}
+
+// -------- graphify: clone --------
+
+/** `graphify clone` — clone the graph to a new path. */
+export function buildOmoCloneTool(deps: OmoGraphToolDeps) {
+  return tool({
+    description:
+      "Clone the graphify graph to a new location. " +
+      "USAGE: omo_clone when forking a project or creating a backup.",
+    args: {},
+    async execute(_args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeClone(deps.cwd, { timeoutMs: 30_000 })
+      return graphResultToTool(
+        "omo_clone",
+        {},
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `graphify is not installed.`,
+      )
+    },
+  })
+}
+
+// -------- graphify: add --------
+
+/** `graphify add <files>` — add specific files to the graph. */
+export function buildOmoAddTool(deps: OmoGraphToolDeps) {
+  return tool({
+    description:
+      "Add specific files to the graphify graph (instead of re-extracting the whole tree). " +
+      "USAGE: omo_add with files='src/auth.ts src/login.ts' after writing new files.",
+    args: {
+      files: z.string().min(1).describe("Space-separated list of file paths to add (relative to cwd)"),
+    },
+    async execute(args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeAdd(args.files, deps.cwd, { timeoutMs: 30_000 })
+      return graphResultToTool(
+        "omo_add",
+        { files: args.files },
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `graphify is not installed.`,
+      )
+    },
+  })
+}
+
+// -------- graphify: check-update --------
+
+/** `graphify check-update` — check if schema or extractors changed. */
+export function buildOmoCheckUpdateTool(deps: OmoGraphToolDeps) {
+  return tool({
+    description:
+      "Check if the graphify schema or extractors changed since the last extraction. " +
+      "USAGE: omo_check_update to decide if re-extraction is needed. Graphify-only.",
+    args: {},
+    async execute(_args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
+      const result = await retrieval.invokeCheckUpdate(deps.cwd, { timeoutMs: 10_000 })
+      return graphResultToTool(
+        "omo_check_update",
+        {},
+        { ...result, durationMs: Date.now() - start },
+        start,
+        ctx,
+        `graphify is not installed.`,
+      )
+    },
+  })
+}
+
+
+
+// ============================================================================
+// v0.27.0: omo_hook_status — check whether graphify post-commit hook is installed
+// ============================================================================
+
+export interface OmoHookStatusDeps {
+  cwd: string
+}
+
+/** `graphify hook status` — check whether the graphify post-commit hook is installed. */
+export function buildOmoHookStatusTool(deps: OmoHookStatusDeps) {
+  return tool({
+    description:
+      "Check whether the graphify post-commit git hook is installed in this project. " +
+      "USAGE: omo_hook_status returns 'installed' or 'missing' along with the hook path. " +
+      "Run after `git init` to confirm the hook is wired.",
+    args: {},
+    async execute(_args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      // Lazy import to avoid circular deps with graph-sync.ts
+      const { isGraphifyHookInstalled } = await import("./graph-sync")
+      const installed = await isGraphifyHookInstalled(deps.cwd)
+      const hookPath = `${deps.cwd}/.git/hooks/post-commit`
+      const output = installed
+        ? `graphify post-commit hook is INSTALLED at ${hookPath}.`
+        : `graphify post-commit hook is NOT installed. Run \`graphify hook install\` or enable graphSync in plugin config to install automatically.`
+      return {
+        title: `omo_hook_status: ${installed ? "installed" : "missing"}`,
+        output,
+        metadata: {
+          tool: "omo_hook_status",
+          installed,
+          hookPath,
+          durationMs: Date.now() - start,
+          sessionID: ctx.sessionID,
+        },
+      }
+    },
+  })
+}

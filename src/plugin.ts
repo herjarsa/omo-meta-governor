@@ -35,6 +35,28 @@ import {
   buildOmoFilesTool,
   buildOmoCallersTool,
   buildOmoNodeTool,
+  // v0.27.0 Wave 3 P2 — extended graph tool surface
+  buildOmoContextTool,
+  buildOmoAffectedCgTool,
+  buildOmoStatusTool,
+  buildOmoUnlockTool,
+  buildOmoMarkDirtyTool,
+  buildOmoSyncIfDirtyTool,
+  buildOmoIndexTool,
+  buildOmoVisualizeTool,
+  buildOmoServeTool,
+  buildOmoUninitTool,
+  buildOmoDiagnoseTool,
+  buildOmoMergeGraphsTool,
+  buildOmoSaveResultTool,
+  buildOmoExtractTool,
+  buildOmoClusterOnlyTool,
+  buildOmoLabelTool,
+  buildOmoTreeTool,
+  buildOmoCloneTool,
+  buildOmoAddTool,
+  buildOmoCheckUpdateTool,
+  buildOmoHookStatusTool,
 } from "./custom-tools";
 import { getMCPClient } from "./mcp-client";
 import {
@@ -214,6 +236,28 @@ export function createMetaGovernorPlugin(
   const omoFilesTool = buildOmoFilesTool({ graphRetrieval, cwd });
   const omoCallersTool = buildOmoCallersTool({ graphRetrieval, cwd });
   const omoNodeTool = buildOmoNodeTool({ graphRetrieval, cwd });
+  // v0.27.0 Wave 3 P2 — extended graph tool surface
+  const omoContextTool = buildOmoContextTool({ graphRetrieval, cwd });
+  const omoAffectedCgTool = buildOmoAffectedCgTool({ graphRetrieval, cwd });
+  const omoStatusTool = buildOmoStatusTool({ graphRetrieval, cwd });
+  const omoUnlockTool = buildOmoUnlockTool({ graphRetrieval, cwd });
+  const omoMarkDirtyTool = buildOmoMarkDirtyTool({ graphRetrieval, cwd });
+  const omoSyncIfDirtyTool = buildOmoSyncIfDirtyTool({ graphRetrieval, cwd });
+  const omoIndexTool = buildOmoIndexTool({ graphRetrieval, cwd });
+  const omoVisualizeTool = buildOmoVisualizeTool({ graphRetrieval, cwd });
+  const omoServeTool = buildOmoServeTool({ graphRetrieval, cwd });
+  const omoUninitTool = buildOmoUninitTool({ graphRetrieval, cwd });
+  const omoDiagnoseTool = buildOmoDiagnoseTool({ graphRetrieval, cwd });
+  const omoMergeGraphsTool = buildOmoMergeGraphsTool({ graphRetrieval, cwd });
+  const omoSaveResultTool = buildOmoSaveResultTool({ graphRetrieval, cwd });
+  const omoExtractTool = buildOmoExtractTool({ graphRetrieval, cwd });
+  const omoClusterOnlyTool = buildOmoClusterOnlyTool({ graphRetrieval, cwd });
+  const omoLabelTool = buildOmoLabelTool({ graphRetrieval, cwd });
+  const omoTreeTool = buildOmoTreeTool({ graphRetrieval, cwd });
+  const omoCloneTool = buildOmoCloneTool({ graphRetrieval, cwd });
+  const omoAddTool = buildOmoAddTool({ graphRetrieval, cwd });
+  const omoCheckUpdateTool = buildOmoCheckUpdateTool({ graphRetrieval, cwd });
+  const omoHookStatusTool = buildOmoHookStatusTool({ cwd });
   // Log startup so the user can see the plugin is loaded. The version is
   // prepended to the message (and included in the structured fields) so
   // OpenChamber's startup log shows exactly which release is loaded —
@@ -466,6 +510,28 @@ export function createMetaGovernorPlugin(
           omo_files: omoFilesTool,
           omo_callers: omoCallersTool,
           omo_node: omoNodeTool,
+          // v0.27.0 Wave 3 P2 — extended graph tool surface
+          omo_context: omoContextTool,
+          omo_affected_cg: omoAffectedCgTool,
+          omo_status: omoStatusTool,
+          omo_unlock: omoUnlockTool,
+          omo_mark_dirty: omoMarkDirtyTool,
+          omo_sync_if_dirty: omoSyncIfDirtyTool,
+          omo_index: omoIndexTool,
+          omo_visualize: omoVisualizeTool,
+          omo_serve: omoServeTool,
+          omo_uninit: omoUninitTool,
+          omo_diagnose: omoDiagnoseTool,
+          omo_merge_graphs: omoMergeGraphsTool,
+          omo_save_result: omoSaveResultTool,
+          omo_extract: omoExtractTool,
+          omo_cluster_only: omoClusterOnlyTool,
+          omo_label: omoLabelTool,
+          omo_tree: omoTreeTool,
+          omo_clone: omoCloneTool,
+          omo_add: omoAddTool,
+          omo_check_update: omoCheckUpdateTool,
+          omo_hook_status: omoHookStatusTool,
         },
     };
     }
@@ -1756,6 +1822,28 @@ export function createMetaGovernorPlugin(
         omo_files: omoFilesTool,
         omo_callers: omoCallersTool,
         omo_node: omoNodeTool,
+        // v0.27.0 Wave 3 P2 — extended graph tool surface
+        omo_context: omoContextTool,
+        omo_affected_cg: omoAffectedCgTool,
+        omo_status: omoStatusTool,
+        omo_unlock: omoUnlockTool,
+        omo_mark_dirty: omoMarkDirtyTool,
+        omo_sync_if_dirty: omoSyncIfDirtyTool,
+        omo_index: omoIndexTool,
+        omo_visualize: omoVisualizeTool,
+        omo_serve: omoServeTool,
+        omo_uninit: omoUninitTool,
+        omo_diagnose: omoDiagnoseTool,
+        omo_merge_graphs: omoMergeGraphsTool,
+        omo_save_result: omoSaveResultTool,
+        omo_extract: omoExtractTool,
+        omo_cluster_only: omoClusterOnlyTool,
+        omo_label: omoLabelTool,
+        omo_tree: omoTreeTool,
+        omo_clone: omoCloneTool,
+        omo_add: omoAddTool,
+        omo_check_update: omoCheckUpdateTool,
+        omo_hook_status: omoHookStatusTool,
       },
 
       // v0.13.1: inject lesson context at compaction time so learned patterns

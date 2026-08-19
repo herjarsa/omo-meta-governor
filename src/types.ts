@@ -667,6 +667,8 @@ readonly autoUpgrade: boolean;
 readonly upgradeCachePath: string | undefined;
 /** v0.26.0: when true, run 'graphify check-update' after upgrade and emit a diagnostic if schema changed. */
 readonly checkGraphifyNeedsUpdate: boolean;
+/** v0.27.0: opt-in. Register the project graph in the global graphify registry after install. */
+readonly addToGlobalGraph: boolean;
 };
 /**
 * v0.25.0: explicit routing between codegraph and graphify.
@@ -677,6 +679,10 @@ readonly checkGraphifyNeedsUpdate: boolean;
 */
 readonly graphRetrieval: {
 readonly preferredTool: "auto" | "codegraph" | "graphify" | "alternate";
+/** v0.27.0: prefer the locally-installed codegraph binary over npx. */
+readonly preferLocalCodegraph: boolean;
+/** v0.27.0: route omo_search to codegraph `context` instead of `explore`. */
+readonly contextRouting: boolean;
 };
 }
 

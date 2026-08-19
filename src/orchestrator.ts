@@ -91,10 +91,15 @@ fetchBranch: "main",
 autoUpgrade: true,
 upgradeCachePath: undefined,
 checkGraphifyNeedsUpdate: true,
+// v0.27.0: opt-in global graph registration.
+addToGlobalGraph: false,
 },
 // v0.25.0: explicit codegraph/graphify routing — default auto.
+// v0.27.0: extended routing knobs.
 graphRetrieval: {
 preferredTool: "auto",
+preferLocalCodegraph: false,
+contextRouting: false,
 },
 });
 

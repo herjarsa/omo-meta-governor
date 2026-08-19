@@ -24,6 +24,28 @@ buildOmoPathTool,
   buildOmoFilesTool,
   buildOmoCallersTool,
   buildOmoNodeTool,
+  // v0.27.0 Wave 3 P2
+  buildOmoContextTool,
+  buildOmoAffectedCgTool,
+  buildOmoStatusTool,
+  buildOmoUnlockTool,
+  buildOmoMarkDirtyTool,
+  buildOmoSyncIfDirtyTool,
+  buildOmoIndexTool,
+  buildOmoVisualizeTool,
+  buildOmoServeTool,
+  buildOmoUninitTool,
+  buildOmoDiagnoseTool,
+  buildOmoMergeGraphsTool,
+  buildOmoSaveResultTool,
+  buildOmoExtractTool,
+  buildOmoClusterOnlyTool,
+  buildOmoLabelTool,
+  buildOmoTreeTool,
+  buildOmoCloneTool,
+  buildOmoAddTool,
+  buildOmoCheckUpdateTool,
+  buildOmoHookStatusTool,
 } from "./custom-tools"
 import type { GraphInvocationResult, GraphRetrieval, GraphRetrievalConfig } from "./graph-retrieval"
 import type { SqliteBackend } from "./sqlite-backend"
@@ -380,8 +402,29 @@ it("all 12 omo_* tools export a description, args, and execute", () => {
     buildOmoFilesTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
     buildOmoCallersTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
     buildOmoNodeTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoContextTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoAffectedCgTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoStatusTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoUnlockTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoMarkDirtyTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoSyncIfDirtyTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoIndexTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoVisualizeTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoServeTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoUninitTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoDiagnoseTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoMergeGraphsTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoSaveResultTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoExtractTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoClusterOnlyTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoLabelTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoTreeTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoCloneTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoAddTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoCheckUpdateTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoHookStatusTool({ cwd: "/tmp" }),
   ]
-  expect(tools).toHaveLength(12)
+  expect(tools).toHaveLength(33)
   for (const t of tools) {
     expect(t.description).toBeDefined()
     expect(t.args).toBeDefined()
@@ -435,5 +478,269 @@ describe("verifyDelivery (Gap I — deliveryStatus=expired)", () => {
     // pendingRegistryRef is null (set by beforeEach)
     const status = await verifyDelivery("test-session", "test-tool", 100)
     expect(status).toBe("pending")
+  })
+})
+
+
+// ============================================================================
+// v0.27.0 Wave 3 P2 — extended graph tool surface
+// ============================================================================
+
+function makeWave3Fake(overrides: Partial<GraphRetrieval> = {}): GraphRetrieval {
+  const base = makeFakeGraphRetrieval()
+  return Object.assign(base, overrides) as GraphRetrieval
+}
+
+describe("Wave 3 P2 — omo_context", () => {
+  it("then returns the context window for a task", async () => {
+    const fake = makeWave3Fake({
+      invokeContext: async () => ({
+        kind: "codegraph",
+        query: "validate JWT",
+        result: "// src/auth.ts\nfunction validateToken() { ... }",
+        timedOut: false,
+        durationMs: 12,
+      }),
+    })
+    const t = buildOmoContextTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({ task: "validate JWT" }, { sessionID: "s1" })
+    expect(result.output).toContain("validateToken")
+  })
+
+  it("then returns a friendly hint when no result", async () => {
+    const fake = makeWave3Fake({
+      invokeContext: async () => ({ kind: null, query: "x", result: null, timedOut: false, durationMs: 0 }),
+    })
+    const t = buildOmoContextTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({ task: "x" }, { sessionID: "s1" })
+    expect(result.output).toContain("codegraph init")
+  })
+})
+
+describe("Wave 3 P2 — omo_affected_cg", () => {
+  it("then returns affected files for given inputs", async () => {
+    const fake = makeWave3Fake({
+      invokeAffected: async () => ({
+        kind: "codegraph",
+        query: "src/auth.ts",
+        result: "src/auth.test.ts\nsrc/login.test.ts",
+        timedOut: false,
+        durationMs: 7,
+      }),
+    })
+    const t = buildOmoAffectedCgTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({ files: ["src/auth.ts"] }, { sessionID: "s1" })
+    expect(result.output).toContain("auth.test")
+  })
+})
+
+describe("Wave 3 P2 — omo_status", () => {
+  it("then returns codegraph status", async () => {
+    const fake = makeWave3Fake({
+      invokeStatus: async () => ({
+        kind: "codegraph", query: "status", result: "nodes: 1234\nversion: 1.5.0", timedOut: false, durationMs: 5,
+      }),
+    })
+    const t = buildOmoStatusTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({}, { sessionID: "s1" })
+    expect(result.output).toContain("nodes: 1234")
+  })
+})
+
+describe("Wave 3 P2 — omo_unlock", () => {
+  it("then reports unlock success", async () => {
+    const fake = makeWave3Fake({
+      invokeUnlock: async () => ({ kind: "codegraph", query: "unlock", result: "lock removed", timedOut: false, durationMs: 3 }),
+    })
+    const t = buildOmoUnlockTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({}, { sessionID: "s1" })
+    expect(result.output).toBe("lock removed")
+  })
+})
+
+describe("Wave 3 P2 — omo_mark_dirty", () => {
+  it("then confirms graph was marked dirty", async () => {
+    const fake = makeWave3Fake({
+      invokeMarkDirty: async () => ({ kind: "codegraph", query: "mark-dirty", result: "marked", timedOut: false, durationMs: 2 }),
+    })
+    const t = buildOmoMarkDirtyTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({}, { sessionID: "s1" })
+    expect(result.output).toBe("marked")
+  })
+})
+
+describe("Wave 3 P2 — omo_sync_if_dirty", () => {
+  it("then syncs when graph is dirty", async () => {
+    const fake = makeWave3Fake({
+      invokeSyncIfDirty: async () => ({ kind: "codegraph", query: "sync-if-dirty", result: "synced", timedOut: false, durationMs: 50 }),
+    })
+    const t = buildOmoSyncIfDirtyTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({}, { sessionID: "s1" })
+    expect(result.output).toBe("synced")
+  })
+})
+
+describe("Wave 3 P2 — omo_index", () => {
+  it("then triggers a manual full index", async () => {
+    const fake = makeWave3Fake({
+      invokeIndex: async () => ({ kind: "codegraph", query: "index", result: "indexed 1500 files", timedOut: false, durationMs: 120 }),
+    })
+    const t = buildOmoIndexTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({}, { sessionID: "s1" })
+    expect(result.output).toContain("indexed")
+  })
+})
+
+describe("Wave 3 P2 — omo_visualize", () => {
+  it("then returns the visualization HTML path", async () => {
+    const fake = makeWave3Fake({
+      invokeVisualize: async () => ({ kind: "codegraph", query: "visualize", result: "/tmp/.codegraph/viz.html", timedOut: false, durationMs: 30 }),
+    })
+    const t = buildOmoVisualizeTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({}, { sessionID: "s1" })
+    expect(result.output).toContain("viz.html")
+  })
+})
+
+describe("Wave 3 P2 — omo_serve", () => {
+  it("then starts the server on the given port", async () => {
+    const fake = makeWave3Fake({
+      invokeServe: async () => ({ kind: "codegraph", query: "serve 3030", result: "listening on 3030", timedOut: false, durationMs: 10 }),
+    })
+    const t = buildOmoServeTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({ port: 3030 }, { sessionID: "s1" })
+    expect(result.output).toContain("3030")
+  })
+})
+
+describe("Wave 3 P2 — omo_uninit", () => {
+  it("then reports uninit success", async () => {
+    const fake = makeWave3Fake({
+      invokeUninit: async () => ({ kind: "codegraph", query: "uninit", result: "removed .codegraph/", timedOut: false, durationMs: 5 }),
+    })
+    const t = buildOmoUninitTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({}, { sessionID: "s1" })
+    expect(result.output).toContain("removed")
+  })
+})
+
+describe("Wave 3 P2 — omo_diagnose", () => {
+  it("then returns the diagnose report", async () => {
+    const fake = makeWave3Fake({
+      invokeDiagnose: async () => ({ kind: "graphify", query: "diagnose", result: "warnings: 0\nnodes: 1500", timedOut: false, durationMs: 12 }),
+    })
+    const t = buildOmoDiagnoseTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({}, { sessionID: "s1" })
+    expect(result.output).toContain("warnings")
+  })
+})
+
+describe("Wave 3 P2 — omo_merge_graphs", () => {
+  it("then merges conflicting segments", async () => {
+    const fake = makeWave3Fake({
+      invokeMergeDriver: async () => ({ kind: "graphify", query: "merge-driver", result: "merged successfully", timedOut: false, durationMs: 20 }),
+    })
+    const t = buildOmoMergeGraphsTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({}, { sessionID: "s1" })
+    expect(result.output).toBe("merged successfully")
+  })
+})
+
+describe("Wave 3 P2 — omo_save_result", () => {
+  it("then persists the last query result", async () => {
+    const fake = makeWave3Fake({
+      invokeSaveResult: async () => ({ kind: "graphify", query: "save-result", result: "saved to /tmp/result.json", timedOut: false, durationMs: 3 }),
+    })
+    const t = buildOmoSaveResultTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({}, { sessionID: "s1" })
+    expect(result.output).toContain("saved")
+  })
+})
+
+describe("Wave 3 P2 — omo_extract", () => {
+  it("then re-extracts the semantic layer", async () => {
+    const fake = makeWave3Fake({
+      invokeExtract: async () => ({ kind: "graphify", query: "extract", result: "extracted 1500 nodes", timedOut: false, durationMs: 200 }),
+    })
+    const t = buildOmoExtractTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({}, { sessionID: "s1" })
+    expect(result.output).toContain("extracted")
+  })
+})
+
+describe("Wave 3 P2 — omo_cluster_only", () => {
+  it("then re-clusters without re-extracting", async () => {
+    const fake = makeWave3Fake({
+      invokeClusterOnly: async () => ({ kind: "graphify", query: "cluster-only", result: "clustered", timedOut: false, durationMs: 50 }),
+    })
+    const t = buildOmoClusterOnlyTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({}, { sessionID: "s1" })
+    expect(result.output).toBe("clustered")
+  })
+})
+
+describe("Wave 3 P2 — omo_label", () => {
+  it("then applies a label to a node", async () => {
+    const fake = makeWave3Fake({
+      invokeLabel: async () => ({ kind: "graphify", query: "label validateToken", result: "labeled", timedOut: false, durationMs: 3 }),
+    })
+    const t = buildOmoLabelTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({ node: "validateToken" }, { sessionID: "s1" })
+    expect(result.output).toBe("labeled")
+  })
+})
+
+describe("Wave 3 P2 — omo_tree", () => {
+  it("then emits the hierarchical tree", async () => {
+    const fake = makeWave3Fake({
+      invokeTree: async () => ({ kind: "graphify", query: "tree", result: "auth/\n  login.ts\n  session.ts", timedOut: false, durationMs: 5 }),
+    })
+    const t = buildOmoTreeTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({}, { sessionID: "s1" })
+    expect(result.output).toContain("auth/")
+  })
+})
+
+describe("Wave 3 P2 — omo_clone", () => {
+  it("then clones the graph", async () => {
+    const fake = makeWave3Fake({
+      invokeClone: async () => ({ kind: "graphify", query: "clone", result: "cloned to ./graphify-out-backup", timedOut: false, durationMs: 30 }),
+    })
+    const t = buildOmoCloneTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({}, { sessionID: "s1" })
+    expect(result.output).toContain("cloned")
+  })
+})
+
+describe("Wave 3 P2 — omo_add", () => {
+  it("then adds files to the graph", async () => {
+    const fake = makeWave3Fake({
+      invokeAdd: async () => ({ kind: "graphify", query: "add src/auth.ts", result: "added 1 file", timedOut: false, durationMs: 8 }),
+    })
+    const t = buildOmoAddTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({ files: "src/auth.ts" }, { sessionID: "s1" })
+    expect(result.output).toContain("added")
+  })
+})
+
+describe("Wave 3 P2 — omo_check_update", () => {
+  it("then reports whether re-extraction is needed", async () => {
+    const fake = makeWave3Fake({
+      invokeCheckUpdate: async () => ({ kind: "graphify", query: "check-update", result: "schema unchanged", timedOut: false, durationMs: 12 }),
+    })
+    const t = buildOmoCheckUpdateTool({ graphRetrieval: fake, cwd: "/tmp" })
+    const result = await (t.execute as any)({}, { sessionID: "s1" })
+    expect(result.output).toBe("schema unchanged")
+  })
+})
+
+
+
+describe("Wave 3 P2 — omo_hook_status", () => {
+  it("then reports whether the graphify post-commit hook is installed", async () => {
+    const t = buildOmoHookStatusTool({ cwd: "/tmp" })
+    const result = await (t.execute as any)({}, { sessionID: "s1" })
+    expect(result.metadata.installed).toBeDefined()
+    expect(result.output).toMatch(/hook/)
   })
 })

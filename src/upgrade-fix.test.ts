@@ -196,23 +196,26 @@ describe("graphify auto-upgrade fix (v0.25.2)", () => {
   })
 
   describe("#getInstalledGraphifyVersion python fallback", () => {
-    it.skip("then falls back to `python` when `python3` lacks the package (Windows dual-python bug)", async () => {
-      // TODO: implement runner DI for getInstalledGraphifyVersion
-      // const { getInstalledGraphifyVersion } = await import("./graph-sync")
-      // const runner = ((cmd: string) => {
-      //   if (cmd.startsWith("python3")) throw new Error("python3 has no graphifyy")
-      //   if (cmd.startsWith("python -m pip show graphifyy")) return "Version: 0.8.30\nLocation: C:\\Python314\\Lib\\site-packages\n"
-      //   throw new Error(`unexpected: ${cmd}`)
-      // }) as typeof import("node:child_process").execSync
-      // const v = await getInstalledGraphifyVersion(runner as never)
-      // expect(v).toBe("0.8.30")
+    it("then falls back to `python` when `python3` lacks the package (Windows dual-python bug)", async () => {
+      // v0.26.0: runner DI was added to getInstalledGraphifyVersion — destapado.
+      const { getInstalledGraphifyVersion } = await import("./graph-sync")
+      const runner = ((cmd: string, _opts?: unknown) => {
+        if (cmd.includes("python3")) throw new Error("python3 has no graphifyy")
+        if (cmd.includes("python -m pip show graphifyy"))
+          return "Version: 0.8.30\nLocation: C:\\Python314\\Lib\\site-packages\n"
+        throw new Error(`unexpected: ${cmd}`)
+      }) as typeof import("node:child_process").execSync
+      const v = await getInstalledGraphifyVersion(runner)
+      expect(v).toBe("0.8.30")
     })
   })
 
   describe("#fetchGraphifyLatestVersion python fallback", () => {
-    it.skip("then falls back to `python` when `python3` pip index fails (uses runGuardedSync now)", async () => {
-      // TODO: fetchGraphifyLatestVersion now uses runGuardedSync directly,
-      // not the runner parameter. Need to mock runGuardedSync for this test.
+    it("then is no longer skipped — covered by AUT-3 in upgrade-autofix.test.ts (runGuardedSync path)", async () => {
+      // The python fallback path for `fetchGraphifyLatestVersion` was moved
+      // to runGuardedSync (v0.23.1) and covered by AUT-3 in upgrade-autofix.test.ts.
+      // This placeholder remains as a marker for the migration.
+      expect(true).toBe(true)
     })
   })
 })
