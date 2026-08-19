@@ -225,6 +225,10 @@ export function createMetaGovernorPlugin(
     projectHasCodegraph: graphRetrieval.hasCodegraphDir(cwd),
     projectHasGraphify: graphRetrieval.hasGraphifyDir(cwd),
   });
+  // v0.26.2: one-line console confirmation so the user sees the plugin
+  // actually loaded (v0.26.1 silenced all info logs, which made the
+  // startup signal invisible). The verbose data stays in meta-governor.log.
+  console.log(`[meta-governor] v${DEFAULT_VERSION} loaded`);
 
   // v0.24.3: detect stale npm cache. When opencode caches an older version,
   // the plugin loads silently with outdated code. This async check runs
