@@ -12,15 +12,18 @@ import { describe, expect, it, beforeEach } from "bun:test"
 import { setPendingDeliveryRegistry, verifyDelivery } from "./custom-tools"
 import { PendingDeliveryRegistry } from "./delivery-registry"
 import {
-  buildOmoSearchTool,
-  buildOmoRecallTool,
-  buildOmoHealthTool,
-  buildOmoFindTool,
-  buildOmoImpactTool,
-  buildOmoRememberTool,
-  buildOmoRecallMcpTool,
-  buildOmoPathTool,
+buildOmoSearchTool,
+buildOmoRecallTool,
+buildOmoHealthTool,
+buildOmoFindTool,
+buildOmoImpactTool,
+buildOmoRememberTool,
+buildOmoRecallMcpTool,
+buildOmoPathTool,
   buildOmoExplainTool,
+  buildOmoFilesTool,
+  buildOmoCallersTool,
+  buildOmoNodeTool,
 } from "./custom-tools"
 import type { GraphInvocationResult, GraphRetrieval, GraphRetrievalConfig } from "./graph-retrieval"
 import type { SqliteBackend } from "./sqlite-backend"
@@ -238,26 +241,152 @@ describe("bridge tools (omo_remember, omo_recall_mcp)", () => {
     expect(t.args).toBeDefined()
     expect(typeof t.execute).toBe("function")
   })
+})
 
-it("all 9 tools export a description, args, and execute", () => {
-    const tools = [
-      buildOmoSearchTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
-      buildOmoRecallTool({ sqlite: makeFakeSqlite(), cwd: "/tmp" }),
-      buildOmoHealthTool({ metrics: makeFakeMetrics(), cwd: "/tmp" }),
-      buildOmoFindTool({ cwd: "/tmp" }),
-      buildOmoImpactTool({ cwd: "/tmp" }),
-      buildOmoRememberTool({ cwd: "/tmp" }),
-      buildOmoRecallMcpTool({ cwd: "/tmp" }),
-                  buildOmoPathTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
-      buildOmoExplainTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
-                ]
-    expect(tools).toHaveLength(9)
-    for (const t of tools) {
-      expect(t.description).toBeDefined()
-      expect(t.args).toBeDefined()
-      expect(typeof t.execute).toBe("function")
-    }
+// ─── Wave 2: omo_files / omo_callers / omo_node (v0.26.0) ──────────────────
+
+describe("buildOmoFilesTool (v0.26.0 FIL-1..FIL-3)", () => {
+  it("FIL-1: returns tool with description, args, execute", () => {
+    const fake = {
+      invokeFiles: async () => ({
+        kind: "codegraph" as const,
+        query: "files",
+        result: "src/index.ts\nsrc/main.ts",
+        timedOut: false,
+        durationMs: 5,
+      }),
+    } as unknown as GraphRetrieval
+    const t = buildOmoFilesTool({ cwd: "/tmp", graphRetrieval: fake })
+    expect(t.description).toBeDefined()
+    expect(t.args).toBeDefined()
+    expect(typeof t.execute).toBe("function")
   })
+
+  it("FIL-2: execute returns file list when codegraph backend succeeds", async () => {
+    const fake = {
+      invokeFiles: async () => ({
+        kind: "codegraph" as const,
+        query: "files",
+        result: "src/a.ts\nsrc/b.ts\nsrc/c.ts",
+        timedOut: false,
+        durationMs: 5,
+      }),
+    } as unknown as GraphRetrieval
+    const t = buildOmoFilesTool({ cwd: "/tmp", graphRetrieval: fake })
+    const r = parseToolResult(await t.execute({}, makeCtx()))
+    expect(r.output).toContain("src/a.ts")
+    expect(r.output).toContain("src/b.ts")
+    expect(r.output).toContain("src/c.ts")
+  })
+
+  it("FIL-3: execute returns friendly hint when no index exists", async () => {
+    const fake = {
+      invokeFiles: async () => ({
+        kind: null,
+        query: "files",
+        result: null,
+        timedOut: false,
+        durationMs: 5,
+      }),
+    } as unknown as GraphRetrieval
+    const t = buildOmoFilesTool({ cwd: "/tmp", graphRetrieval: fake })
+    const r = parseToolResult(await t.execute({}, makeCtx()))
+    expect(r.output).toContain("npx codegraph init")
+    expect(r.output).toContain("graphify")
+  })
+})
+
+describe("buildOmoCallersTool (v0.26.0 CAL-1..CAL-2)", () => {
+  it("CAL-1: returns callers when symbol is found", async () => {
+    const fake = {
+      invokeCallers: async () => ({
+        kind: "codegraph" as const,
+        query: "validate",
+        result: "src/a.ts:10\nsrc/b.ts:25\nsrc/c.ts:3",
+        timedOut: false,
+        durationMs: 5,
+      }),
+    } as unknown as GraphRetrieval
+    const t = buildOmoCallersTool({ cwd: "/tmp", graphRetrieval: fake })
+    const r = parseToolResult(await t.execute({ symbol: "validate" }, makeCtx()))
+    expect(r.output).toContain("src/a.ts:10")
+    expect(r.output).toContain("src/b.ts:25")
+    expect(r.output).toContain("src/c.ts:3")
+  })
+
+  it("CAL-2: returns friendly hint when symbol is unknown or no codegraph", async () => {
+    const fake = {
+      invokeCallers: async () => ({
+        kind: null,
+        query: "ghost",
+        result: null,
+        timedOut: false,
+        durationMs: 5,
+      }),
+    } as unknown as GraphRetrieval
+    const t = buildOmoCallersTool({ cwd: "/tmp", graphRetrieval: fake })
+    const r = parseToolResult(await t.execute({ symbol: "ghost" }, makeCtx()))
+    expect(r.output).toContain("No call sites found")
+    expect(r.output).toContain("npx codegraph init")
+  })
+})
+
+describe("buildOmoNodeTool (v0.26.0 NOD-1..NOD-2)", () => {
+  it("NOD-1: returns source + callers when symbol is found", async () => {
+    const fake = {
+      invokeNode: async () => ({
+        kind: "codegraph" as const,
+        query: "UserService.create",
+        result: "function UserService.create(user) { return db.insert(user) }\n\nCallers:\n  src/api/users.ts:42\n  src/cli/seed.ts:8",
+        timedOut: false,
+        durationMs: 5,
+      }),
+    } as unknown as GraphRetrieval
+    const t = buildOmoNodeTool({ cwd: "/tmp", graphRetrieval: fake })
+    const r = parseToolResult(await t.execute({ symbol: "UserService.create" }, makeCtx()))
+    expect(r.output).toContain("function UserService.create")
+    expect(r.output).toContain("src/api/users.ts:42")
+  })
+
+  it("NOD-2: returns friendly hint when symbol is not found", async () => {
+    const fake = {
+      invokeNode: async () => ({
+        kind: null,
+        query: "ghost",
+        result: null,
+        timedOut: false,
+        durationMs: 5,
+      }),
+    } as unknown as GraphRetrieval
+    const t = buildOmoNodeTool({ cwd: "/tmp", graphRetrieval: fake })
+    const r = parseToolResult(await t.execute({ symbol: "ghost" }, makeCtx()))
+    expect(r.output).toContain("was not found")
+    expect(r.output).toContain("npx codegraph init")
+  })
+})
+
+
+it("all 12 omo_* tools export a description, args, and execute", () => {
+  const tools = [
+    buildOmoSearchTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoRecallTool({ sqlite: makeFakeSqlite(), cwd: "/tmp" }),
+    buildOmoHealthTool({ metrics: makeFakeMetrics(), cwd: "/tmp" }),
+    buildOmoFindTool({ cwd: "/tmp" }),
+    buildOmoImpactTool({ cwd: "/tmp" }),
+    buildOmoRememberTool({ cwd: "/tmp" }),
+    buildOmoRecallMcpTool({ cwd: "/tmp" }),
+    buildOmoPathTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoExplainTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoFilesTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoCallersTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+    buildOmoNodeTool({ graphRetrieval: makeFakeGraphRetrieval(), cwd: "/tmp" }),
+  ]
+  expect(tools).toHaveLength(12)
+  for (const t of tools) {
+    expect(t.description).toBeDefined()
+    expect(t.args).toBeDefined()
+    expect(typeof t.execute).toBe("function")
+  }
 })
 
 
