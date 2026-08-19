@@ -45,7 +45,11 @@ autoInstall: boolean
   autoUpgrade?: boolean
   /** v0.12.0: Min ms between registry queries for version check. Default 24h. */
   upgradeCheckTtlMs?: number
-  /** v0.21.0: test-only DI seam — replaces execSync so availability probes
+  /** v0.26.0: Override the upgrade cache file path (default ~/.config/opencode/omo-meta-governor-upgrade-check.json). Tests use this. */
+  upgradeCachePath?: string
+  /** v0.26.0: also call `graphify check-update` on plugin load and trigger re-extraction when the semantic-update flag is set. Default true. */
+  checkGraphifyNeedsUpdate?: boolean
+/** v0.21.0: test-only DI seam — replaces execSync so availability probes
    * never spawn real npx/pip/graphify in hermetic tests (CI Windows: the
    * npx download + 4 fallbacks exceeded the 30s test timeout). */
   runner?: typeof execSync
@@ -70,16 +74,25 @@ export type InstallCode =
  * Best-effort, never throws.
  */
 export async function installCodegraph(
-  projectDir: string,
+projectDir: string,
   timeoutMs: number = 60_000,
+  runner?: typeof execSync,
 ): Promise<InstallCode> {
-  const res = runGuardedSync("npm", ["i", "-D", "@colbymchenry/codegraph"], {
+  const args = ["i", "-D", "@colbymchenry/codegraph"]
+  if (runner) {
+    try {
+      runner(`npm ${args.join(" ")}`, { cwd: projectDir, stdio: "ignore", timeout: timeoutMs } as never)
+      return "codegraph-installed"
+    } catch {
+      return "codegraph-install-failed"
+    }
+  }
+  const res = runGuardedSync("npm", args, {
     cwd: projectDir,
     timeoutMs,
   })
   return res.code === 0 ? "codegraph-installed" : "codegraph-install-failed"
 }
-
 /**
  * Install graphify via `pip install graphifyy --break-system-packages`.
  * Falls back to `uv tool install graphifyy`.
@@ -87,17 +100,33 @@ export async function installCodegraph(
  */
 export async function installGraphify(
   timeoutMs: number = 60_000,
+  runner?: typeof execSync,
 ): Promise<InstallCode> {
-  const pip = runGuardedSync("pip", ["install", "graphifyy", "--break-system-packages", "--quiet"], {
+  // v0.26.0: added `--upgrade` flag. Without it, `pip install` on an already-
+  // installed package returns 0 with "Requirement already satisfied" but does
+  // NOT upgrade — that's why the user had to manually run `pip install --upgrade`.
+  if (runner) {
+    try {
+      runner("pip install --upgrade graphifyy --break-system-packages --quiet", { stdio: "ignore", timeout: timeoutMs } as never)
+      return "graphify-installed"
+    } catch {
+      try {
+        runner("uv tool install --upgrade graphifyy --quiet", { stdio: "ignore", timeout: timeoutMs } as never)
+        return "graphify-installed"
+      } catch {
+        return "graphify-install-failed"
+      }
+    }
+  }
+const pip = runGuardedSync("pip", ["install", "--upgrade", "graphifyy", "--break-system-packages", "--quiet"], {
     timeoutMs,
   })
   if (pip.code === 0) return "graphify-installed"
-  const uv = runGuardedSync("uv", ["tool", "install", "graphifyy", "--quiet"], {
+  const uv = runGuardedSync("uv", ["tool", "install", "--upgrade", "graphifyy", "--quiet"], {
     timeoutMs,
   })
   return uv.code === 0 ? "graphify-installed" : "graphify-install-failed"
 }
-
 // ─── Graph sync state ──────────────────────────────────────────────
 
 const initializedProjects = new Set<string>()
@@ -448,7 +477,9 @@ export type GraphSyncCode =
   | "codegraph-upgraded"
   | "graphify-upgraded"
   | "upgrade-check-skipped"
-
+  | "codegraph-upgrade-broken"
+  | "graphify-reextract-triggered"
+  | "upgrade-cache-written"
 /**
 * Run the graphSync pipeline. Best-effort, never throws.
 */
@@ -500,47 +531,97 @@ export async function runGraphSync(
     }
   }
 
-  // v0.12.0: auto-upgrade check — query registries if cache is stale
+  // v0.12.0 (refactored v0.26.0): auto-upgrade check.
+  // Bug fixes:
+  //   - cache resolution is now inlined into shouldUpgrade() via the cache param.
+  //   - cache is written ONCE at the end, not duplicated per-tool.
+  //   - getInstalledCodegraphVersion/getInstalledGraphifyVersion use the same
+  //     tiered probe as checkToolAvailability and accept a runner DI seam.
   if (config.autoUpgrade !== false) {
     try {
-      const cachePath = getDefaultUpgradeCachePath()
+      const cachePath = config.upgradeCachePath ?? getDefaultUpgradeCachePath()
       const cache = await readUpgradeCache(cachePath)
       const ttlMs = config.upgradeCheckTtlMs ?? 24 * 60 * 60 * 1000
+      // Track fresh-fetched latests so we only fetch each one ONCE per run.
+      const freshLatest = { codegraph: null as string | null, graphify: null as string | null }
+
+      const resolveLatest = async (
+        tool: "codegraph" | "graphify",
+      ): Promise<string | null> => {
+        const field = tool === "codegraph" ? "codegraphLatest" : "graphifyLatest"
+        if (isCacheFresh(cache, ttlMs) && cache?.[field]) return cache[field]!
+        const fetcher = tool === "codegraph" ? fetchCodegraphLatestVersion : fetchGraphifyLatestVersion
+        const latest = await fetcher()
+        freshLatest[tool] = latest
+        return latest
+      }
 
       if (availability.codegraph) {
-        const installed = await getInstalledCodegraphVersion()
-        if (shouldUpgrade(installed, null, cache, ttlMs)) {
-          const latest = await fetchCodegraphLatestVersion()
+        const installed = await getInstalledCodegraphVersion(config.runner)
+        const latest = await resolveLatest("codegraph")
+        if (shouldUpgrade(installed, latest, cache, ttlMs, "codegraphLatest")) {
           if (latest && isNewerVersion(installed, latest)) {
-            const up = await installCodegraph(projectDir, config.installTimeoutMs ?? 60_000)
-            if (up === "codegraph-installed") codes.push("codegraph-upgraded")
+            const up = await installCodegraph(projectDir, config.installTimeoutMs ?? 60_000, config.runner)
+            if (up === "codegraph-installed") {
+              codes.push("codegraph-upgraded")
+              // Bug fix: detect a broken upgrade immediately.
+              // v0.26.0: detect a broken upgrade immediately. If the binary is
+              // gone after install, surface `codegraph-upgrade-broken` so the
+              // user isn't left with a half-broken toolchain.
+              const post = await getInstalledCodegraphVersion(config.runner)
+              if (post == null) codes.push("codegraph-upgrade-broken")
+            }
           }
         }
       }
 
       if (availability.graphify) {
-        const installed = await getInstalledGraphifyVersion()
-        if (shouldUpgrade(installed, null, cache, ttlMs)) {
-          const latest = await fetchGraphifyLatestVersion()
+        const installed = await getInstalledGraphifyVersion(config.runner)
+        const latest = await resolveLatest("graphify")
+        if (shouldUpgrade(installed, latest, cache, ttlMs, "graphifyLatest")) {
           if (latest && isNewerVersion(installed, latest)) {
-            const up = await installGraphify(config.installTimeoutMs ?? 60_000)
+            const up = await installGraphify(config.installTimeoutMs ?? 60_000, config.runner)
             if (up === "graphify-installed") codes.push("graphify-upgraded")
           }
         }
+        if (config.checkGraphifyNeedsUpdate !== false) {
+          try {
+            // v0.26.0: respect the runner DI seam — tests shouldn't spawn real graphify.
+            const checkRes = config.runner
+              ? (() => {
+                  try {
+                    config.runner!("graphify check-update " + projectDir, { cwd: projectDir, stdio: "ignore", timeout: 10_000 } as never)
+                    return { code: 0, stdout: "", stderr: "" }
+                  } catch {
+                    return { code: 1, stdout: "", stderr: "runner rejected" }
+                  }
+                })()
+              : runGuardedSync("graphify", ["check-update", projectDir], { cwd: projectDir, timeoutMs: 10_000 })
+            if (checkRes.code !== 0) {
+              // Semantic re-extraction is pending — trigger it.
+              if (config.runner) {
+                try {
+                  config.runner!("graphify update " + projectDir + " --no-cluster", { cwd: projectDir, stdio: "ignore", timeout: (config.installTimeoutMs ?? 60_000) } as never)
+                } catch { /* best-effort */ }
+              } else {
+                runGuardedSync("graphify", ["update", projectDir, "--no-cluster"], { cwd: projectDir, timeoutMs: config.installTimeoutMs ?? 60_000 })
+              }
+              codes.push("graphify-reextract-triggered")
+            }
+          } catch { /* best-effort */ }
+        }
       }
 
-      // Persist cache after all registry lookups and upgrades
-      const nowMs = Date.now()
+      // Write cache ONCE with both latests (Bug #5: was being written with duplicate fetches).
       try {
-        const cgLatest = await fetchCodegraphLatestVersion()
-        const gfLatest = await fetchGraphifyLatestVersion()
         await writeUpgradeCache(cachePath, {
-          checkedAtMs: nowMs,
-          codegraphLatest: cgLatest ?? undefined,
-          graphifyLatest: gfLatest ?? undefined,
+          checkedAtMs: Date.now(),
+          codegraphLatest: freshLatest.codegraph ?? cache?.codegraphLatest,
+          graphifyLatest: freshLatest.graphify ?? cache?.graphifyLatest,
         })
+        codes.push("upgrade-cache-written")
       } catch {
-        // cache write is best-effort
+        // best-effort
       }
     } catch {
       codes.push("upgrade-check-skipped")
@@ -550,14 +631,14 @@ export async function runGraphSync(
   // Auto-install missing backends
   if (config.autoInstall !== false) {
     if (!availability.codegraph) {
-      const result = await installCodegraph(projectDir, config.installTimeoutMs ?? 60_000)
+      const result = await installCodegraph(projectDir, config.installTimeoutMs ?? 60_000, config.runner)
       codes.push(result as GraphSyncCode)
       if (result === "codegraph-installed") {
         availability.codegraph = true
       }
     }
     if (!availability.graphify) {
-      const result = await installGraphify(config.installTimeoutMs ?? 60_000)
+      const result = await installGraphify(config.installTimeoutMs ?? 60_000, config.runner)
       codes.push(result as GraphSyncCode)
       if (result === "graphify-installed") {
         availability.graphify = true
@@ -1031,47 +1112,64 @@ export async function fetchGraphifyLatestVersion(
  * v0.12.0: get the installed version of codegraph by running its CLI.
  * Returns null on failure.
  */
-export async function getInstalledCodegraphVersion(): Promise<string | null> {
-  try {
-    const res = runGuardedSync("npx", ["--yes", "codegraph", "--version"], {
-      timeoutMs: 10_000,
-    })
-    const v = res.stdout.trim()
-    return v.length > 0 ? v : null
-  } catch {
-    return null
+export async function getInstalledCodegraphVersion(
+  runner?: typeof execSync,
+): Promise<string | null> {
+  // v0.26.0: tiered probe matching checkToolAvailability — npx first, then
+  // local node_modules fallback. Earlier versions only probed npx, which
+  // failed on Windows installs that used only the local binary (Bug #1).
+  const probes: Array<{ bin: string; args: string[] }> = [
+    { bin: "npx", args: ["--yes", "codegraph", "--version"] },
+    { bin: "node", args: ["node_modules/.bin/codegraph", "--version"] },
+  ]
+  for (const { bin, args } of probes) {
+    try {
+      let stdout: string
+      if (runner) {
+        const r = runner(`${bin} ${args.join(" ")}`, { stdio: "ignore", timeout: 10_000 } as never)
+        stdout = typeof r === "string" ? r : (r.stdout ?? "")
+      } else {
+        stdout = runGuardedSync(bin, args, { timeoutMs: 10_000 }).stdout
+      }
+      const m = stdout.match(/([0-9]+\.[0-9]+\.[0-9]+[^\s]*)/)
+      if (m) return m[1]!
+    } catch { /* try next probe */ }
   }
+  return null
 }
 
 /**
  * v0.12.0: get the installed version of graphify via pip show.
  * Returns null on failure.
  */
-export async function getInstalledGraphifyVersion(): Promise<string | null> {
-  // Try graphify binary first (Windows: pip installs as "graphify")
-  try {
-    const res = runGuardedSync("graphify", ["--version"], {
-      timeoutMs: 10_000,
-    })
-    if (res.code === 0) {
-      const m = res.stdout.match(/([0-9]+\.[0-9]+\.[0-9]+)/)
-      if (m) return m[1]!
+export async function getInstalledGraphifyVersion(
+  runner?: typeof execSync,
+): Promise<string | null> {
+  // v0.26.0: tiered probe matching checkToolAvailability so install/version
+  // checks align. Order: graphify binary → python → python3.
+  const execProbe = (bin: string, args: string[]): string => {
+    if (runner) {
+      const r = runner(`${bin} ${args.join(" ")}`, { stdio: "ignore", timeout: 10_000 } as never)
+      return typeof r === "string" ? r : (r.stdout ?? "")
     }
-  } catch { /* fall through */ }
-  // Try python (Windows: real interpreter at C:\Python314)
+    return runGuardedSync(bin, args, { timeoutMs: 10_000 }).stdout
+  }
+  // Probe 1: graphify binary (Windows: pip installs as `graphify`)
   try {
-    const res = runGuardedSync("python", ["-m", "pip", "show", "graphifyy"], {
-      timeoutMs: 10_000,
-    })
-    const m = res.stdout.match(/Version:\s*([0-9]+\.[0-9]+\.[0-9]+[^\s]*)/)
+    const stdout = execProbe("graphify", ["--version"])
+    const m = stdout.match(/([0-9]+\.[0-9]+\.[0-9]+[^\s]*)/)
     if (m) return m[1]!
   } catch { /* fall through */ }
-  // Fallback: python3
+  // Probe 2: python (Windows dual-python: real interpreter at C:\Python314)
   try {
-    const res = runGuardedSync("python3", ["-m", "pip", "show", "graphifyy"], {
-      timeoutMs: 10_000,
-    })
-    const m = res.stdout.match(/Version:\s*([0-9]+\.[0-9]+\.[0-9]+[^\s]*)/)
+    const stdout = execProbe("python", ["-m", "pip", "show", "graphifyy"])
+    const m = stdout.match(/Version:\s*([0-9]+\.[0-9]+\.[0-9]+[^\s]*)/)
+    if (m) return m[1]!
+  } catch { /* fall through */ }
+  // Probe 3: python3 (POSIX or py launcher)
+  try {
+    const stdout = execProbe("python3", ["-m", "pip", "show", "graphifyy"])
+    const m = stdout.match(/Version:\s*([0-9]+\.[0-9]+\.[0-9]+[^\s]*)/)
     if (m) return m[1]!
   } catch { /* fall through */ }
   return null
