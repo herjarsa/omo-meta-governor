@@ -573,3 +573,108 @@ describe("score() NaN guard", () => {
   })
 })
 
+// ─── v0.29.0: Deviation temporal decay (Gap C) ───────────────────
+
+describe("Deviation temporal decay (v0.29.0)", () => {
+  it("drops deviations older than 60s and returns neutral score", () => {
+    const now = 1_000_000
+    const oldDeviation: Deviation = {
+      severity: "grave",
+      category: "oracle-verification",
+      detail: "old grave violation",
+      ts: now - 61_000, // 61s old — past the 60s decay window
+    }
+    const result = score(
+      { ...baseContext, deviations: [oldDeviation] },
+      {},
+      now,
+    )
+    // v0.29.0: with the stale grave deviation dropped, only iteration-budget
+    // contributes (~-0.0225 at iterationRatio=0.25). Score stays in continue band.
+    expect(result.rawScore).toBeGreaterThan(-0.3)
+    expect(result.decision.action).toBe("continue")
+    // Critical: the description should reflect "No deviations detected"
+    const descContrib = result.contributions.find((c) => c.source === "deviation-detector")
+    expect(descContrib?.description).toContain("No deviations detected")
+  })
+
+  it("keeps fresh deviations (within 60s) and applies negative score", () => {
+    const now = 1_000_000
+    const freshDeviation: Deviation = {
+      severity: "grave",
+      category: "oracle-verification",
+      detail: "fresh grave violation",
+      ts: now - 5_000, // 5s old — within the decay window
+    }
+    const result = score(
+      { ...baseContext, deviations: [freshDeviation] },
+      {},
+      now,
+    )
+    // Fresh grave deviation: -0.9 raw * 0.20 weight = -0.18 contribution.
+    // Combined with no oracle and slight iteration ratio, raw score is
+    // negative but mild (warn band, not stop).
+    expect(result.rawScore).toBeLessThan(0)
+    expect(result.decision.action === "warn" || result.decision.action === "continue").toBe(true)
+    const descContrib = result.contributions.find((c) => c.source === "deviation-detector")
+    expect(descContrib?.description).toContain("1 deviation")
+  })
+
+  it("drops only stale entries, keeps fresh ones in mixed input", () => {
+    const now = 1_000_000
+    const deviations: Deviation[] = [
+      { severity: "grave", category: "x", detail: "old", ts: now - 120_000 },
+      { severity: "leve", category: "y", detail: "fresh leve", ts: now - 10_000 },
+      { severity: "media", category: "z", detail: "fresh media", ts: now - 30_000 },
+    ]
+    const result = score(
+      { ...baseContext, deviations },
+      {},
+      now,
+    )
+    // Worst fresh severity is media (-0.5 raw). With 2 fresh entries,
+    // amplification = min(2*0.05, 0.2) = 0.1 → -0.5 - 0.1 = -0.6.
+    // Weighted: -0.6 * 0.20 = -0.12.
+    const descContrib = result.contributions.find((c) => c.source === "deviation-detector")
+    expect(descContrib?.description).toContain("2 deviation(s)")
+    // Should NOT mention the stale "old" entry's severity
+    expect(descContrib?.description).not.toContain("grave")
+  })
+
+  it("treats deviations without `ts` (legacy fixtures) as always-fresh", () => {
+    const now = 1_000_000
+    const legacyDeviation: Deviation = {
+      severity: "grave",
+      category: "x",
+      detail: "no timestamp",
+      // ts: undefined — legacy fixture
+    }
+    const result = score(
+      { ...baseContext, deviations: [legacyDeviation] },
+      {},
+      now,
+    )
+    expect(result.rawScore).toBeLessThan(0)
+    const descContrib = result.contributions.find((c) => c.source === "deviation-detector")
+    expect(descContrib?.description).toContain("1 deviation")
+  })
+
+  it("returns neutral when all deviations are stale", () => {
+    const now = 1_000_000
+    const deviations: Deviation[] = [
+      { severity: "grave", category: "x", detail: "old1", ts: now - 90_000 },
+      { severity: "media", category: "y", detail: "old2", ts: now - 70_000 },
+    ]
+    const result = score(
+      { ...baseContext, deviations },
+      {},
+      now,
+    )
+    // v0.29.0: with all deviations stale, only iteration-budget contributes
+    // (~-0.0225 at iterationRatio=0.25). Score stays in continue band.
+    expect(result.rawScore).toBeGreaterThan(-0.3)
+    const descContrib = result.contributions.find((c) => c.source === "deviation-detector")
+    expect(descContrib?.description).toBe("No deviations detected")
+  })
+})
+
