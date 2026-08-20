@@ -4,6 +4,59 @@ All notable changes to `@herjarsa/omo-meta-governor` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.29.0] — 2026-08-20
+
+### 🐛 Fixed: context-window contamination from repeated interventions
+
+The MetaGovernor plugin was firing the same directives on every LLM turn
+during background-task waits (explore, librarian, plan, Oracle), polluting
+the context window with up to 3 identical "no progress" warnings per turn
+and re-injecting the "Post-task Oracle Verification" reminder even after
+Oracle had already verified.
+
+**Ten gaps fixed:**
+
+* **Gap A** — generalize `oracleInFlight` → `backgroundTaskInFlight`. The
+  in-flight suppression gate now covers ALL `run_in_background=true`
+  tasks, not just Oracle, with a 5-min timeout safety net. Closes the
+  `noProgress` pile-up when the agent awaits non-Oracle subagents.
+* **Gap B** — `chat.system.transform` re-renders `buildSystemInjection`
+  per turn with cached raw `protocolText` + audit state, so rule 4
+  drops dynamically once Oracle has verified.
+* **Gap C** — `scoreDeviations` drops entries older than 60s. Deviations
+  stamp `ts` at push time so the score stops dropping monotonically
+  during background waits. `Deviation.ts?: number` field added in
+  `types.ts` (optional, backwards-compatible with pre-v0.29 fixtures).
+* **Gap D** — per-reasoning-hash warn cooldown (60s). Same reasoning
+  firing 3× in a row is suppressed; different reasoning passes through.
+  Bug fix: cooldown reads `decision.historyEntry?.reasoning` (not the
+  non-existent `decision.reasoning`).
+* **Gap E** — dedupe consecutive identical entries in
+  `recentInterventionTexts` before prepending history into the LLM
+  context.
+* **Gap F** — `simpleHash` (FNV-1a 32-bit) + rolling 8-hash window for
+  the post-wave gate. Prevents re-detection of identical
+  `subagent_type=oracle` text echoed through unrelated tool outputs.
+* **Gap G** — `buildSystemInjection` accepts `{ oracleVerified,
+  filesChanged }` options. Rule 4 (Post-task Oracle Verification) is
+  dropped when `oracleVerified && filesChanged > 0`.
+* **Gap H** — the Oracle rule in `auditToolCall` fires only on write
+  tools (`write`/`edit`/`edit_block`/`desktop-commander_*`/
+  `apply_patch`). No longer piles up duplicate violations on every
+  read/grep during waits.
+* **Gap I** — dedupe `pendingViolations` by `[severity::rule::detail]`
+  before push so the queue stops refilling with copies.
+
+**Type-fix side**: extended the inline `type AuditState` interface with
+the pre-existing `lessonCount` / `lastViolationInjectionAtMs` /
+`signalAtMs` fields that the state literals already had. Closes 39 tsc
+errors that slipped past the Bun runtime transpiler.
+
+**Tests**: +26 (5 scoring-engine decay, 4 buildSystemInjection
+oracleVerified skip, 4 write-only Oracle rule, 6 simpleHash, 5
+integrated via plugin factory). Suite: **232 pass across 12 files**
+(`tsc --noEmit` exit 0). Oracle-verified PASS.
+
 ---
 
 ## [0.26.0] — 2026-08-19
