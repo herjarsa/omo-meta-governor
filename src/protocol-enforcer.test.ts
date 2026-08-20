@@ -106,6 +106,118 @@ describe("protocol-enforcer", () => {
       expect(withOracle).toContain("Post-task Oracle Verification")
       expect(withoutOracle).not.toContain("Post-task Oracle Verification")
     })
+
+    // v0.29.0: Gap G — buildSystemInjection accepts audit state and drops
+    // rule 4 once Oracle has verified. Without this, the system prompt
+    // re-injects the "invoke Oracle" reminder on every LLM turn.
+    it("then skips Oracle section when oracleVerified=true and filesChanged>0", () => {
+      const protocolWithOracle = `# Protocol\n\n## Post-task Oracle\n\nInvoke oracle when needed.`
+      const result = buildSystemInjection(protocolWithOracle, {
+        oracleVerified: true,
+        filesChanged: 3,
+      })
+      expect(result).not.toContain("Post-task Oracle Verification")
+    })
+
+    it("then keeps Oracle section when oracleVerified=false even with files>0", () => {
+      const protocolWithOracle = `# Protocol\n\n## Post-task Oracle\n\nInvoke oracle when needed.`
+      const result = buildSystemInjection(protocolWithOracle, {
+        oracleVerified: false,
+        filesChanged: 5,
+      })
+      expect(result).toContain("Post-task Oracle Verification")
+    })
+
+    it("then keeps Oracle section when filesChanged=0 even if oracleVerified", () => {
+      // Edge case: zero files touched means no work happened yet — the agent
+      // still needs the Oracle reminder as a standing instruction.
+      const protocolWithOracle = `# Protocol\n\n## Post-task Oracle\n\nInvoke oracle when needed.`
+      const result = buildSystemInjection(protocolWithOracle, {
+        oracleVerified: true,
+        filesChanged: 0,
+      })
+      expect(result).toContain("Post-task Oracle Verification")
+    })
+
+    it("then preserves all other rules when Oracle section is dropped (Gap G)", () => {
+      const protocolWithOracle = `# Protocol\n\n## Post-task Oracle\n\nInvoke oracle when needed.`
+      const result = buildSystemInjection(protocolWithOracle, {
+        oracleVerified: true,
+        filesChanged: 3,
+      })
+      // Other rules remain — only rule 4 (Post-task Oracle) is dropped.
+      expect(result).toContain("Pre-response Memory Check")
+      expect(result).toContain("Codebase Graph First")
+      expect(result).toContain("Parallel Query Rule")
+      expect(result).toContain("Hard Rules")
+      expect(result).toContain("Self-Check Before Responding")
+    })
+
+    // v0.29.0: Gap H — the Oracle rule in auditToolCall fires only on write
+    // tools, not on read/grep/edit_block. Previously fired on every tool call
+    // once filesChanged>=3 && !oracleInvoked, polluting the context with
+    // duplicate reminders during background-task waits.
+    it("then does NOT fire Oracle rule on read tools when filesChanged>=3", () => {
+      const violations = auditToolCall("read", {}, {
+        memoryToolsUsed: [],
+        hasCodegraphDir: true,
+        hasGraphifyDir: false,
+        oracleInvoked: false,
+        filesChanged: 5,
+        emptyRecall: false,
+        escalationAttempted: false,
+        recentToolCalls: ["read"],
+      })
+      const oracleViolations = violations.filter((v) => v.rule === "oracle-verification")
+      expect(oracleViolations.length).toBe(0)
+    })
+
+    it("then does NOT fire Oracle rule on grep tools when filesChanged>=3", () => {
+      const violations = auditToolCall("grep", {}, {
+        memoryToolsUsed: [],
+        hasCodegraphDir: true,
+        hasGraphifyDir: false,
+        oracleInvoked: false,
+        filesChanged: 5,
+        emptyRecall: false,
+        escalationAttempted: false,
+        recentToolCalls: ["grep"],
+      })
+      const oracleViolations = violations.filter((v) => v.rule === "oracle-verification")
+      expect(oracleViolations.length).toBe(0)
+    })
+
+    it("then DOES fire Oracle rule on write tools when filesChanged>=3", () => {
+      const violations = auditToolCall("write", { content: "x" }, {
+        memoryToolsUsed: [],
+        hasCodegraphDir: true,
+        hasGraphifyDir: false,
+        oracleInvoked: false,
+        filesChanged: 5,
+        emptyRecall: false,
+        escalationAttempted: false,
+        recentToolCalls: ["write"],
+      })
+      const oracleViolations = violations.filter((v) => v.rule === "oracle-verification")
+      expect(oracleViolations.length).toBe(1)
+    })
+
+    it("then does NOT fire Oracle rule on write tools when oracleInvoked=true", () => {
+      // Once Oracle has been consulted, the rule no longer applies regardless
+      // of how many files have been touched.
+      const violations = auditToolCall("write", { content: "x" }, {
+        memoryToolsUsed: [],
+        hasCodegraphDir: true,
+        hasGraphifyDir: false,
+        oracleInvoked: true,
+        filesChanged: 10,
+        emptyRecall: false,
+        escalationAttempted: false,
+        recentToolCalls: ["write"],
+      })
+      const oracleViolations = violations.filter((v) => v.rule === "oracle-verification")
+      expect(oracleViolations.length).toBe(0)
+    })
   })
 
   describe("#given auditToolCall with codegraph dir", () => {
