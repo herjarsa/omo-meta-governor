@@ -34,7 +34,12 @@ export async function loadProtocol(path?: string): Promise<string> {
 
 // ─── buildSystemInjection ────────────────────────────────────────
 
-export function buildSystemInjection(_protocolText: string): string {
+export function buildSystemInjection(
+  _protocolText: string,
+  options?: { oracleVerified?: boolean; filesChanged?: number },
+): string {
+  const oracleVerified = options?.oracleVerified === true;
+  const filesChanged = options?.filesChanged ?? 0;
   const lines: string[] = [
     "",
     "## Sisyphus Protocol Enforcement",
@@ -53,8 +58,16 @@ export function buildSystemInjection(_protocolText: string): string {
     "",
   ]
 
-  // Detect sections in the protocol text to decide which rules to emit
-  if (/\boracle\b/i.test(_protocolText)) {
+  // v0.29.0: emit rule 4 (Post-task Oracle Verification) only when Oracle
+  // hasn't already verified in this session. Once oracleVerified=true the
+  // agent has done its job and the rule becomes context-window spam — every
+  // subsequent turn re-injects the same "invoke Oracle" reminder. The
+  // protocol-enforcer audit rule (Gap H) still flags a missing Oracle call
+  // on write tools; the system-prompt rule is just the agent's standing
+  // instruction, which can be retired once Oracle has been consulted.
+  const shouldEmitOracleRule =
+    /\boracle\b/i.test(_protocolText) && !(oracleVerified && filesChanged > 0)
+  if (shouldEmitOracleRule) {
     lines.push(
       "4. **Post-task Oracle Verification**: If files touched >= 3 OR any INVOKE trigger matches, invoke Oracle with the exact format:",
       '   `task(subagent_type="oracle", run_in_background=false, prompt="Verify: ...")`',
@@ -295,21 +308,32 @@ export function auditToolCall(
   }
 
   // ── Oracle rule: after multi-file changes ───────────────────────
-  if (context.filesChanged >= 3 && !context.oracleInvoked) {
-    if (
-      toolName !== "task" ||
-      !args || typeof args !== "object" ||
-      !("subagent_type" in (args as Record<string, unknown>))
-    ) {
-      violations.push({
-        rule: "oracle-verification",
-        tool: toolName,
-        severity: "media",
-        detail:
-          `Files changed (${context.filesChanged}) >= 3 but Oracle was not invoked. ` +
-          "The POST-TASK ORACLE VERIFICATION protocol requires Oracle invocation on multi-file changes.",
-      })
-    }
+  // v0.29.0: restrict to WRITE tools only. Previously fired on every tool call
+  // once filesChanged>=3 && !oracleInvoked — during background-task waits the
+  // agent reads/greps repeatedly, generating the same violation every turn and
+  // piling up noise in the context window. The rule is meaningful only when a
+  // file has just been touched.
+  const writeToolsForOracleRule = [
+    "write",
+    "edit",
+    "edit_block",
+    "desktop-commander_write_file",
+    "desktop-commander_edit_block",
+    "apply_patch",
+  ]
+  if (
+    context.filesChanged >= 3 &&
+    !context.oracleInvoked &&
+    writeToolsForOracleRule.includes(toolName)
+  ) {
+    violations.push({
+      rule: "oracle-verification",
+      tool: toolName,
+      severity: "media",
+      detail:
+        `Files changed (${context.filesChanged}) >= 3 but Oracle was not invoked. ` +
+        "The POST-TASK ORACLE VERIFICATION protocol requires Oracle invocation on multi-file changes.",
+    })
   }
 
   return violations
