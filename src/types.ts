@@ -103,6 +103,12 @@ export interface Deviation {
   readonly category: string;
   readonly detail: string;
   readonly filePath?: string;
+  /** v0.29.0: wall-clock timestamp (ms) when the deviation was recorded. Used by
+   * the scoring engine to apply temporal decay — deviations older than the
+   * decay window (default 60s) no longer contribute to the score, so an idle
+   * background-task wait no longer accumulates stale deviations. Optional for
+   * backwards compatibility with pre-v0.29 fixtures and callers. */
+  readonly ts?: number;
 }
 
 /**
