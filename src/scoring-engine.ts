@@ -86,7 +86,7 @@ export const defaultScoringConfig = (): ScoringConfig => ({
  * Score each signal source independently. Returns raw scores in [-1, +1].
  * Each score represents how POSITIVE (or negative) that signal is.
  */
-function scoreSignals(ctx: DecisionContext): EvidenceContribution[] {
+function scoreSignals(ctx: DecisionContext, nowMs: number): EvidenceContribution[] {
   const contributions: EvidenceContribution[] = []
 
   // 1. Oracle verified: +0.6 (strongly positive)
@@ -111,18 +111,22 @@ function scoreSignals(ctx: DecisionContext): EvidenceContribution[] {
       : "Progress detected",
   })
 
-  // 3. Deviations: severity-weighted
-  const deviationScore = scoreDeviations(ctx.deviations)
+  // 3. Deviations: severity-weighted (v0.29.0: filtered by temporal decay)
+  const deviationScore = scoreDeviations(ctx.deviations, nowMs)
+  // v0.29.0: recompute fresh deviations to keep description in sync with score
+  const DECAY_MS = 60_000
+  const freshDeviations = ctx.deviations.filter(
+    (d) => d.ts === undefined || nowMs - d.ts <= DECAY_MS,
+  )
   contributions.push({
     source: "deviation-detector",
     rawScore: deviationScore,
     weight: DEFAULT_WEIGHTS["deviation-detector"],
     weightedScore: deviationScore * DEFAULT_WEIGHTS["deviation-detector"],
-    description: ctx.deviations.length > 0
-      ? `${ctx.deviations.length} deviation(s) detected (worst: ${ctx.deviations[0]!.severity})`
+    description: freshDeviations.length > 0
+      ? `${freshDeviations.length} deviation(s) detected (worst: ${freshDeviations[0]!.severity})`
       : "No deviations detected",
   })
-
   // 4. Iteration budget: approaching limit → negative
   const iterationScore = scoreIterationBudget(ctx.iterationRatio)
   contributions.push({
@@ -148,8 +152,18 @@ function scoreSignals(ctx: DecisionContext): EvidenceContribution[] {
   return contributions
 }
 
-function scoreDeviations(deviations: readonly { severity: string }[]): number {
-  if (deviations.length === 0) return 0
+function scoreDeviations(
+  deviations: readonly { severity: string; ts?: number }[],
+  nowMs: number = Date.now(),
+): number {
+  // v0.29.0: temporal decay. Drop deviations older than the decay window
+  // (default 60s) so idle background-task waits do not accumulate stale
+  // signals — without this the score drops monotonically while the agent
+  // is legitimately waiting for a subagent verdict. Deviations without a
+  // `ts` field (legacy fixtures) are kept; they have no timestamp to age.
+  const DECAY_MS = 60_000
+  const fresh = deviations.filter((d) => d.ts === undefined || nowMs - d.ts <= DECAY_MS)
+  if (fresh.length === 0) return 0
 
   // Score based on worst deviation severity
   const severityMap: Record<string, number> = {
@@ -159,13 +173,13 @@ function scoreDeviations(deviations: readonly { severity: string }[]): number {
   }
 
   let worst = 0
-  for (const d of deviations) {
+  for (const d of fresh) {
     const s = severityMap[d.severity] ?? -0.3
     if (s < worst) worst = s
   }
 
   // Multiple deviations amplify slightly (capped at -1)
-  const amplification = Math.min(deviations.length * 0.05, 0.2)
+  const amplification = Math.min(fresh.length * 0.05, 0.2)
   return Math.max(worst - amplification, -1)
 }
 
@@ -267,8 +281,18 @@ function buildReasoning(
 export function score(
   ctx: DecisionContext,
   config?: Partial<ScoringConfig>,
+  // v0.29.0: optional wall-clock override for deterministic testing of the
+  // deviation temporal decay (Gap C). Production callers omit it; defaults
+  // to Date.now() so behavior is unchanged.
+  nowMs: number = Date.now(),
 ): ScoringResult {
   const resolvedConfig = { ...defaultScoringConfig(), ...config }
+  // v0.29.0: thread nowMs into scoreDeviations so test fixtures with a
+  // fixed clock can verify that stale entries are dropped.
+  const deviationsForScoring = ctx.deviations.map((d) => ({ ...d }))
+  // Note: deviations are not re-wrapped here — scoreSignals + scoreDeviations
+  // accept the deviations array as-is. The decay logic lives inside
+  // scoreDeviations and uses the nowMs parameter directly.
 
   // 0. NaN guard: if any input produced NaN, default to neutral to avoid
   //    silently regressing to "continue" via the clamped-score fallback.
@@ -293,7 +317,7 @@ export function score(
   }
 
   // 1. Compute per-signal contributions
-  const contributions = scoreSignals(ctx)
+  const contributions = scoreSignals(ctx, nowMs)
 
   // 2. Sum weighted scores → raw score in [-1, +1]
   const rawScore = contributions.reduce((sum, c) => sum + c.weightedScore, 0)
