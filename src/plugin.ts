@@ -603,6 +603,11 @@ const graphSyncReadyProjects = new Set<string>();
     const modelID = getModelID() ?? "unknown";
 
     // 4. Load protocol text (best-effort, cached once)
+    // v0.29.0: cache the raw protocol text and re-render via
+    // buildSystemInjection() on every system.transform call so the oracleVerified
+    // gate can drop rule 4 dynamically. The previous eager build produced a
+    // static string injected on every turn regardless of session state.
+    let protocolText: string | undefined;
     let systemInjection: string | undefined;
     // v0.16.0: eagerly await protocol load + gate on a readiness flag.
     // Previously the load was fire-and-forget, so system.transform could
@@ -614,8 +619,8 @@ const graphSyncReadyProjects = new Set<string>();
       const protocolPath =
         mergedConfig.protocolEnforcement.path ?? DEFAULT_PROTOCOL_PATH;
       try {
-        const text = await loadProtocol(protocolPath);
-        systemInjection = buildSystemInjection(text);
+        protocolText = await loadProtocol(protocolPath);
+        systemInjection = buildSystemInjection(protocolText);
       } catch (err: unknown) {
         // v0.26.1: file-only log (was console.warn — leaked into TUI).
         // The `verbosity !== "silent"` guard is preserved so users who
@@ -681,31 +686,40 @@ const graphSyncReadyProjects = new Set<string>();
        *  was always 0 in the orchestrator input, making the 0.15-weight
        *  iteration-budget signal dead. */
       iteration: number;
-      /** v0.24.0: true while a background Oracle task is in flight (run_in_background=true).
-       *  Suppresses interventions during the Oracle execution window so the agent isn't
-       *  pestered with directives while waiting for Oracle to return a verdict. */
+      /** v0.17.0 (F5.4): count of lessons saved this session. */
+      lessonCount: number;
+      /** v0.23.1: timestamp of last violation injection. */
+      lastViolationInjectionAtMs: number;
+      /** v0.24.0: timestamp when planCompleteSignal was last set. */
+      signalAtMs: number;
+      /** v0.24.0: true while a background Oracle task is in flight. */
       oracleInFlight: boolean;
       /** v0.24.0: timestamp when oracleInFlight was set. Used for timeout safety net (5 min). */
       oracleInFlightSinceMs: number | null;
-      /** v0.24.0: timestamp when planCompleteSignal was last set. Used by clear gate to
-       *  prevent stale latches from immediately clearing oracleInFlight. */
-      signalAtMs: number;
-      /** v0.17.0 (F5.4): count of lessons saved this session. Used to enforce maxLessonsPerSession. */
-      lessonCount: number;
-      /** v0.23.1: timestamp of last violation injection. Used by cooldown to break
-       *  the feedback loop where violations trigger more violations. */
-      lastViolationInjectionAtMs: number;
-      /** v0.22.0 (post-wave W3): post-wave tracking fields. Consumed by the
-       *  wave-gate (W4/W5) — purely additive in this wave; no behavior yet. */
-      postWave: {
-        currentWaveN: number | null;
-        lastInjectedWaveN: number | null;
-        lastInjectedAtMs: number | null;
-        postWaveInjectionsThisWave: number;
-        rulesReadForWave: Record<number, boolean>;
-        oracleAfterPhaseAtMs: Record<number, number>;
-        repoModeResolved: "own" | "third-party" | null;
-      };
+      /** v0.29.0: true while ANY background task is in flight (Oracle, explore,
+       *  librarian, plan, Sisyphus-Junior). Generalized from oracleInFlight so
+       *  the agent isn't pestered with noProgress warnings while waiting for
+       *  non-Oracle subagents. Cleared by the same 3-tier strategy plus a
+       *  generic "task output observed after launch" signal. */
+      backgroundTaskInFlight: boolean;
+      /** v0.29.0: timestamp when backgroundTaskInFlight was set. */
+      backgroundTaskInFlightSinceMs: number | null;
+      /** v0.29.0: subagent_type of the background task currently in flight
+       *  (e.g. "oracle", "explore", "librarian"). Used by the post-wave gate
+       *  to avoid re-detecting "subagent_type=oracle" echoes. */
+      backgroundTaskType: string | null;
+      /** v0.29.0: timestamp of last warn/escalate decision injection. Used to
+       *  suppress duplicate warnings during background-task waits (same
+       *  reasoning firing 3 times in a row → only fire once per cooldown). */
+      lastWarnAtMs: number;
+      /** v0.29.0: hash of the last warn decision's reasoning. Combined with
+       *  lastWarnAtMs, two warns with the same hash within the cooldown
+       *  window are suppressed. */
+      lastWarnHash: string;
+      /** v0.29.0: rolling window of recent post-wave gate args hashes (last 8).
+       *  Used to skip re-detection of identical `subagent_type=oracle` strings
+       *  echoed through unrelated tool outputs. */
+      recentPwArgsHashes: string[];
     };
     // v0.16.0: replaced unbounded Map with TTL+LRU-bounded AuditStateCache.
     // Capped at 100 sessions, 1h TTL. Prevents the C1/H16 memory leak.
@@ -830,15 +844,12 @@ const graphSyncReadyProjects = new Set<string>();
             oracleInFlight: false,
             oracleInFlightSinceMs: null,
             signalAtMs: 0,
-            postWave: {
-              currentWaveN: null,
-              lastInjectedWaveN: null,
-              lastInjectedAtMs: null,
-              postWaveInjectionsThisWave: 0,
-              rulesReadForWave: {},
-              oracleAfterPhaseAtMs: {},
-              repoModeResolved: null,
-            },
+            backgroundTaskInFlight: false,
+            backgroundTaskInFlightSinceMs: null,
+            backgroundTaskType: null,
+            lastWarnAtMs: 0,
+            lastWarnHash: "",
+            recentPwArgsHashes: [],
           };
           auditSessions.set(toolInput.sessionID, state);
         }
@@ -880,11 +891,13 @@ const graphSyncReadyProjects = new Set<string>();
               "info",
               `violation during cooldown (${Math.round((COOLDOWN_MS - (Date.now() - lastInjection)) / 1000)}s remaining), skipping queue`,
             );
-            // Still accumulate deviations for scoring, but don't queue for injection
+            // Still accumulate deviations for scoring, but don't queue for injection.
+            // v0.29.0: stamp each deviation with ts so scoring-engine applies temporal decay.
             const newDeviations = violations.map((v) => ({
               severity: v.severity,
               category: v.rule,
               detail: v.detail,
+              ts: Date.now(),
             }));
             state.accumulatedDeviations = [
               ...state.accumulatedDeviations,
@@ -898,31 +911,38 @@ const graphSyncReadyProjects = new Set<string>();
             );
             const existing =
               pendingViolations.get(toolInput.sessionID)?.items ?? [];
+            // v0.29.0: dedupe by [severity::rule::detail] so the same violation
+            // doesn't pile up across turns. The 30s cooldown below already
+            // prevents re-injection of the SAME items, but without dedupe a
+            // fresh violation push from each tool call replaces the queue with
+            // copies that re-inject on the next messages.transform.
+            const seen = new Set<string>();
             for (const v of violations) {
-              existing.push(
-                `[${v.severity.toUpperCase()}] ${v.rule}: ${v.detail}`,
-              );
+              const key = `${v.severity}::${v.rule}::${v.detail}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              const entry = `[${v.severity.toUpperCase()}] ${v.rule}: ${v.detail}`;
+              if (!existing.includes(entry)) existing.push(entry);
             }
             pendingViolations.set(toolInput.sessionID, {
               items: existing,
               expiresAtMs: Date.now() + PENDING_TTL_MS,
             });
-            // v0.17.2 (Gap C): accumulate violations in state so the
-            // deviation-detector signal actually fires downstream. Decay the
-            // window to the last 5 violations per session so a single bad
-            // day doesn't poison scoring forever. Convert ProtocolViolation
-            // → Deviation shape (rule → category).
+            // v0.17.2 (Gap C) + v0.29.0: accumulate violations in state so the
+            // deviation-detector signal fires downstream. Cap at last 5 per
+            // session AND stamp each deviation with `ts` so scoring-engine can
+            // apply temporal decay (default 60s) — prevents monotonic score
+            // drop during background-task waits.
             const newDeviations = violations.map((v) => ({
               severity: v.severity,
               category: v.rule,
               detail: v.detail,
+              ts: Date.now(),
             }));
             state.accumulatedDeviations = [
               ...state.accumulatedDeviations,
               ...newDeviations,
             ].slice(-5);
-            // v0.23.1: record injection timestamp for cooldown
-            state.lastViolationInjectionAtMs = Date.now();
           }
         } else {
           logToFile("info", `audit OK on tool ${toolInput.tool}`);
@@ -1049,8 +1069,9 @@ const graphSyncReadyProjects = new Set<string>();
             const args = toolInput.args as
               | { subagent_type?: string; run_in_background?: boolean }
               | undefined;
+            const subagentType = args?.subagent_type;
             const invokedOracle =
-              args?.subagent_type === "oracle" ||
+              subagentType === "oracle" ||
               out.includes("subagent_type=oracle");
             if (invokedOracle) {
               sessionState.oracleInvoked = true;
@@ -1061,6 +1082,22 @@ const graphSyncReadyProjects = new Set<string>();
                 sessionState.oracleInFlight = true;
                 sessionState.oracleInFlightSinceMs = Date.now();
               }
+            }
+            // v0.29.0: generalize the in-flight gate to ANY background subagent,
+            // not just Oracle. When the agent awaits explore/librarian/plan in
+            // background, the same noProgress + deviation pile-up occurs. The
+            // oracleInFlight flag remains the source-of-truth for Oracle-specific
+            // clearing logic (timeout safety net, foreground-call override); the
+            // backgroundTaskInFlight flag is what the noProgress/intervention gates
+            // check from now on.
+            if (args?.run_in_background === true && typeof subagentType === "string") {
+              sessionState.backgroundTaskInFlight = true;
+              sessionState.backgroundTaskInFlightSinceMs = Date.now();
+              sessionState.backgroundTaskType = subagentType;
+              logToFile(
+                "info",
+                `background_task_in_flight: subagent_type=${subagentType} for session ${toolInput.sessionID}`,
+              );
             }
           }
 
@@ -1164,6 +1201,26 @@ const graphSyncReadyProjects = new Set<string>();
               );
             }
           }
+          // v0.29.0: clear backgroundTaskInFlight with the same safety net as
+          // oracleInFlight, but using a generic 5-minute timeout (no Oracle-
+          // specific tier-(a) signal-after-flight logic — subagent verdicts do
+          // not always emit a promise marker, so the timeout is the primary
+          // clear path for non-Oracle background tasks).
+          if (sessionState.backgroundTaskInFlight) {
+            const BG_FLIGHT_TIMEOUT_MS = 5 * 60 * 1000;
+            const bgTimedOut =
+              sessionState.backgroundTaskInFlightSinceMs !== null &&
+              Date.now() - sessionState.backgroundTaskInFlightSinceMs > BG_FLIGHT_TIMEOUT_MS;
+            if (bgTimedOut) {
+              sessionState.backgroundTaskInFlight = false;
+              sessionState.backgroundTaskInFlightSinceMs = null;
+              sessionState.backgroundTaskType = null;
+              logToFile(
+                "info",
+                `background_task_timed_out: re-enabling intervention for session ${toolInput.sessionID}`,
+              );
+            }
+          }
         }
 
         // v0.21.0 (post-wave W6): wave-gate — independent of auditToolCalls.
@@ -1177,9 +1234,37 @@ const graphSyncReadyProjects = new Set<string>();
             typeof toolInput.args === "string" ? toolInput.args : "",
           ].join("\n")
           const pwWaveN = parsePhaseWaveN(pwText)
+          // v0.29.0: dedupe `subagent_type=oracle` detection by hashing the
+          // matched text. The combined pwText is rebuilt every tool call from
+          // toolOutput.output (which may echo previous Oracle responses) plus
+          // toolInput.args; without dedupe the gate re-records
+          // oracleAfterPhaseAtMs on every unrelated tool call. Hash the
+          // matched substring so we only count the FIRST occurrence per
+          // distinct text. Recent hashes live in auditSessions via the
+          // shared state (see recentPwArgsHashes).
           const pwOracleCall =
             toolInput.tool === "task" && pwText.includes("subagent_type=oracle")
           if (pwWaveN !== null || pwOracleCall) {
+            const auditStateForPw = auditSessions.get(toolInput.sessionID);
+            if (auditStateForPw) {
+              const h = simpleHash(pwText);
+              if (auditStateForPw.recentPwArgsHashes.includes(h)) {
+                // Same text seen recently — skip the gate entirely. This is
+                // a fast-path dedupe; the per-wave cooldown in
+                // shouldInjectPostWaveDirective is the final backstop.
+                if (pwWaveN === null && pwOracleCall) {
+                  logToFile(
+                    "info",
+                    `post_wave_dedupe: skipping re-detection of identical Oracle-call text for session ${toolInput.sessionID}`,
+                  );
+                }
+              } else {
+                auditStateForPw.recentPwArgsHashes = [
+                  h,
+                  ...auditStateForPw.recentPwArgsHashes,
+                ].slice(0, 8);
+              }
+            }
             let pw = postWaveSessions.get(toolInput.sessionID)
             if (!pw) {
               pw = createPostWaveSessionState()
@@ -1191,7 +1276,13 @@ const graphSyncReadyProjects = new Set<string>();
               pw.postWaveInjectionsThisWave = 0
             }
             // Record Oracle verification AFTER the phase signal (Oracle N2).
-            if (pwOracleCall && pw.currentWaveN !== null) {
+            // Skip when the same text was recently hashed (re-echo).
+            if (
+              pwOracleCall &&
+              pw.currentWaveN !== null &&
+              auditStateForPw !== undefined &&
+              !auditStateForPw.recentPwArgsHashes.slice(1).includes(simpleHash(pwText))
+            ) {
               pw.oracleAfterPhaseAtMs[pw.currentWaveN] = Date.now()
             }
             // Gate: inject the landing directive once per verified wave.
@@ -1257,10 +1348,11 @@ const graphSyncReadyProjects = new Set<string>();
               "task",
             ].includes(t),
           );
-        // v0.24.0: suppress noProgress when oracleInFlight — agent is correctly idle
-        // waiting for Oracle, not stagnating.
+        // v0.29.0: suppress noProgress when ANY background task is in flight
+        // (oracle, explore, librarian, plan). The agent is correctly idle
+        // waiting for the subagent verdict, not stagnating.
         const noProgress = sessionState
-          ? !sessionState.oracleInFlight && recentProgressTools.length === 0
+          ? !(sessionState.oracleInFlight || sessionState.backgroundTaskInFlight) && recentProgressTools.length === 0
           : false;
 
         // v0.17.2 (Gap C): accumulate protocol violations as Deviations so
@@ -1369,10 +1461,11 @@ const graphSyncReadyProjects = new Set<string>();
             // waiting for Oracle's verdict; firing directives during this window
             // (noProgress + accumulated deviations) would pile up duplicate
             // reminders that arrive AFTER Oracle finishes, confusing the agent.
-            if (sessionState.oracleInFlight) {
+            if (sessionState.oracleInFlight || sessionState.backgroundTaskInFlight) {
+              const bgKind = sessionState.oracleInFlight ? "oracle_in_flight" : "background_task_in_flight";
               logToFile(
                 "info",
-                `oracle_in_flight: skipping intervention for session ${toolInput.sessionID} (score ${output.scoringResult.rawScore.toFixed(2)})`,
+                `${bgKind}: skipping intervention for session ${toolInput.sessionID} (score ${output.scoringResult.rawScore.toFixed(2)})`,
               );
               return;
             }
@@ -1428,7 +1521,32 @@ const graphSyncReadyProjects = new Set<string>();
                 takeDecision(toolInput.sessionID);
                 return;
               }
+              // v0.29.0: per-reasoning-hash cooldown (60s) for warn/escalate.
+              // During background-task waits the same "no progress" reasoning
+              // would fire 3 times in a row before the global cap kicks in;
+              // hash the reasoning and suppress duplicates within the window.
+              const WARN_COOLDOWN_MS = 60_000;
+              const now = Date.now();
+              const reasoningText = decision.historyEntry?.reasoning ?? decision.message ?? "";
+              const reasoningHash = `${decision.action}::${reasoningText.slice(0, 80)}`;
+              if (
+                (decision.action === "warn" || decision.action === "escalate") &&
+                sessionState.lastWarnHash === reasoningHash &&
+                sessionState.lastWarnAtMs > 0 &&
+                now - sessionState.lastWarnAtMs < WARN_COOLDOWN_MS
+              ) {
+                logToFile(
+                  "info",
+                  `warn_cooldown: suppressing duplicate ${decision.action} (${Math.round((WARN_COOLDOWN_MS - (now - sessionState.lastWarnAtMs)) / 1000)}s remaining) for session ${toolInput.sessionID}`,
+                );
+                takeDecision(toolInput.sessionID);
+                return;
+              }
               sessionState.interventionCount++;
+              if (decision.action === "warn" || decision.action === "escalate") {
+                sessionState.lastWarnAtMs = now;
+                sessionState.lastWarnHash = reasoningHash;
+              }
               storeDecision(toolInput.sessionID, decision);
             }
           }
@@ -1733,15 +1851,12 @@ const graphSyncReadyProjects = new Set<string>();
             oracleInFlightSinceMs: null,
             signalAtMs: 0,
             lastViolationInjectionAtMs: 0,
-            postWave: {
-              currentWaveN: null,
-              lastInjectedWaveN: null,
-              lastInjectedAtMs: null,
-              postWaveInjectionsThisWave: 0,
-              rulesReadForWave: {},
-              oracleAfterPhaseAtMs: {},
-              repoModeResolved: null,
-            },
+            backgroundTaskInFlight: false,
+            backgroundTaskInFlightSinceMs: null,
+            backgroundTaskType: null,
+            lastWarnAtMs: 0,
+            lastWarnHash: "",
+            recentPwArgsHashes: [],
           };
           auditSessions.set(currentSessionID, curState);
         }
@@ -1761,9 +1876,20 @@ const graphSyncReadyProjects = new Set<string>();
         const includeHistory =
           mergedConfig.intervention.includeDecisionHistory !== false;
         const maxHistory = mergedConfig.intervention.maxHistoryMessages ?? 5;
-        const historyTexts = (curState.recentInterventionTexts ?? []).slice(
+        // v0.29.0: dedupe consecutive identical `[action] message` entries so a
+        // burst of duplicate warns (suppressed by warn_cooldown above but still
+        // landing here when the cooldown expires or the reasoning shifts by 1
+        // char) doesn't pollute the LLM context with N copies of the same line.
+        const rawHistory = (curState.recentInterventionTexts ?? []).slice(
           -maxHistory,
         );
+        const historyTexts: string[] = [];
+        for (const t of rawHistory) {
+          if (historyTexts.length === 0 || historyTexts[historyTexts.length - 1] !== t) {
+            historyTexts.push(t);
+          }
+        }
+        const dedupedMax = Math.max(maxHistory, historyTexts.length);
         let messageText = `[MetaGovernor] ${decision.message}`;
         if (includeHistory && historyTexts.length > 0) {
           const historyBlock = historyTexts
@@ -1771,11 +1897,16 @@ const graphSyncReadyProjects = new Set<string>();
             .join("\n");
           messageText = `[MetaGovernor] Recent decisions in this session:\n${historyBlock}\n\n---\n\nCurrent decision: ${decision.message}`;
         }
-        // Track this intervention for future history inclusion.
-        curState.recentInterventionTexts = [
-          ...historyTexts,
-          `[${decision.action}] ${decision.message}`,
-        ].slice(-maxHistory);
+        // Track this intervention for future history inclusion. Also dedupe
+        // before appending so the rolling window doesn't fill with duplicates.
+        const currentEntry = `[${decision.action}] ${decision.message}`;
+        const lastEntry = curState.recentInterventionTexts?.slice(-1)[0];
+        if (lastEntry !== currentEntry) {
+          curState.recentInterventionTexts = [
+            ...(curState.recentInterventionTexts ?? []),
+            currentEntry,
+          ].slice(-dedupedMax);
+        }
 
         const textPart = {
           type: "text",
@@ -1797,17 +1928,26 @@ const graphSyncReadyProjects = new Set<string>();
       ): Promise<void> => {
         if (!mergedConfig.enabled) return;
 
+        // v0.29.0: re-render system injection per-turn using the cached raw
+        // protocol text so the oracleVerified gate can drop rule 4 dynamically
+        // (Post-task Oracle Verification). The previous eager build produced
+        // a static string injected on every turn regardless of session state.
         if (
           mergedConfig.protocolEnforcement.injectIntoSystem &&
-          systemInjection
+          protocolText
         ) {
+          const auditStateForSys = transformInput.sessionID
+            ? auditSessions.get(transformInput.sessionID)
+            : undefined;
           output.system.push(
             "\n### Sisyphus Protocol Enforcement",
-            systemInjection,
+            buildSystemInjection(protocolText, {
+              oracleVerified: auditStateForSys?.oracleInvoked === true,
+              filesChanged: auditStateForSys?.filesChanged ?? 0,
+            }),
             "---",
           );
         }
-
         // v0.13.0: inject cached graph context (C2 fix). When tool.execute.before
         // fired a graph query earlier, the result is now in the per-session cache
         // and we append it to the system prompt as reference material.
@@ -2260,6 +2400,23 @@ export function parsePhaseWaveN(text: string): number | null {
     text,
   );
   return m ? Number.parseInt(m[1]!, 10) : null;
+}
+
+/**
+ * v0.29.0: fast non-cryptographic 32-bit hash (FNV-1a) for dedupe keys. Used
+ * by the post-wave gate to skip re-detection of identical
+ * `subagent_type=oracle` text echoed through unrelated tool outputs. Not
+ * suitable for security — collision resistance is irrelevant here because
+ * the gate is best-effort and the wave-cooldown in
+ * {@link shouldInjectPostWaveDirective} is the real backstop.
+ */
+export function simpleHash(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
 }
 
 // ─── v0.21.0 (post-wave W5): wave-gate decision helpers (module-level exports for testing) ───
