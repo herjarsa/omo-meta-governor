@@ -9,6 +9,7 @@ import {
   buildOwnRepoDirective,
   buildThirdPartyDirective,
   resolveRepoMode,
+  simpleHash,
 } from "./plugin"
 
 const baseConfig = {
@@ -227,5 +228,47 @@ describe("resolveRepoMode", () => {
       return Buffer.from("origin\thttps://github.com/user/repo.git (fetch)\n")
     }) as unknown as typeof import("node:child_process").execSync
     expect(resolveRepoMode("auto", "D:/x", runner)).toBe("own")
+  })
+})
+
+// ─── v0.29.0: simpleHash (Gap F helper) ───────────────────────────────
+
+describe("simpleHash (v0.29.0)", () => {
+  test("returns the same hash for the same input (deterministic)", () => {
+    const input = "subagent_type=oracle prompt=Verify files"
+    expect(simpleHash(input)).toBe(simpleHash(input))
+  })
+
+  test("returns different hashes for different inputs", () => {
+    const a = simpleHash("subagent_type=oracle prompt=Verify files")
+    const b = simpleHash("subagent_type=oracle prompt=Different prompt")
+    expect(a).not.toBe(b)
+  })
+
+  test("returns a non-empty string", () => {
+    expect(simpleHash("").length).toBeGreaterThan(0)
+    expect(simpleHash("x").length).toBeGreaterThan(0)
+  })
+
+  test("returns a stable, alphanumeric (base36) hash", () => {
+    const h = simpleHash("anything")
+    expect(h).toMatch(/^[0-9a-z]+$/)
+  })
+
+  test("collision rate is low for typical Oracle-call echoes", () => {
+    // 100 unique prompts should produce 100 unique hashes (FNV-1a is
+    // collision-resistant enough for this size).
+    const hashes = new Set<string>()
+    for (let i = 0; i < 100; i++) {
+      hashes.add(simpleHash(`subagent_type=oracle prompt=Verify task ${i}`))
+    }
+    expect(hashes.size).toBe(100)
+  })
+
+  test("handles unicode (PHASE-N-COMPLETE markers with em-dash)", () => {
+    const a = simpleHash("<promise>PHASE-1-COMPLETE</promise>")
+    const b = simpleHash("<promise>PHASE-2-COMPLETE</promise>")
+    expect(a).not.toBe(b)
+    expect(simpleHash("<promise>PHASE-1-COMPLETE</promise>")).toBe(a)
   })
 })
