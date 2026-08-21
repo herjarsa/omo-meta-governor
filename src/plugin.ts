@@ -1276,14 +1276,22 @@ const graphSyncReadyProjects = new Set<string>();
               pw.postWaveInjectionsThisWave = 0
             }
             // Record Oracle verification AFTER the phase signal (Oracle N2).
-            // Skip when the same text was recently hashed (re-echo).
-            if (
-              pwOracleCall &&
-              pw.currentWaveN !== null &&
-              auditStateForPw !== undefined &&
-              !auditStateForPw.recentPwArgsHashes.slice(1).includes(simpleHash(pwText))
-            ) {
-              pw.oracleAfterPhaseAtMs[pw.currentWaveN] = Date.now()
+            // v0.29.1 (Gap F-regression fix): the previous version required
+            // `auditStateForPw !== undefined`, which silently disabled the
+            // post-wave gate when the user did NOT enable
+            // protocolEnforcement.auditToolCalls (the default). Decouple
+            // dedupe from verification-recording: the timestamp must fire
+            // whenever a fresh oracle call follows a phase signal, even
+            // without audit state. Hash-dedupe stays a best-effort guard
+            // when auditStateForPw is present (handles re-echoes of the
+            // same oracle output through unrelated tool calls).
+            if (pwOracleCall && pw.currentWaveN !== null) {
+              const isFreshEcho =
+                auditStateForPw !== undefined &&
+                auditStateForPw.recentPwArgsHashes.slice(1).includes(simpleHash(pwText))
+              if (!isFreshEcho) {
+                pw.oracleAfterPhaseAtMs[pw.currentWaveN] = Date.now()
+              }
             }
             // Gate: inject the landing directive once per verified wave.
             const pwNow = Date.now()
