@@ -48,15 +48,33 @@ const SERVER_NAME = "omo-meta-governor-mcp"
  * option 3 is the common path. The env var exists so users can override.
  */
 function resolveCwd(): string {
+  let cwd: string
   const fromEnv = process.env.OMO_CWD
   if (fromEnv && fromEnv.trim().length > 0) {
-    return resolvePath(fromEnv)
+    cwd = resolvePath(fromEnv)
+  } else {
+    const fromArg = process.argv[2]
+    if (fromArg && fromArg.trim().length > 0 && !fromArg.startsWith("-")) {
+      cwd = resolvePath(fromArg)
+    } else {
+      cwd = process.cwd()
+    }
   }
-  const fromArg = process.argv[2]
-  if (fromArg && fromArg.trim().length > 0 && !fromArg.startsWith("-")) {
-    return resolvePath(fromArg)
+  // Fail fast: verify the resolved CWD exists and is readable.
+  // Without this, tools would lazy-error on first call, which is worse
+  // for debugging.
+  try {
+    const { statSync } = require("node:fs")
+    const s = statSync(cwd)
+    if (!s.isDirectory()) {
+      console.error(`[${SERVER_NAME}] cwd is not a directory: ${cwd}`)
+      process.exit(1)
+    }
+  } catch {
+    console.error(`[${SERVER_NAME}] cwd does not exist or is not readable: ${cwd}`)
+    process.exit(1)
   }
-  return process.cwd()
+  return cwd
 }
 
 /**
