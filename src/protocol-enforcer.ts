@@ -103,12 +103,22 @@ export function buildSystemInjection(
     "   - After discovering something non-obvious, save it with `agentmemory_memory_save` so future sessions benefit.",
     "   - Do NOT save routine operations (file reads, greps, list commands), trivial decisions, or facts already covered by existing memory. Save only novel insights, non-obvious patterns, or corrections to previous assumptions.",
     "",
+    "9. **CI Verification Loop (NON-NEGOTIABLE)**: After EVERY step of an implementation plan that produces a code change you intend to keep, you MUST execute the full CI loop BEFORE moving to the next step:",
+    "   a. Commit the changes atomically (one commit per verified increment, never omnibus).",
+    "   b. Push to the remote that has CI configured (own repo: `git push origin <branch>`. Fork upstream: `git push fork <branch>` + open/update PR).",
+    "   c. Wait for the CI run triggered by the push to reach a terminal state (`gh run watch <run-id> --exit-status`).",
+    "   d. Assert `conclusion == \"success\"` on EVERY job. If any job fails, fix the regression, re-push, and re-verify until all jobs are green.",
+    "   e. Capture the green run-id so the final plan-completion message can cite it as evidence.",
+    "   - Anti-pattern this rule kills: running local tests, seeing 0 failures, declaring done, then shipping the next step on top of an unverified CI. Local green is NOT CI green. Pushed-not-watched is NOT CI green.",
+    "   - At the END of the plan (when the last step is done), run a final guarantee: `gh run list --branch <branch> --limit 5` and assert EVERY recent run on this branch has `conclusion=success`. If any run shows `failure`, surface it explicitly to the user with the run-id, the failing job, and the log excerpt - do NOT claim plan success.",
+    "   - For fork -> upstream PR workflow: verify the workflow_run on the upstream repo (the PR's head ref), not just the fork. Both must be green.",
+    "   - This rule applies whenever the repo has a `.github/workflows/*.yml` file (or equivalent CI config). For repos without CI, document the absence explicitly.",
+    "   - If the user explicitly says 'skip CI' or 'local only', this rule is suppressed for that turn ONLY - re-engage on next step.",
+    "",
   )
 
   return lines.join("\n")
 }
-
-// ─── Audit context ────────────────────────────────────────────────
 
 export interface AuditContext {
   /** Whether any memory tools have been used in this session */
