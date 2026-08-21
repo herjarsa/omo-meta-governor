@@ -25,6 +25,7 @@
 import { runGuarded } from "./proc-guard"
 import { statSync, existsSync } from "node:fs"
 import { join } from "node:path"
+import { getMCPClient } from "./mcp-client"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -96,6 +97,10 @@ export interface GraphRetrievalConfig {
   maxEntriesPerSession?: number
   /** v0.25.0: explicit codegraph/graphify routing. Default "auto". */
   preferredTool?: GraphToolPreference
+  /** v0.30.0: MCP call timeout in ms. Default: 5000. */
+  mcpTimeoutMs?: number
+  /** v0.30.0: prefer a specific MCP server. Default "auto". */
+  preferredMcpServer?: "auto" | "codegraph" | "graphify"
 }
 
 export interface InvokeOptions {
@@ -109,6 +114,10 @@ export interface InvokeOptions {
   projectDir?: string
   /** v0.25.0: per-call routing override. Default: instance preference. */
   preferredTool?: GraphToolPreference
+  /** v0.30.0: per-call MCP server override. Default: instance preference. */
+  preferredMcpServer?: "auto" | "codegraph" | "graphify"
+  /** v0.30.0: skip MCP and go straight to subprocess. */
+  forceSubprocess?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -153,12 +162,18 @@ export class GraphRetrieval {
   private readonly cache: Map<string, SessionCache> = new Map()
   /** v0.25.0: routing preference. Mutable — configureDefaultGraphRetrieval updates it. */
   private preferredTool: GraphToolPreference
+  /** v0.30.0: MCP call timeout. */
+  private readonly mcpTimeoutMs: number
+  /** v0.30.0: preferred MCP server routing. */
+  private preferredMcpServer: "auto" | "codegraph" | "graphify"
 
   constructor(config: GraphRetrievalConfig = {}) {
     this.timeoutMs = config.timeoutMs ?? 5_000
     this.cacheTtlMs = config.cacheTtlMs ?? 300_000
     this.maxEntriesPerSession = config.maxEntriesPerSession ?? 10
     this.preferredTool = config.preferredTool ?? "auto"
+    this.mcpTimeoutMs = config.mcpTimeoutMs ?? 5_000
+    this.preferredMcpServer = config.preferredMcpServer ?? "auto"
   }
 
   /** v0.25.0: runtime routing update (used by configureDefaultGraphRetrieval). */
@@ -253,6 +268,83 @@ export class GraphRetrieval {
     this.cache.delete(sessionID)
   }
 
+  // -------- v0.30.0: MCP-first transport --------
+
+  /** Map MCP server name to GraphToolKind. */
+  private kindForServer(serverName: string): GraphToolKind {
+    if (serverName === "codegraph") return "codegraph"
+    if (serverName === "graphify") return "graphify"
+    return null
+  }
+
+  /** Check if a named MCP server is reachable. */
+  async isMcpServerAvailable(serverName: string, toolName?: string): Promise<boolean> {
+    try {
+      const client = getMCPClient()
+      if (!client.isReady()) return false
+      return toolName ? await client.isAvailable(toolName) : true
+    } catch {
+      return false
+    }
+  }
+
+  /** Probe both codegraph and graphify MCP servers in parallel. */
+  async detectMcpServers(): Promise<{ codegraph: boolean; graphify: boolean }> {
+    const [cg, gf] = await Promise.all([
+      this.isMcpServerAvailable("codegraph", "codegraph_search"),
+      this.isMcpServerAvailable("graphify", "query_graph"),
+    ])
+    return { codegraph: cg, graphify: gf }
+  }
+
+  /**
+   * Call an MCP tool via the OpenCode server client. Normalizes the result
+   * into a GraphInvocationResult. Never throws on MCP failure.
+   */
+  async invokeMCP(
+    serverName: string,
+    toolID: string,
+    args: Record<string, unknown>,
+    options: { timeoutMs: number; queryLabel: string },
+  ): Promise<GraphInvocationResult> {
+    const start = Date.now()
+    try {
+      const client = getMCPClient()
+      const result = await client.callTool(toolID, args, options.timeoutMs)
+      if (result.error || result.data === null) {
+        return {
+          kind: this.kindForServer(serverName),
+          query: options.queryLabel,
+          result: null,
+          timedOut: result.timedOut,
+          durationMs: Date.now() - start,
+        }
+      }
+      const data = result.data as Record<string, unknown>
+      const content = data.content
+      let text: string | null = null
+      if (Array.isArray(content) && content.length > 0) {
+        const first = content[0] as Record<string, unknown>
+        if (typeof first.text === "string") text = first.text
+      }
+      return {
+        kind: this.kindForServer(serverName),
+        query: options.queryLabel,
+        result: text || null,
+        timedOut: false,
+        durationMs: Date.now() - start,
+      }
+    } catch {
+      return {
+        kind: this.kindForServer(serverName),
+        query: options?.queryLabel ?? toolID,
+        result: null,
+        timedOut: false,
+        durationMs: Date.now() - start,
+      }
+    }
+  }
+
   // -------- Subprocess invocation --------
 
   /**
@@ -278,6 +370,21 @@ export class GraphRetrieval {
     const graphifyAvailable = this.hasGraphifyDir(projectDir)
     const preference = options.preferredTool ?? this.preferredTool
     const selected = selectGraphTool(preference, codegraphAvailable, graphifyAvailable, query)
+
+    // v0.30.0: MCP-first transport — try MCP before spawning a subprocess.
+    if (options.forceSubprocess !== true && selected) {
+      const mcpServer = (options.preferredMcpServer ?? "auto") === "auto"
+        ? (selected.kind === "codegraph" ? "codegraph" : "graphify")
+        : options.preferredMcpServer!
+      if (mcpServer !== null && (await this.isMcpServerAvailable(mcpServer))) {
+        const toolID = selected.kind === "codegraph" ? "codegraph_search" : "query_graph"
+        const mcpArgs = selected.kind === "codegraph"
+          ? { query, projectPath: projectDir }
+          : { question: query, project_path: projectDir }
+        const mcpResult = await this.invokeMCP(mcpServer, toolID, mcpArgs, { timeoutMs, queryLabel: query })
+        return { ...mcpResult, kind: selected.kind }
+      }
+    }
 
     let kind: GraphToolKind = null
     let cmd: string | null = null

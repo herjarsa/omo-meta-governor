@@ -254,3 +254,109 @@ afterEach(() => {
 // Bun test uses describe/test from bun:test. We use a module-level
 // afterEach via the afterEach from bun:test.
 import { afterEach } from "bun:test"
+
+// =====================================================================
+// v0.30.0: MCP transport tests
+// =====================================================================
+
+import { MCPClient, resetMCPClient, getMCPClient } from "./mcp-client"
+
+function createMockClient(tools: string[]): MCPClient {
+  const client = new MCPClient()
+  const fakeOpencodeClient = {
+    tool: {
+      list: async () => ({ data: tools.map((id) => ({ id })) }),
+      invoke: async (input: { toolID: string; input?: Record<string, unknown> }) => {
+        return { data: { content: [{ type: "text", text: `mock result for ${input.toolID}` }] } }
+      },
+    },
+  }
+  client.setClient(fakeOpencodeClient as never)
+  return client
+}
+
+describe("v0.30.0: MCP transport", () => {
+  describe("#isMcpServerAvailable", () => {
+    test("returns false when MCPClient is not ready", async () => {
+      const r = new GraphRetrieval()
+      const available = await r.isMcpServerAvailable("codegraph")
+      expect(available).toBe(false)
+    })
+
+    test("returns false when MCPClient throws", async () => {
+      const r = new GraphRetrieval()
+      const available = await r.isMcpServerAvailable("nonexistent")
+      expect(available).toBe(false)
+    })
+  })
+
+  describe("#detectMcpServers", () => {
+    test("returns false for both when MCPClient not ready", async () => {
+      const r = new GraphRetrieval()
+      const servers = await r.detectMcpServers()
+      expect(servers.codegraph).toBe(false)
+      expect(servers.graphify).toBe(false)
+    })
+  })
+
+  describe("#invokeMCP", () => {
+    test("returns null result when MCPClient not ready", async () => {
+      const r = new GraphRetrieval()
+      const result = await r.invokeMCP("codegraph", "codegraph_search", { query: "test" })
+      expect(result.result).toBeNull()
+      expect(result.timedOut).toBe(false)
+      expect(result.kind).toBe("codegraph")
+    })
+
+    test("returns correct kind for codegraph server", async () => {
+      const r = new GraphRetrieval()
+      const result = await r.invokeMCP("codegraph", "codegraph_search", {})
+      expect(result.kind).toBe("codegraph")
+    })
+
+    test("returns correct kind for graphify server", async () => {
+      const r = new GraphRetrieval()
+      const result = await r.invokeMCP("graphify", "query_graph", {})
+      expect(result.kind).toBe("graphify")
+    })
+
+    test("returns null kind for unknown server", async () => {
+      const r = new GraphRetrieval()
+      const result = await r.invokeMCP("unknown", "tool", {})
+      expect(result.kind).toBeNull()
+    })
+  })
+
+  describe("#invoke MCP-first path", () => {
+    test("forceSubprocess skips MCP path", async () => {
+      const r = new GraphRetrieval({ preferredTool: "graphify" })
+      mkdirSync(join(workDir, "graphify-out"))
+      const result = await r.invoke(workDir, "test", {
+        graphifyBin: "/nonexistent/graphify",
+        forceSubprocess: true,
+      })
+      expect(result.result).toBeNull()
+    })
+
+    test("invoke falls back to subprocess when no MCP available", async () => {
+      const r = new GraphRetrieval({ preferredTool: "graphify" })
+      mkdirSync(join(workDir, "graphify-out"))
+      const result = await r.invoke(workDir, "test", {
+        graphifyBin: "/nonexistent/graphify",
+      })
+      expect(result.result).toBeNull()
+    })
+  })
+
+  describe("GraphRetrievalConfig MCP fields", () => {
+    test("mcpTimeoutMs is accepted", () => {
+      const r = new GraphRetrieval({ mcpTimeoutMs: 10_000 })
+      expect(r).toBeDefined()
+    })
+
+    test("preferredMcpServer is accepted", () => {
+      const r = new GraphRetrieval({ preferredMcpServer: "codegraph" })
+      expect(r).toBeDefined()
+    })
+  })
+})

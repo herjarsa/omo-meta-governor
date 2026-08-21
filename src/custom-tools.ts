@@ -40,6 +40,22 @@ try {
   PLUGIN_VERSION = require("../package.json").version as string
 } catch { /* package.json not available at runtime */ }
 
+// v0.30.0: MCP-first helper — try the MCP server before falling back to subprocess.
+async function tryMcpFirst(
+  serverName: string,
+  toolID: string,
+  args: Record<string, unknown>,
+  timeoutMs: number,
+): Promise<string | null> {
+  try {
+    const retrieval = getDefaultGraphRetrieval()
+    if (!(await retrieval.isMcpServerAvailable(serverName, toolID))) return null
+    const result = await retrieval.invokeMCP(serverName, toolID, args, { timeoutMs, queryLabel: toolID })
+    return result.result
+  } catch {
+    return null
+  }
+}
 
 // ---------------------------------------------------------------------------
 // omo_search — semantic code search via codegraph/graphify
@@ -478,6 +494,22 @@ export function buildOmoImpactTool(deps: OmoImpactDeps) {
     },
     async execute(args, ctx): Promise<ToolResult> {
       const start = Date.now()
+      // v0.30.0: MCP-first transport
+      const mcpOutput = await tryMcpFirst("codegraph", "codegraph_impact", { symbol: args.symbol, depth: 2, projectPath: deps.cwd }, 5_000)
+      if (mcpOutput !== null) {
+        return {
+          title: `omo_impact: ${args.symbol}`,
+          output: mcpOutput,
+          metadata: {
+            tool: "omo_impact",
+            symbol: args.symbol,
+            kind: "codegraph",
+            transport: "mcp",
+            durationMs: Date.now() - start,
+            sessionID: ctx.sessionID,
+          },
+        }
+      }
       const tools = deps.codeGraph ?? getDefaultCodeGraphTools()
       const result = await tools.impact(args.symbol, deps.cwd, 5_000)
       const meta = {
@@ -755,6 +787,23 @@ export function buildOmoPathTool(deps: OmoPathDeps) {
     },
     async execute(args, ctx): Promise<ToolResult> {
       const start = Date.now()
+      // v0.30.0: MCP-first transport
+      const mcpOutput = await tryMcpFirst("graphify", "shortest_path", { source: args.from, target: args.to, project_path: deps.cwd }, 8_000)
+      if (mcpOutput !== null) {
+        return {
+          title: "omo_path: path found",
+          output: mcpOutput,
+          metadata: {
+            tool: "omo_path",
+            from: args.from,
+            to: args.to,
+            kind: "graphify",
+            transport: "mcp",
+            durationMs: Date.now() - start,
+            sessionID: ctx ? ctx.sessionID : "unknown",
+          },
+        }
+      }
       const retrieval = getDefaultGraphRetrieval()
       const result = await retrieval.invokePath(args.from, args.to, deps.cwd, { timeoutMs: 8_000 })
       return {
@@ -797,6 +846,22 @@ export function buildOmoExplainTool(deps: OmoExplainDeps) {
     },
     async execute(args, ctx): Promise<ToolResult> {
       const start = Date.now()
+      // v0.30.0: MCP-first transport
+      const mcpOutput = await tryMcpFirst("graphify", "get_node", { label: args.concept, project_path: deps.cwd }, 8_000)
+      if (mcpOutput !== null) {
+        return {
+          title: "omo_explain: done",
+          output: mcpOutput,
+          metadata: {
+            tool: "omo_explain",
+            concept: args.concept,
+            kind: "graphify",
+            transport: "mcp",
+            durationMs: Date.now() - start,
+            sessionID: ctx ? ctx.sessionID : "unknown",
+          },
+        }
+      }
       const retrieval = getDefaultGraphRetrieval()
       const result = await retrieval.invokeExplain(args.concept, deps.cwd, { timeoutMs: 8_000 })
       return {
@@ -838,6 +903,21 @@ export function buildOmoFilesTool(deps: OmoFilesDeps) {
     args: {},
     async execute(args, ctx): Promise<ToolResult> {
       const start = Date.now()
+      // v0.30.0: MCP-first transport
+      const mcpOutput = await tryMcpFirst("codegraph", "codegraph_files", { projectPath: deps.cwd }, 5_000)
+      if (mcpOutput !== null) {
+        return {
+          title: `omo_files: codegraph backend`,
+          output: mcpOutput,
+          metadata: {
+            tool: "omo_files",
+            kind: "codegraph",
+            transport: "mcp",
+            durationMs: Date.now() - start,
+            sessionID: ctx.sessionID,
+          },
+        }
+      }
       const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
       const result = await retrieval.invokeFiles(deps.cwd, { timeoutMs: 5_000 })
       if (!result.result) {
@@ -893,6 +973,22 @@ export function buildOmoCallersTool(deps: OmoCallersDeps) {
     },
     async execute(args, ctx): Promise<ToolResult> {
       const start = Date.now()
+      // v0.30.0: MCP-first transport
+      const mcpOutput = await tryMcpFirst("codegraph", "codegraph_callers", { symbol: args.symbol, projectPath: deps.cwd }, 5_000)
+      if (mcpOutput !== null) {
+        return {
+          title: `omo_callers: ${args.symbol}`,
+          output: mcpOutput,
+          metadata: {
+            tool: "omo_callers",
+            symbol: args.symbol,
+            kind: "codegraph",
+            transport: "mcp",
+            durationMs: Date.now() - start,
+            sessionID: ctx.sessionID,
+          },
+        }
+      }
       const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
       const result = await retrieval.invokeCallers(args.symbol, deps.cwd, { timeoutMs: 5_000 })
       if (!result.result) {
@@ -951,6 +1047,22 @@ export function buildOmoNodeTool(deps: OmoNodeDeps) {
     },
     async execute(args, ctx): Promise<ToolResult> {
       const start = Date.now()
+      // v0.30.0: MCP-first transport
+      const mcpOutput = await tryMcpFirst("codegraph", "codegraph_node", { symbol: args.symbol, projectPath: deps.cwd }, 5_000)
+      if (mcpOutput !== null) {
+        return {
+          title: `omo_node: ${args.symbol}`,
+          output: mcpOutput,
+          metadata: {
+            tool: "omo_node",
+            symbol: args.symbol,
+            kind: "codegraph",
+            transport: "mcp",
+            durationMs: Date.now() - start,
+            sessionID: ctx.sessionID,
+          },
+        }
+      }
       const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
       const result = await retrieval.invokeNode(args.symbol, deps.cwd, { timeoutMs: 5_000 })
       if (!result.result) {
@@ -1034,6 +1146,22 @@ export function buildOmoContextTool(deps: OmoGraphToolDeps) {
     },
     async execute(args, ctx): Promise<ToolResult> {
       const start = Date.now()
+      // v0.30.0: MCP-first transport
+      const mcpOutput = await tryMcpFirst("codegraph", "codegraph_context", { task: args.task, maxNodes: 20, projectPath: deps.cwd }, 5_000)
+      if (mcpOutput !== null) {
+        return {
+          title: "omo_context",
+          output: mcpOutput,
+          metadata: {
+            tool: "omo_context",
+            task: args.task,
+            kind: "codegraph",
+            transport: "mcp",
+            durationMs: Date.now() - start,
+            sessionID: ctx.sessionID,
+          },
+        }
+      }
       const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
       const result = await retrieval.invokeContext(args.task, deps.cwd, { timeoutMs: 5_000 })
       return graphResultToTool(
@@ -1087,6 +1215,21 @@ export function buildOmoStatusTool(deps: OmoGraphToolDeps) {
     args: {},
     async execute(_args, ctx): Promise<ToolResult> {
       const start = Date.now()
+      // v0.30.0: MCP-first transport
+      const mcpOutput = await tryMcpFirst("codegraph", "codegraph_status", { projectPath: deps.cwd }, 5_000)
+      if (mcpOutput !== null) {
+        return {
+          title: "omo_status",
+          output: mcpOutput,
+          metadata: {
+            tool: "omo_status",
+            kind: "codegraph",
+            transport: "mcp",
+            durationMs: Date.now() - start,
+            sessionID: ctx.sessionID,
+          },
+        }
+      }
       const retrieval = deps.graphRetrieval ?? getDefaultGraphRetrieval()
       const result = await retrieval.invokeStatus(deps.cwd, { timeoutMs: 5_000 })
       return graphResultToTool(
