@@ -340,6 +340,85 @@ Config: `graphSync.killOrphanedOnInit` (default `true`) — on graph-sync
 init the plugin sweeps orphaned `graphify`/`codegraph` processes left
 by previous crashed runs. Set to `false` to disable the sweep.
 
+## MCP server mode (v0.31.0)
+
+OpenCode Desktop and OpenChamber spawn `opencode serve` in HTTP/sidecar mode
+where plugin `hooks.tool` registrations don't reach the UI (the factory
+is never invoked). The MCP server mode exposes the same `omo_*` tools via
+an independent MCP server process — the same delivery mechanism that powers
+`codegraph`, `graphify`, `agentmemory`, etc.
+
+Both modes can be active simultaneously without conflict.
+
+### Setup
+
+Add to your `~/.config/opencode/opencode.jsonc`:
+
+```json
+{
+  "mcp": {
+    "omo-meta-governor": {
+      "type": "local",
+      "command": ["npx", "-y", "@herjarsa/omo-meta-governor", "omo-meta-governor-mcp"]
+    }
+  }
+}
+```
+
+To target a specific project directory, set the `OMO_CWD` environment
+variable in the MCP config:
+
+```json
+{
+  "mcp": {
+    "omo-meta-governor": {
+      "type": "local",
+      "command": ["npx", "-y", "@herjarsa/omo-meta-governor", "omo-meta-governor-mcp"],
+      "environment": { "OMO_CWD": "/absolute/path/to/project" }
+    }
+  }
+}
+```
+
+### Tools exposed
+
+The MCP server exposes a curated subset of the full tool surface:
+
+| Tool | Description |
+|------|-------------|
+| `omo_search` | Semantic code search via codegraph/graphify |
+| `omo_recall` | Search past lessons in the project memory |
+| `omo_health` | Show plugin runtime status |
+| `omo_find` | Find a symbol by name in the codegraph index |
+| `omo_impact` | Show what a symbol affects |
+| `omo_path` | Find shortest path between two graph nodes |
+| `omo_explain` | Explain a graph node |
+| `omo_status` | Show graphify status |
+| `omo_index` | Run graphify indexing |
+| `omo_visualize` | Open the graphify visualisation server |
+| `omo_serve` | Start the graphify HTTP API server |
+| `omo_diagnose` | Diagnose graph inconsistencies |
+| `omo_uninit` | Remove the codegraph index from disk |
+| `omo_sync_if_dirty` | Trigger codegraph reindex if stale |
+| `omo_mark_dirty` | Mark the codegraph index as stale |
+| `omo_hook_status` | Check whether the graphify post-commit hook is installed |
+
+Some tools from the plugin mode (`omo_remember`, `omo_recall_mcp`,
+`omo_unlock`, `omo_clone`, etc.) are intentionally NOT exposed via the MCP
+server — they either require the session client or lack browser-side
+visibility. Use the CLI or plugin hooks for those.
+
+### Technical notes
+
+- Tool implementations are reused from `custom-tools.ts` via the adapter
+  pattern — fixes in the plugin surface are automatically available in MCP
+  mode.
+- The MCP server process is independent of the opencode sidecar. It has
+  its own `GraphRetrieval`, `SqliteBackend`, and `MetricsCollector`
+  singletons.
+- Backward-compatible: existing users who only use the `plugin` key in
+  `opencode.jsonc` see no behavior change.
+
 ---
 
 ## Persistence & observability

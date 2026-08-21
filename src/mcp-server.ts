@@ -1,0 +1,155 @@
+/**
+ * omo-meta-governor MCP server entry point (v0.31.0).
+ *
+ * Spawned by OpenCode as a child process when users add this package to the
+ * `mcp` block of `opencode.jsonc`:
+ *
+ * ```json
+ * {
+ *   "mcp": {
+ *     "omo-meta-governor": {
+ *       "type": "local",
+ *       "command": ["npx", "-y", "@herjarsa/omo-meta-governor", "omo-meta-governor-mcp"]
+ *     }
+ *   }
+ * }
+ * ```
+ *
+ * The server speaks MCP over stdio. Tool implementations live in mcp-tools.ts
+ * and are reused from custom-tools.ts so behaviour matches plugin mode.
+ *
+ * When to use this vs. the plugin entry:
+ * - Plugin entry (`opencode.jsonc` -> `plugin`): preferred for the hooks
+ *   (`system.transform`, `tool.execute.before/after`) — those run in the
+ *   opencode process and need access to `PluginInput.client`.
+ * - MCP server (this entry): preferred for visible tools in OpenCode Desktop
+ *   and OpenChamber, where `hooks.tool` registrations do not reach the UI.
+ *   Both can be active at the same time without conflict.
+ */
+
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
+import { resolve as resolvePath } from "node:path"
+
+import { getAdapters, getMcpCwd, setMcpCwd } from "./mcp-tools"
+import type { McpToolResult } from "./mcp-tools"
+
+const SERVER_NAME = "omo-meta-governor-mcp"
+
+/**
+ * Resolve the working directory the MCP server should operate on.
+ *
+ * Priority:
+ * 1. `OMO_CWD` env var (set by user via opencode.jsonc `mcp.<name>.cwd`)
+ * 2. First CLI arg (matches the pattern used by `npx`)
+ * 3. `process.cwd()`
+ *
+ * OpenCode spawns MCP servers with the project root as cwd by default, so
+ * option 3 is the common path. The env var exists so users can override.
+ */
+function resolveCwd(): string {
+  const fromEnv = process.env.OMO_CWD
+  if (fromEnv && fromEnv.trim().length > 0) {
+    return resolvePath(fromEnv)
+  }
+  const fromArg = process.argv[2]
+  if (fromArg && fromArg.trim().length > 0 && !fromArg.startsWith("-")) {
+    return resolvePath(fromArg)
+  }
+  return process.cwd()
+}
+
+/**
+ * Convert an internal McpToolResult into the MCP CallToolResult shape that
+ * `server.tool` handlers must return.
+ */
+function toCallToolResult(r: McpToolResult) {
+  return {
+    content: [{ type: "text" as const, text: `${r.title}\n\n${r.text}` }],
+    isError: r.isError === true,
+    _meta: r.meta,
+  }
+}
+
+async function main(): Promise<void> {
+  setMcpCwd(resolveCwd())
+  const cwd = getMcpCwd()
+  const adapters = getAdapters()
+
+  const server = new McpServer(
+    {
+      name: SERVER_NAME,
+      version: readPackageVersion(),
+    },
+    {
+      capabilities: {
+        // Tools only — no resources, no prompts. Match what omo-meta-governor
+        // exposes as plugin tools; nothing else.
+        tools: {},
+      },
+    },
+  )
+
+  for (const adapter of adapters) {
+    // `any()` here lets us forward the existing Zod schema from
+    // custom-tools.ts without re-declaring it. The MCP SDK forwards the raw
+    // JSON object to our adapter which delegates to the existing builder
+    // whose own Zod schema validates it.
+    server.tool(
+      adapter.name,
+      adapter.description,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      adapter.inputSchema as any,
+      async (args: Record<string, unknown> | undefined) => {
+        try {
+          const result = await adapter.execute(args ?? {}, { cwd })
+          return toCallToolResult(result)
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          return toCallToolResult({
+            title: `${adapter.name}: error`,
+            text: message,
+            isError: true,
+          })
+        }
+      },
+    )
+  }
+
+  const transport = new StdioServerTransport()
+  await server.connect(transport)
+
+  // Log to stderr so we don't pollute the stdio JSON-RPC stream. OpenCode
+  // captures stderr from MCP servers and surfaces it in its own logs.
+  console.error(
+    `[${SERVER_NAME}] v${readPackageVersion()} listening on stdio (cwd: ${cwd}, ${adapters.length} tools)`,
+  )
+
+  // Graceful shutdown: close the transport on SIGINT/SIGTERM so OpenCode
+  // sees a clean exit rather than a pipe-broken error.
+  const shutdown = async (signal: string) => {
+    console.error(`[${SERVER_NAME}] received ${signal}, shutting down`)
+    try {
+      await server.close()
+    } catch {
+      /* best-effort */
+    }
+    process.exit(0)
+  }
+  process.on("SIGINT", () => void shutdown("SIGINT"))
+  process.on("SIGTERM", () => void shutdown("SIGTERM"))
+}
+
+function readPackageVersion(): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return (require("../package.json") as { version: string }).version
+  } catch {
+    return "0.0.0"
+  }
+}
+
+main().catch((err) => {
+  console.error(`[${SERVER_NAME}] fatal:`, err)
+  process.exit(1)
+})
