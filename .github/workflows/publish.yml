@@ -28,12 +28,12 @@ jobs:
       - run: bun run typecheck
       - run: bun test src/*.test.ts
       - run: bun run build
-      - name: Verify NPM_TOKEN is configured
+      - name: Configure npm auth
         run: |
-          if [ -z "${{ secrets.NPM_TOKEN }}" ]; then
-            echo "::error::NPM_TOKEN secret is empty or not configured. Add it at Settings > Secrets and variables > Actions before retrying."
-            exit 1
-          fi
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+          echo "registry=https://registry.npmjs.org/" >> ~/.npmrc
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Bump version
         run: |
           git config user.name "github-actions"
