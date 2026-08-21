@@ -19,7 +19,13 @@ import {
   isGitCommitCommand,
   triggerReindex,
   detectRemoteNewCommits,
-  } from "./graph-sync";
+  stopWatches,
+} from "./graph-sync";
+import {
+  killOrphanedToolProcesses,
+  killTrackedProcesses,
+  installProcessExitHandlers,
+} from "./proc-guard";
 import { runCliAnythingSync } from "./cli-anything-sync";
 import { runMetaGovernor } from "./orchestrator";
 import { getDefaultSqliteBackend } from "./sqlite-backend";
@@ -588,6 +594,14 @@ const graphSyncReadyProjects = new Set<string>();
           omo_cli_anything_search: omoCliAnythingSearchTool,
           omo_cli_anything_info: omoCliAnythingInfoTool,
         },
+      // v0.30 zombie-fix: install process-exit handlers + dispose sweep
+      dispose: (): Promise<void> => {
+        try { installProcessExitHandlers() } catch { /* best-effort */ }
+        try { stopWatches() } catch { /* best-effort */ }
+        try { killTrackedProcesses() } catch { /* best-effort */ }
+        try { killOrphanedToolProcesses() } catch { /* best-effort */ }
+        return Promise.resolve()
+      },
     };
     }
 
@@ -806,6 +820,17 @@ const graphSyncReadyProjects = new Set<string>();
     };
 
     return {
+      // v0.30 zombie-fix: OpenCode calls dispose on plugin teardown.
+      // Without this hook, detached graphify/codegraph/python children
+      // (spawned with unref()) survive parent exit and pile up as zombies
+      // (user reported 30+ python.exe after closing opencode).
+      dispose: (): Promise<void> => {
+        try { installProcessExitHandlers() } catch { /* best-effort */ }
+        try { stopWatches() } catch { /* best-effort */ }
+        try { killTrackedProcesses() } catch { /* best-effort */ }
+        try { killOrphanedToolProcesses() } catch { /* best-effort */ }
+        return Promise.resolve()
+      },
       // - Tool execute before (protocol audit)
       // v0.17.1: also receive output so we can audit tool args (was {} before).
       "tool.execute.before": async (

@@ -10,7 +10,7 @@
  * FILES (cmd.exe mangles `-e` inline scripts containing (){} — empirically
  * verified 14/08/2026). Files are cleaned up in afterEach.
  */
-import { describe, expect, it, afterEach } from "bun:test"
+import { describe, expect, it, afterEach, beforeEach } from "bun:test"
 import { spawn } from "node:child_process"
 import { writeFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -23,6 +23,9 @@ import {
   runGuarded,
   runGuardedSync,
   killOrphanedToolProcesses,
+  installProcessExitHandlers,
+  isOrphanSweepInstalled,
+  resetOrphanSweepGuardForTests,
 } from "./proc-guard"
 
 const SLEEPER = "setTimeout(()=>{},60000)"
@@ -189,5 +192,41 @@ describe("runGuardedSync", () => {
     const sleeperScript = writeTmpScript("sync-sleeper", "setTimeout(()=>{},60000)")
     const res = runGuardedSync(process.execPath, [sleeperScript], { timeoutMs: 300 })
     expect(res.timedOut).toBe(true)
+  })
+})
+
+describe("installProcessExitHandlers (v0.30 zombie fix)", () => {
+  beforeEach(() => {
+    // v0.30.1: tear down any leftover listeners from previous test files
+    // before resetting the once-flag, otherwise pollutes the bun runner.
+    resetOrphanSweepGuardForTests()
+  })
+
+  afterEach(() => {
+    // v0.30.1: uninstall the listeners we just installed so they do NOT
+    // fire between this file and the next — the ~5s PowerShell sweep
+    // in cleanup() would exceed the per-test 5s timeout and break isolation.
+    resetOrphanSweepGuardForTests()
+  })
+
+  it("is idempotent - second call returns false (already installed)", () => {
+    expect(isOrphanSweepInstalled()).toBe(false)
+    const first = installProcessExitHandlers()
+    expect(first).toBe(true)
+    const second = installProcessExitHandlers()
+    expect(second).toBe(false)
+    expect(isOrphanSweepInstalled()).toBe(true)
+  })
+
+  it("killOrphanedToolProcesses can be called repeatedly without once-guard", () => {
+    // First call should succeed (returns >= 0)
+    const first = killOrphanedToolProcesses()
+    expect(first).toBeGreaterThanOrEqual(0)
+    // Second call should ALSO succeed (the guard is gone)
+    const second = killOrphanedToolProcesses()
+    expect(second).toBeGreaterThanOrEqual(0)
+    // Third call too
+    const third = killOrphanedToolProcesses()
+    expect(third).toBeGreaterThanOrEqual(0)
   })
 })

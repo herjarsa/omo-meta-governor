@@ -317,3 +317,98 @@ export function killOrphanedToolProcesses(): number {
   }
   return count
 }
+// ─── Process-exit handlers (v0.30 zombie-fix) ──────────────────────
+
+/**
+ * When opencode exits, the tracked grandchild processes (graphify.exe /
+ * codegraph.exe / python.exe / node.exe) survive because the plugin spawns
+ * them with `detached: true` and then calls `c.unref()`. Without a cleanup
+ * hook they leak across opencode restarts and pile up as zombies (user
+ * reported 30+ python/graphify zombies after closing opencode).
+ *
+ * v0.30 fixes this by registering `process.on("exit")`, `SIGINT`, `SIGTERM`,
+ * and `beforeExit` handlers that:
+ *   1. kill every tracked pid via killProcessTree
+ *   2. run a final orphan sweep for untracked leftovers (env OMO_MG_SPAWN)
+ *
+ * Idempotent — calling twice is a no-op. Returns true on first install, false
+ * thereafter. `beforeExit` and `exit` MUST be synchronous; the helpers above
+ * already are (taskkill / taskkill /F are blocking spawnSync).
+ *
+ * NEVER throws.
+ */
+export function installProcessExitHandlers(): boolean {
+  if (processExitHandlersInstalled) return false
+  processExitHandlersInstalled = true
+
+  const cleanup = (): void => {
+    try {
+      killTrackedProcesses()
+    } catch {
+      // best-effort
+    }
+    try {
+      killOrphanedToolProcesses()
+    } catch {
+      // best-effort
+    }
+  }
+
+  // v0.30.1 (test-isolation fix): store listeners so test code can
+  // uninstall them via resetOrphanSweepGuardForTests. Without this,
+  // the first test in a bun test session that calls this function
+  // permanently pollutes the runner — process.on("beforeExit") runs
+  // cleanup (including a ~5s PowerShell call) between every test file.
+  exitHandlerRefs.push({ event: "exit", fn: cleanup })
+  process.on("exit", cleanup)
+
+  const onSignal = (signal: NodeJS.Signals): void => {
+    cleanup()
+    try {
+      process.removeListener(signal, onSignal)
+      process.kill(process.pid, signal)
+    } catch {
+      // best-effort
+    }
+  }
+  exitHandlerRefs.push({ event: "SIGINT", fn: onSignal })
+  exitHandlerRefs.push({ event: "SIGTERM", fn: onSignal })
+  exitHandlerRefs.push({ event: "SIGHUP", fn: onSignal })
+  process.on("SIGINT", onSignal)
+  process.on("SIGTERM", onSignal)
+  process.on("SIGHUP", onSignal)
+
+  const onBeforeExit = (): void => {
+    cleanup()
+  }
+  exitHandlerRefs.push({ event: "beforeExit", fn: onBeforeExit })
+  process.on("beforeExit", onBeforeExit)
+
+  return true
+}
+
+/** Whether installProcessExitHandlers has run in this process. Test seam. */
+export function isOrphanSweepInstalled(): boolean {
+  return processExitHandlersInstalled
+}
+
+/**
+ * Test seam — uninstall listeners AND reset the once-flag so tests can
+ * re-install. Without uninstalling, the first test that calls
+ * installProcessExitHandlers() permanently pollutes the bun test
+ * runner — every beforeExit fires the cleanup (including the ~5s
+ * PowerShell sweep), causing subsequent tests to time out.
+ * NEVER use in prod.
+ */
+export function resetOrphanSweepGuardForTests(): void {
+  for (const ref of exitHandlerRefs) {
+    try { process.removeListener(ref.event, ref.fn) } catch { /* ignore */ }
+  }
+  exitHandlerRefs.length = 0
+  processExitHandlersInstalled = false
+}
+
+type ExitHandlerRef = { event: string; fn: (...args: any[]) => void }
+const exitHandlerRefs: ExitHandlerRef[] = []
+
+let processExitHandlersInstalled = false

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @herjarsa/omo-meta-governor — utility exports (subpath "./lib").
  *
  * v0.19.6: all non-plugin runtime exports moved here from the entry
@@ -58,6 +58,22 @@ export {
   type GraphSyncCode,
   type ToolAvailability,
 } from "./graph-sync"
+// v0.30 zombie-fix: re-export proc-guard primitives so the plugin entry
+// (which bundles ./proc-guard directly) can be exercised from outside.
+export {
+  killProcessTree,
+  isProcessAlive,
+  trackPid,
+  untrackPid,
+  killTrackedProcesses,
+  runGuarded,
+  runGuardedSync,
+  killOrphanedToolProcesses,
+  installProcessExitHandlers,
+  isOrphanSweepInstalled,
+  type GuardedResult,
+  type GuardedOptions,
+} from "./proc-guard"
 export { generateSchema, writeSchemaFile, type JsonSchema, type JsonSchemaProperty } from "./generate-schema"
 export { SqliteBackend, getDefaultSqliteBackend } from "./sqlite-backend"
 export { GraphRetrieval, getDefaultGraphRetrieval, hashQuery, type GraphToolKind, type GraphInvocationResult, type GraphRetrievalConfig, type InvokeOptions } from "./graph-retrieval"
