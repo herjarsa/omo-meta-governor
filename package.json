@@ -1,8 +1,21 @@
 {
     "name": "@herjarsa/omo-meta-governor",
     "version": "0.31.0",
-    "type": "module",
-    "description": "Self-judging agent orchestration layer for OpenCode. Reads memory, scores sessions, dispatches decisions.",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/herjarsa/omo-meta-governor.git"
+    },
+    "main": "./dist/index.js",
+    "devDependencies": {
+        "@colbymchenry/codegraph": "^1.5.0",
+        "@modelcontextprotocol/sdk": "^1.30.0",
+        "@opencode-ai/plugin": "^1.17.4",
+        "@types/node": "^25.9.3",
+        "typescript": "^7.0.2"
+    },
+    "peerDependencies": {
+        "@opencode-ai/plugin": ">=1.0.0"
+    },
     "exports": {
         ".": {
             "types": "./dist/index.d.ts",
@@ -16,37 +29,21 @@
     "bin": {
         "omo-meta-governor-mcp": "./dist/mcp-server.js"
     },
-    "types": "./dist/index.d.ts",
-    "main": "./dist/index.js",
+    "description": "Self-judging agent orchestration layer for OpenCode. Reads memory, scores sessions, dispatches decisions.",
     "files": [
         "dist",
         "README.md"
     ],
+    "license": "MIT",
+    "publishConfig": {
+        "access": "public",
+        "registry": "https://registry.npmjs.org/"
+    },
     "scripts": {
         "build": "bun build.ts",
         "typecheck": "tsc --noEmit",
         "test": "bun test"
     },
-    "peerDependencies": {
-        "@opencode-ai/plugin": ">=1.0.0"
-    },
-    "publishConfig": {
-        "access": "public",
-        "registry": "https://registry.npmjs.org/"
-    },
-    "license": "MIT",
-    "repository": {
-        "type": "git",
-        "url": "https://github.com/herjarsa/omo-meta-governor.git"
-    },
-    "devDependencies": {
-        "@colbymchenry/codegraph": "^1.5.0",
-        "@modelcontextprotocol/sdk": "^1.30.0",
-        "@opencode-ai/plugin": "^1.17.4",
-        "@types/node": "^25.9.3",
-        "typescript": "^7.0.2"
-    },
-    "dependencies": {
-        "zod": "^4.4.3"
-    }
+    "type": "module",
+    "types": "./dist/index.d.ts"
 }
