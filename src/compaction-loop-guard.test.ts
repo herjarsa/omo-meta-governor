@@ -57,7 +57,12 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
 
   describe("#given compactionLoopGuard enabled (default)", () => {
     const options: PluginOptions = {
-      meta_governor: { enabled: true },
+      meta_governor: {
+        enabled: true,
+        intervention: {
+          compactionLoopGuard: { enabled: true, maxOverflowRecoveries: 2 },
+        },
+      },
     };
 
     it("then keeps autocontinue enabled on a single overflow compaction", async () => {
