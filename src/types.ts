@@ -426,7 +426,29 @@ export interface InterventionConfig {
    * flip to true in v0.16.0 once migration is documented.
    */
   readonly phaseAwareDoneSignal: boolean;
+  /** v0.31.1: overflow compaction loop guard (see CompactionLoopGuardConfig). */
+  readonly compactionLoopGuard: CompactionLoopGuardConfig;
 }
+
+/**
+ * v0.31.1: Overflow compaction loop guard. Defends against upstream
+ * opencode bug (#27924) where a session that hits context overflow
+ * triggers recursive overflow-only compactions forever. When the guard
+ * trips, the plugin flips autocontinue.enabled=false on the next call so
+ * opencode stops re-compacting and the model can resume its pending
+ * tasks instead of generating more context pressure. Counter resets on
+ * the next NON-overflow compaction.
+ */
+export interface CompactionLoopGuardConfig {
+  /** Master switch. Default: true. */
+  readonly enabled: boolean;
+  /**
+   * Max consecutive overflow compactions before the guard trips.
+   * Must be >= 1. Default: 2.
+   */
+  readonly maxOverflowRecoveries: number;
+}
+
 
 /**
  * Post-wave workflow gate (v0.21.0): after Oracle approves a

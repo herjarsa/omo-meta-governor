@@ -4,6 +4,57 @@ All notable changes to `@herjarsa/omo-meta-governor` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.31.1] — 2026-08-22
+
+### 🛡️ Fixed: overflow compaction loop guard (defends against opencode bug #27924)
+
+OpenCode upstream bug [#27924](https://github.com/anomalyco/opencode/issues/27924)
+causes an infinite compaction loop when a session hits context overflow:
+
+```
+assistant responds → context overflow → auto-compaction → synthetic "Continue..." →
+agent responds → overflow → compaction → synthetic "Continue..." → …
+```
+
+The plugin cannot fix opencode, but it CAN trip a circuit breaker:
+
+**New config: `intervention.compactionLoopGuard`**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `true` | Master switch for the overflow loop guard |
+| `maxOverflowRecoveries` | integer | `2` | Max consecutive overflow compactions before the guard trips |
+
+When the guard is enabled (default), after `maxOverflowRecoveries` consecutive
+overflow compactions (default: 2), the plugin:
+
+1. Flips `autocontinue.enabled = false` so opencode stops re-compacting
+2. Queues a `[META-GOVERNOR]` guidance message telling the agent to resume
+   its pending tasks instead of generating more context pressure
+3. Disables further autocontinue for the session (user can start a new
+   session or call `/compact` manually to recover)
+
+**Counter semantics:**
+- `overflow=true` → counter increments
+- `overflow=false` → counter resets to 0 (a clean compaction is progress)
+- Counter is per-session (one session's loop does not affect another)
+- Guard is disabled when `compactionLoopGuard.enabled = false` (users with
+   large-context-window models may want this)
+
+**Workaround without the plugin:** set `compaction: { "auto": false }` in
+`opencode.jsonc` to disable autocompaction entirely.
+
+**Tests:** 7 new tests in `src/compaction-loop-guard.test.ts` covering:
+- Single overflow → still enabled
+- Two consecutive overflows → still enabled (counter below threshold)
+- Three consecutive overflows → autocontinue disabled
+- Non-overflow resets the counter
+- Per-session counter isolation
+- Guard disabled → always enabled
+- meta_governor disabled → hook not registered
+
+---
+
 ## [0.29.0] — 2026-08-20
 
 ### 🐛 Fixed: context-window contamination from repeated interventions

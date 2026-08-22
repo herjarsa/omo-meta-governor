@@ -549,6 +549,8 @@ All configuration lives under the `meta_governor` key in
 | `maxInterventionsPerSession` | integer | `3` | v0.10.0: hard cap before auto-disable. |
 | `respectDoneSignal` | boolean | `true` | Stop injecting once terminal signal + Oracle verified. |
 | `phaseAwareDoneSignal` | boolean | `false` | v0.15.0: split per-phase hint from terminal signal. |
+| `compactionLoopGuard.enabled` | boolean | `false` | v0.31.1: opt-in defense against opencode [#27924](https://github.com/anomalyco/opencode/issues/27924) (infinite overflow-compaction loop). |
+| `compactionLoopGuard.maxOverflowRecoveries` | integer | `2` | v0.31.1: consecutive overflow compactions tolerated before the guard trips. |
 
 ### `protocolEnforcement`
 

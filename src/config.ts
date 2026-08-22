@@ -89,6 +89,16 @@ export interface MetaGovernorPluginConfig {
     phaseAwareDoneSignal?: boolean
     /** v0.19.0: persist intervention messages to the session (TUI-visible). */
     persistToSession?: boolean
+    /**
+     * v0.31.1: overflow compaction loop guard. Defends against opencode
+     * bug #27924 (recursive overflow-only compactions). When the guard
+     * trips, the plugin flips opencode's autocontinue to disabled so the
+     * model can resume its pending tasks.
+     */
+    compactionLoopGuard?: {
+      enabled?: boolean
+      maxOverflowRecoveries?: number
+    }
   }
 
   /** Sisyphus protocol enforcement config. */
@@ -294,7 +304,21 @@ export function loadOrchestratorConfig(
       // them in the TUI. The transform push reaches the model but is never
       // persisted in OpenCode 1.18.x (no write path for synthetic messages).
       persistToSession: full.intervention?.persistToSession ?? true,
+      // v0.31.1: overflow loop guard. Defaults to OFF (opt-in) so users
+      // upgrading from v0.30.x do not get a silent behavior change. Set
+      // enabled:true if you are affected by opencode issue #27924 (recursive
+      // overflow-only compactions). Max consecutive overflows tolerated
+      // before the guard flips autocontinue to disabled.
+      compactionLoopGuard: {
+        enabled:
+          full.intervention?.compactionLoopGuard?.enabled ?? false,
+        maxOverflowRecoveries: Math.max(
+          1,
+          full.intervention?.compactionLoopGuard?.maxOverflowRecoveries ?? 2,
+        ),
+      },
     } as InterventionConfig,
+
     // v0.21.0: project all postWave fields with defaults. `enabled` derives
     // from phaseAwareDoneSignal when the user hasn't set it explicitly.
     postWave: {

@@ -42,7 +42,7 @@ import {
   buildOmoFilesTool,
   buildOmoCallersTool,
   buildOmoNodeTool,
-  // v0.27.0 Wave 3 P2 — extended graph tool surface
+  // v0.27.0 Wave 3 P2 â€” extended graph tool surface
   buildOmoContextTool,
   buildOmoAffectedCgTool,
   buildOmoStatusTool,
@@ -127,14 +127,14 @@ export interface MetaGovernorPluginDeps {
     command: string;
     sessionID: string;
   }) => void;
-  /** v0.21.0: test-only hook — asserts runGraphSync is invoked with the
+  /** v0.21.0: test-only hook â€” asserts runGraphSync is invoked with the
    * session's projectDir (fix: was module-load cwd under serve). */
   __test_onGraphSyncInit?: (payload: { projectDir: string }) => void;
-  /** v0.21.0: test-only DI seam — replaces the REAL runGraphSync so hermetic
+  /** v0.21.0: test-only DI seam â€” replaces the REAL runGraphSync so hermetic
    * placement tests never spawn npx/pip/graphify. Avoids mock.module (which
-   * leaks across test files sharing a Bun worker — broke CI on macOS). */
+   * leaks across test files sharing a Bun worker â€” broke CI on macOS). */
 __test_runGraphSync?: typeof import("./graph-sync").runGraphSync;
-  /** v0.28.0: test-only DI seam for runCliAnythingSync — same hermetic rationale. */
+  /** v0.28.0: test-only DI seam for runCliAnythingSync â€” same hermetic rationale. */
   __test_runCliAnythingSync?: typeof import("./cli-anything-sync").runCliAnythingSync;
 }
 
@@ -185,7 +185,7 @@ function extractQueryFromArgs(toolInput: {
   return null;
 }
 
-// Module-level metrics collector â€” shared across all invocations of the plugin
+// Module-level metrics collector Ã¢â‚¬â€ shared across all invocations of the plugin
 const metricsCollector = createMetricsCollector({
   sessionID: "__global__",
   global: true,
@@ -232,7 +232,7 @@ export function createMetaGovernorPlugin(
   // v0.14.0: extended tools (CodeGraph sub-commands)
   const omoFindTool = buildOmoFindTool({ cwd });
   const omoImpactTool = buildOmoImpactTool({ cwd });
-  // v0.14.0: OpciÃ³n A pivot â€” tools that bridge to MCP servers via session.prompt()
+  // v0.14.0: OpciÃƒÂ³n A pivot Ã¢â‚¬â€ tools that bridge to MCP servers via session.prompt()
   const omoRememberTool = buildOmoRememberTool({
     onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
       deliveryRegistry.register({ sessionID, mcpTool, mcpArgs });
@@ -245,12 +245,12 @@ export function createMetaGovernorPlugin(
   });
   const omoPathTool = buildOmoPathTool({ cwd });
   const omoExplainTool = buildOmoExplainTool({ cwd });
-  // v0.26.0: omo_files / omo_callers / omo_node — thin wrappers around
+  // v0.26.0: omo_files / omo_callers / omo_node â€” thin wrappers around
   // GraphRetrieval.invokeFiles / invokeCallers / invokeNode.
   const omoFilesTool = buildOmoFilesTool({ graphRetrieval, cwd });
   const omoCallersTool = buildOmoCallersTool({ graphRetrieval, cwd });
   const omoNodeTool = buildOmoNodeTool({ graphRetrieval, cwd });
-  // v0.27.0 Wave 3 P2 — extended graph tool surface
+  // v0.27.0 Wave 3 P2 â€” extended graph tool surface
   const omoContextTool = buildOmoContextTool({ graphRetrieval, cwd });
   const omoAffectedCgTool = buildOmoAffectedCgTool({ graphRetrieval, cwd });
   const omoStatusTool = buildOmoStatusTool({ graphRetrieval, cwd });
@@ -279,7 +279,7 @@ export function createMetaGovernorPlugin(
   const omoCliAnythingInfoTool = buildOmoCliAnythingInfoTool({ cwd });
   // Log startup so the user can see the plugin is loaded. The version is
   // prepended to the message (and included in the structured fields) so
-  // OpenChamber's startup log shows exactly which release is loaded —
+  // OpenChamber's startup log shows exactly which release is loaded â€”
   // without this, a stale cache could serve an older bundle silently
   // (user-reported 14/08/2026, after publishing v0.21.0 with `@latest`).
   logToFile("info", `v${DEFAULT_VERSION} MetaGovernor plugin loaded`, {
@@ -292,7 +292,7 @@ export function createMetaGovernorPlugin(
   // v0.26.3: include a short SHA-256 fingerprint of the loaded bundle so
   // stale-cache issues are immediately diagnosable (the user can compare
   // the fingerprint to the expected one for the installed version).
-  // The hash is read from the same file Bun actually loaded — if Bun is
+  // The hash is read from the same file Bun actually loaded â€” if Bun is
   // serving an older bundle from a cached path, the hash will NOT match
   // the npm registry tarball for the same version.
   let bundleFingerprint = "?";
@@ -305,7 +305,7 @@ export function createMetaGovernorPlugin(
       .digest("hex")
       .slice(0, 8);
   } catch {
-    // best-effort — never fail plugin load because of the diagnostic line
+    // best-effort â€” never fail plugin load because of the diagnostic line
   }
   // v0.26.2: one-line console confirmation so the user sees the plugin
   // actually loaded (v0.26.1 silenced all info logs, which made the
@@ -334,7 +334,7 @@ export function createMetaGovernorPlugin(
         );
       }
     } catch {
-      // npm unreachable or not installed — don't block plugin load
+      // npm unreachable or not installed â€” don't block plugin load
     }
   })();
 
@@ -353,8 +353,8 @@ export function createMetaGovernorPlugin(
       inputKeys: _input ? Object.keys(_input) : [],
     });
     // Hydrates the MCPClient singleton on first plugin
-    // invocation. Safe to call multiple times â€” setClient is idempotent.
-    // v0.16.0: F3.4 â€” runtime guard instead of "as never". The cast
+    // invocation. Safe to call multiple times Ã¢â‚¬â€ setClient is idempotent.
+    // v0.16.0: F3.4 Ã¢â‚¬â€ runtime guard instead of "as never". The cast
     // hid incompatibilities between OpenCode plugin API versions; the
     // guard makes failures visible (we skip hydration) instead of
     // silently feeding the wrong shape to setClient.
@@ -372,7 +372,7 @@ export function createMetaGovernorPlugin(
     //    The plugin file loader reads ~/.config/opencode/omo-meta-governor.jsonc
     //    and .opencode/omo-meta-governor.jsonc automatically. Without this call,
     //    `mergedConfig.enabled` resolves to false unless the user explicitly
-    //    passes config inline via the OpenCode plugin tuple â€” and most users
+    //    passes config inline via the OpenCode plugin tuple Ã¢â‚¬â€ and most users
     //    register the plugin as a bare string, so the hooks never fire.
     //
     //    v0.18.1 fix: load config file unconditionally. Use _input.directory
@@ -404,7 +404,7 @@ export function createMetaGovernorPlugin(
       });
       throw err;
     }
-    // v0.25.0: explicit codegraph/graphify routing — push the config into the
+    // v0.25.0: explicit codegraph/graphify routing â€” push the config into the
     // GraphRetrieval singleton so omo_search/omo_path/omo_explain honor it.
     configureDefaultGraphRetrieval({
       preferredTool: mergedConfig.graphRetrieval.preferredTool,
@@ -420,7 +420,7 @@ export function createMetaGovernorPlugin(
 
     // v0.21.0 (post-wave W6): startup warning when the user disabled the
     // done-signal latch (respectDoneSignal=false) but enabled the post-wave
-    // gate — the two are conceptually related but independent: post-wave
+    // gate â€” the two are conceptually related but independent: post-wave
     // directives fire on `oracleInvoked && PHASE-N-COMPLETE` regardless of
     // whether intervention is being latched (Oracle note N3, 14/08/2026).
     if (
@@ -436,10 +436,10 @@ export function createMetaGovernorPlugin(
     }
 
     // v0.21.0: projects where the background graphSync completed and BOTH
-    // index tools are available (codegraph + graphify) — messages.transform
+    // index tools are available (codegraph + graphify) â€” messages.transform
     // nudges the agent to use them once per session. Declared BEFORE the
     // graphSync block: the init seam resolves immediately and its .then
-    // microtask runs during the first await of this invocation — a const
+    // microtask runs during the first await of this invocation â€” a const
     // declared later in the same scope would hit the TDZ (14/08/2026).
 const graphSyncReadyProjects = new Set<string>();
     const graphSyncReadyNotified = new Set<string>();
@@ -448,17 +448,17 @@ const graphSyncReadyProjects = new Set<string>();
 
     // v0.21.0: graphSync init runs at FACTORY INVOCATION with the session's
     // project directory, not at module load with process.cwd() (which under
-    // `opencode serve` is the SERVER's cwd — the bug that left session
+    // `opencode serve` is the SERVER's cwd â€” the bug that left session
     // projects uninitialized). The initializedProjects Set in graph-sync.ts
     // keeps it once-per-project. graphSync is tool infrastructure, so it must
-    // run even when governance is disabled — hence BEFORE the early return.
+    // run even when governance is disabled â€” hence BEFORE the early return.
     //
     // Precedence for graphSync settings: config arg (opencode.jsonc / tests)
     // > dedicated file config > CLI options. The generic rawConfig spread
     // gives the file config priority over the plugin arg, which would make
     // tests that pass graphSync:{enabled:false} (and users who disable it
     // inline) unexpectedly run real autoInstall when a user-level file config
-    // enables it — so graphSync reads config.graphSync first.
+    // enables it â€” so graphSync reads config.graphSync first.
     const sessionProjectDir = _input.directory
       ? resolve(_input.directory)
       : cwd;
@@ -474,7 +474,7 @@ const graphSyncReadyProjects = new Set<string>();
       deps.__test_onGraphSyncInit?.({ projectDir: sessionProjectDir });
       // Test-only DI seam: hermetic tests replace runGraphSync so the real
       // npx/pip/graphify never spawns (mock.module leaks across test files
-      // sharing a Bun worker — broke CI on macOS).
+      // sharing a Bun worker â€” broke CI on macOS).
       const runGraphSyncImpl = deps.__test_runGraphSync ?? runGraphSync;
       runGraphSyncImpl({
         enabled: true,
@@ -486,7 +486,7 @@ const graphSyncReadyProjects = new Set<string>();
       })
         .then((res) => {
           // v0.21.0: mark the project as ready when BOTH index tools are
-          // available — messages.transform later nudges the agent to use
+          // available â€” messages.transform later nudges the agent to use
           // them (once per session). Best-effort; never throws.
           if (res?.attempted && res.availability.codegraph && res.availability.graphify) {
             graphSyncReadyProjects.add(sessionProjectDir);
@@ -528,7 +528,7 @@ const graphSyncReadyProjects = new Set<string>();
             logToFile("warn", `cli-anything sync failed: ${String(err)}`);
           });
       }
-      // v0.25.1: origin-fetch reindex watcher —
+      // v0.25.1: origin-fetch reindex watcher â€”
       // fetch and reindex so the agent sees fresh graph results on next tool call.
       // Fire-and-forget; never blocks the factory. Sits INSIDE the
       // graphSyncEnabledAtInvocation guard so tests with graphSync:{enabled:false}
@@ -566,7 +566,7 @@ const graphSyncReadyProjects = new Set<string>();
           omo_files: omoFilesTool,
           omo_callers: omoCallersTool,
           omo_node: omoNodeTool,
-          // v0.27.0 Wave 3 P2 — extended graph tool surface
+          // v0.27.0 Wave 3 P2 â€” extended graph tool surface
           omo_context: omoContextTool,
           omo_affected_cg: omoAffectedCgTool,
           omo_status: omoStatusTool,
@@ -636,7 +636,7 @@ const graphSyncReadyProjects = new Set<string>();
         protocolText = await loadProtocol(protocolPath);
         systemInjection = buildSystemInjection(protocolText);
       } catch (err: unknown) {
-        // v0.26.1: file-only log (was console.warn — leaked into TUI).
+        // v0.26.1: file-only log (was console.warn â€” leaked into TUI).
         // The `verbosity !== "silent"` guard is preserved so users who
         // explicitly set silent mode skip even file write (matches plugin
         // intent across all subsystems).
@@ -724,17 +724,40 @@ const graphSyncReadyProjects = new Set<string>();
       backgroundTaskType: string | null;
       /** v0.29.0: timestamp of last warn/escalate decision injection. Used to
        *  suppress duplicate warnings during background-task waits (same
-       *  reasoning firing 3 times in a row → only fire once per cooldown). */
+       *  reasoning firing 3 times in a row â†’ only fire once per cooldown). */
       lastWarnAtMs: number;
       /** v0.29.0: hash of the last warn decision's reasoning. Combined with
        *  lastWarnAtMs, two warns with the same hash within the cooldown
        *  window are suppressed. */
       lastWarnHash: string;
       /** v0.29.0: rolling window of recent post-wave gate args hashes (last 8).
+      recentPwArgsHashes: string[];
+      /**
+       * v0.31.1: count of consecutive overflow compactions seen for this
+       * session. Incremented in experimental.compaction.autocontinue when
+       * the opencode-supplied `overflow` is true; reset to 0 on the next
+       * non-overflow compaction (or session reset). When this reaches
+       * `intervention.compactionLoopGuard.maxOverflowRecoveries`, the plugin
+       * flips opencode's autocontinue to disabled on the NEXT call to break
+       * the upstream overflow loop. See opencode issue #27924.
+       */
+      overflowCompactionCount: number;
+      /**
+       * v0.31.1: when true, the loop guard tripped and autocontinue is
+       * disabled for this session. The plugin will not re-enable it; the
+       * user can start a session-level plan with `/plan` or call /compact
+       * manually to recover.
+       */
+      overflowLoopGuardTripped: boolean;
+      /**
+       * v0.29.0: rolling window of recent post-wave gate args hashes (last 8).
        *  Used to skip re-detection of identical `subagent_type=oracle` strings
-       *  echoed through unrelated tool outputs. */
+       *  echoed through unrelated tool outputs.
+       */
       recentPwArgsHashes: string[];
     };
+    // v0.16.0: replaced unbounded Map with TTL+LRU-bounded AuditStateCache.
+    // Capped at 100 sessions, 1h TTL. Prevents the C1/H16 memory leak.
     // v0.16.0: replaced unbounded Map with TTL+LRU-bounded AuditStateCache.
     // Capped at 100 sessions, 1h TTL. Prevents the C1/H16 memory leak.
     //
@@ -769,7 +792,7 @@ const graphSyncReadyProjects = new Set<string>();
     // v0.20.0: whether the skill-priming nudge has been injected for this session
     const skillPrimingSent = new Set<string>();
     // v0.20.0: sessions where an implementation tool (write/edit/apply_patch/...)
-    // was observed, tracked independently of the audit state — the audit state
+    // was observed, tracked independently of the audit state â€” the audit state
     // only exists when protocolEnforcement.auditToolCalls is enabled, but the
     // firstImplement trigger must work under the default config too.
     const implementationToolsSeen = new Set<string>();
@@ -875,6 +898,8 @@ const graphSyncReadyProjects = new Set<string>();
             lastWarnAtMs: 0,
             lastWarnHash: "",
             recentPwArgsHashes: [],
+            overflowCompactionCount: 0,
+            overflowLoopGuardTripped: false,
           };
           auditSessions.set(toolInput.sessionID, state);
         }
@@ -886,7 +911,7 @@ const graphSyncReadyProjects = new Set<string>();
         }
 
         if (systemInjection) {
-          // v0.26.1: file-only log (was console.log — leaked into TUI).
+          // v0.26.1: file-only log (was console.log â€” leaked into TUI).
           logToFile("info", "protocol loaded, system injection ready");
         }
 
@@ -907,7 +932,7 @@ const graphSyncReadyProjects = new Set<string>();
         });
 
         if (violations.length > 0) {
-          // v0.23.1: cooldown check — prevent feedback loop where violations
+          // v0.23.1: cooldown check â€” prevent feedback loop where violations
           // trigger more violations. During cooldown, log but don't queue.
           const COOLDOWN_MS = 30_000; // 30 seconds
           const lastInjection = state.lastViolationInjectionAtMs ?? 0;
@@ -956,7 +981,7 @@ const graphSyncReadyProjects = new Set<string>();
             // v0.17.2 (Gap C) + v0.29.0: accumulate violations in state so the
             // deviation-detector signal fires downstream. Cap at last 5 per
             // session AND stamp each deviation with `ts` so scoring-engine can
-            // apply temporal decay (default 60s) — prevents monotonic score
+            // apply temporal decay (default 60s) â€” prevents monotonic score
             // drop during background-task waits.
             const newDeviations = violations.map((v) => ({
               severity: v.severity,
@@ -974,7 +999,7 @@ const graphSyncReadyProjects = new Set<string>();
         }
 
         // v0.13.0: actually invoke codegraph/graphify when the agent is about
-        // to do a search. This is the C2 fix â€” previously the plugin only
+        // to do a search. This is the C2 fix Ã¢â‚¬â€ previously the plugin only
         // told the agent to use graph tools via prompt text. Now it runs them
         // and caches the result for system.transform to inject.
         if (
@@ -1187,9 +1212,9 @@ const graphSyncReadyProjects = new Set<string>();
 
           // v0.24.0: clear oracleInFlight when Oracle's verdict has been processed.
           // 3-tier clear strategy (Oracle-reviewed v2):
-          // (a) Promise signal detected AFTER oracleInFlight was set — agent completed
-          // (b) Timeout — safety net (5 minutes since invocation)
-          // (c) Foreground Oracle call — agent is explicitly waiting
+          // (a) Promise signal detected AFTER oracleInFlight was set â€” agent completed
+          // (b) Timeout â€” safety net (5 minutes since invocation)
+          // (c) Foreground Oracle call â€” agent is explicitly waiting
           if (sessionState.oracleInFlight) {
             const ORACLE_FLIGHT_TIMEOUT_MS = 5 * 60 * 1000;
             const timedOut =
@@ -1228,7 +1253,7 @@ const graphSyncReadyProjects = new Set<string>();
           }
           // v0.29.0: clear backgroundTaskInFlight with the same safety net as
           // oracleInFlight, but using a generic 5-minute timeout (no Oracle-
-          // specific tier-(a) signal-after-flight logic — subagent verdicts do
+          // specific tier-(a) signal-after-flight logic â€” subagent verdicts do
           // not always emit a promise marker, so the timeout is the primary
           // clear path for non-Oracle background tasks).
           if (sessionState.backgroundTaskInFlight) {
@@ -1248,7 +1273,7 @@ const graphSyncReadyProjects = new Set<string>();
           }
         }
 
-        // v0.21.0 (post-wave W6): wave-gate — independent of auditToolCalls.
+        // v0.21.0 (post-wave W6): wave-gate â€” independent of auditToolCalls.
         // The audit state only exists when protocolEnforcement.auditToolCalls
         // is enabled, but the post-wave gate must work under the default
         // config too, so it tracks its own per-session state (postWaveSessions).
@@ -1274,7 +1299,7 @@ const graphSyncReadyProjects = new Set<string>();
             if (auditStateForPw) {
               const h = simpleHash(pwText);
               if (auditStateForPw.recentPwArgsHashes.includes(h)) {
-                // Same text seen recently — skip the gate entirely. This is
+                // Same text seen recently â€” skip the gate entirely. This is
                 // a fast-path dedupe; the per-wave cooldown in
                 // shouldInjectPostWaveDirective is the final backstop.
                 if (pwWaveN === null && pwOracleCall) {
@@ -1360,7 +1385,7 @@ const graphSyncReadyProjects = new Set<string>();
           }
         }
 
-        // v0.10.0: hard break â€” if intervention already disabled, skip orchestrator
+        // v0.10.0: hard break Ã¢â‚¬â€ if intervention already disabled, skip orchestrator
         if (sessionState?.interventionDisabled) {
           return;
         }
@@ -1428,7 +1453,7 @@ const graphSyncReadyProjects = new Set<string>();
                 writeBackend: userWrite ?? sqlite,
               };
             } catch {
-              // SQLite init failed (no Bun, no permissions, etc.) â€” degrade silently
+              // SQLite init failed (no Bun, no permissions, etc.) Ã¢â‚¬â€ degrade silently
               return {
                 backends: userBackends ?? {
                   agentmemory: {
@@ -1606,8 +1631,8 @@ const graphSyncReadyProjects = new Set<string>();
                 command: cmd ?? "",
                 sessionID: toolInput.sessionID,
               });
-              // Fire and forget â€” don't block the tool call.
-              // v0.16.0: triggerReindex (was triggerCodegraphSync) â€” reindexes both
+              // Fire and forget Ã¢â‚¬â€ don't block the tool call.
+              // v0.16.0: triggerReindex (was triggerCodegraphSync) Ã¢â‚¬â€ reindexes both
               // codegraph and graphify, not just codegraph.
               // v0.21.0: use the SESSION's projectDir, not module-load cwd (same
               // serve-mode bug as runGraphSync).
@@ -1648,7 +1673,7 @@ const graphSyncReadyProjects = new Set<string>();
           // bot feedback is best-effort
         }
 
-        // v0.25.0: CI monitor — detect `git push` and fire async CI polling.
+        // v0.25.0: CI monitor â€” detect `git push` and fire async CI polling.
         // This is fire-and-forget: the rest of tool.execute.after continues
         // immediately. The poll happens in an async IIFE in the background,
         // and on failure a session.prompt is injected into the next LLM
@@ -1663,7 +1688,7 @@ const graphSyncReadyProjects = new Set<string>();
               if (sha && branch) {
                 logToFile(
                   "info",
-                  `ci_monitor: git push detected on ${branch}@${sha.slice(0, 7)} — starting background poll`,
+                  `ci_monitor: git push detected on ${branch}@${sha.slice(0, 7)} â€” starting background poll`,
                 );
                 void runCIMonitor(
                   sha,
@@ -1705,10 +1730,10 @@ const graphSyncReadyProjects = new Set<string>();
         // v0.10.0: respect per-session intervention disable
         const state = auditSessions.get(currentSessionID);
 
-        // 0a. Skill priming (v0.20.0) — proactive skill-selection nudge.
+        // 0a. Skill priming (v0.20.0) â€” proactive skill-selection nudge.
         // Independent of intervention mode; once per session. The
         // "firstImplement" trigger reads the per-session audit state, which
-        // does not exist until the first tool call — on the very first
+        // does not exist until the first tool call â€” on the very first
         // transform call only "sessionStart" can fire.
         if (
           mergedConfig.skillPriming.enabled &&
@@ -1739,7 +1764,7 @@ const graphSyncReadyProjects = new Set<string>();
           );
         }
 
-        // v0.21.0: graph-tools-ready nudge — independent of intervention
+        // v0.21.0: graph-tools-ready nudge â€” independent of intervention
         // mode, once per session. Fires when the background graphSync
         // completed and BOTH codegraph + graphify are available, so the
         // agent actually uses the indexes (omo_search/omo_find/omo_impact).
@@ -1754,11 +1779,11 @@ const graphSyncReadyProjects = new Set<string>();
               {
                 type: "text",
                 text: [
-                  "[META-GOVERNOR] codegraph y graphify ya están inicializados en este repo. ",
-                  "ROUTING EXPLÍCITO (v0.25.0): ",
-                  "• Símbolos/definiciones/callers/impacto (código) → CODEGRAPH: omo_find, omo_impact, omo_search. ",
-                  "• Conceptos/arquitectura/conexiones/explicaciones → GRAPHIFY: omo_path, omo_explain (y omo_search en modo alternate). ",
-                  "• Vista general del repo → lee graphify-out/GRAPH_REPORT.md. ",
+                  "[META-GOVERNOR] codegraph y graphify ya estÃ¡n inicializados en este repo. ",
+                  "ROUTING EXPLÃCITO (v0.25.0): ",
+                  "â€¢ SÃ­mbolos/definiciones/callers/impacto (cÃ³digo) â†’ CODEGRAPH: omo_find, omo_impact, omo_search. ",
+                  "â€¢ Conceptos/arquitectura/conexiones/explicaciones â†’ GRAPHIFY: omo_path, omo_explain (y omo_search en modo alternate). ",
+                  "â€¢ Vista general del repo â†’ lee graphify-out/GRAPH_REPORT.md. ",
                   "Actualizan tras cada commit.",
                 ].join(" "),
                 synthetic: true,
@@ -1771,15 +1796,47 @@ const graphSyncReadyProjects = new Set<string>();
           );
         }
 
-        if (mergedConfig.intervention.mode !== "message") return;
+        // v0.31.1: drain pendingBotFeedback BEFORE the mode gate so the
+        // loop-guard guidance (and any other queued bot feedback) reaches
+        // the model even when intervention.mode === 'silent' (the default).
+        // Existing PR-reviewer feedback is merged, not overwritten.
+        const botEntry = pendingBotFeedback.get(currentSessionID);
+        if (botEntry && botEntry.expiresAtMs > Date.now()) {
+          const feedback = botEntry.items;
+          if (feedback.length > 0) {
+            const feedbackText = `[MetaGovernor PR Reviewer Feedback]\n\n${feedback.map((f, i) => `${i + 1}. ${f}`).join("\n")}\n\nApply these fixes to keep the PR mergeable.`;
+            output.messages.push({
+              info: { role: "user", agent: "meta-governor", synthetic: true },
+              parts: [{ type: "text", text: feedbackText, synthetic: true }],
+            });
+            pendingBotFeedback.delete(currentSessionID);
+            logToFile(
+              "info",
+              `injected ${feedback.length} bot feedback line(s) to model for session ${currentSessionID}`,
+            );
+            persistIntervention(currentSessionID, feedbackText);
+          }
+        }
 
+        if (mergedConfig.intervention.mode !== "message") return;
+        // v0.10.0: respect per-session intervention disable.
+        // v0.31.1: the compaction loop guard sets this flag when it trips
+        // (line ~2210), so subsequent autocontinue calls short-circuit here.
+        // This is correct: once tripped, no further guard logic is needed
+        // (the loop is already broken). The pendingBotFeedback drain above
+        // runs BEFORE this gate so the loop-guard guidance still reaches
+        // the model even when interventionDisabled is true.
+        if (state?.interventionDisabled) {
+          takeDecision(currentSessionID);
+          return;
+        }
         // v0.10.0: respect per-session intervention disable
         if (state?.interventionDisabled) {
           takeDecision(currentSessionID);
           return;
         }
 
-        // 0. Plan reminder (v0.11.0) â€” nudge the agent to make a plan
+        // 0. Plan reminder (v0.11.0) — nudge the agent to make a plan
         //    before code changes, but only once per session.
         if (
           state &&
@@ -1799,25 +1856,8 @@ const graphSyncReadyProjects = new Set<string>();
           persistIntervention(currentSessionID, planText);
         }
 
-        // 0b. Bot feedback from PR reviewers (v0.11.0)
-        const botEntry = pendingBotFeedback.get(currentSessionID);
-        if (botEntry && botEntry.expiresAtMs > Date.now()) {
-          const feedback = botEntry.items;
-          if (feedback.length > 0) {
-            const feedbackText = `[MetaGovernor PR Reviewer Feedback]\n\n${feedback.map((f, i) => `${i + 1}. ${f}`).join("\n")}\n\nApply these fixes to keep the PR mergeable.`;
-            output.messages.push({
-              info: { role: "user", agent: "meta-governor", synthetic: true },
-              parts: [{ type: "text", text: feedbackText, synthetic: true }],
-            });
-            pendingBotFeedback.delete(currentSessionID);
-            logToFile(
-              "info",
-              `injected ${feedback.length} bot feedback line(s) to model for session ${currentSessionID}`,
-            );
-            persistIntervention(currentSessionID, feedbackText);
-          }
-        }
-        // 1. Inject pending protocol violations so the model sees them
+
+
         const violEntry = pendingViolations.get(currentSessionID);
         if (violEntry && violEntry.expiresAtMs > Date.now()) {
           const violations = violEntry.items;
@@ -1841,7 +1881,7 @@ const graphSyncReadyProjects = new Set<string>();
           }
         }
 
-        // 2. Inject MetaGovernor decision â€” SCOPED to current session
+        // 2. Inject MetaGovernor decision Ã¢â‚¬â€ SCOPED to current session
         const decision = takeDecision(currentSessionID);
         if (!decision) return;
         if (decision.action === "continue") return;
@@ -1890,6 +1930,8 @@ const graphSyncReadyProjects = new Set<string>();
             lastWarnAtMs: 0,
             lastWarnHash: "",
             recentPwArgsHashes: [],
+            overflowCompactionCount: 0,
+            overflowLoopGuardTripped: false,
           };
           auditSessions.set(currentSessionID, curState);
         }
@@ -2036,7 +2078,7 @@ const graphSyncReadyProjects = new Set<string>();
         }
       },
 
-      // v0.13.1: custom tool registration â€” the LLM can call these explicitly
+      // v0.13.1: custom tool registration Ã¢â‚¬â€ the LLM can call these explicitly
       tool: {
         omo_search: omoSearchTool,
         omo_recall: omoRecallTool,
@@ -2050,7 +2092,7 @@ const graphSyncReadyProjects = new Set<string>();
         omo_files: omoFilesTool,
         omo_callers: omoCallersTool,
         omo_node: omoNodeTool,
-        // v0.27.0 Wave 3 P2 — extended graph tool surface
+        // v0.27.0 Wave 3 P2 â€” extended graph tool surface
         omo_context: omoContextTool,
         omo_affected_cg: omoAffectedCgTool,
         omo_status: omoStatusTool,
@@ -2108,24 +2150,126 @@ const graphSyncReadyProjects = new Set<string>();
         }
       },
 
-      // v0.13.1: disable auto-continue when the plugin has determined the
-      // task is complete (DONE+Oracle or intervention cap reached).
-      "experimental.compaction.autocontinue": async (
-        _autoInput: { sessionID: string; overflow: boolean },
-        autoOutput: { enabled: boolean },
-      ): Promise<void> => {
+      // v0.13.1 + v0.31.1: disable auto-continue when (a) the plugin has
+      // determined the task is complete (DONE+Oracle or intervention cap
+      // reached), OR (b) an upstream OpenCode compaction-loop is detected
+      // (overflow=true N times in a row). The loop guard is a defense
+      // against opencode issue #27924: when a session hits context
+      // overflow, opencode unconditionally retries overflow-only
+      // compactions forever. The plugin cannot fix opencode, but it CAN
+      // trip a circuit breaker: flip autocontinue to disabled, AND push a
+      // short guidance message so the model can resume its pending tasks
+      // instead of generating more context pressure.
+"experimental.compaction.autocontinue": async (
+        autoInput: { sessionID: string; overflow: boolean },
+        autoOutput: { enabled: boolean }
+): Promise<void> => {
         if (!mergedConfig.enabled) return;
-        const state = auditSessions.get(_autoInput.sessionID);
-        if (state?.interventionDisabled) {
+
+        const sessionID = autoInput.sessionID;
+        const overflow = autoInput.overflow;
+
+        // Lazily create a session state so counter persists across
+        // repeated autocontinue calls within the same opencode session.
+        let sessionState = auditSessions.get(sessionID);
+        if (!sessionState) {
+          sessionState = {
+            memoryToolsUsed: [],
+            hasCodegraphDir: false,
+            hasGraphifyDir: false,
+            oracleInvoked: false,
+            filesChanged: 0,
+            emptyRecall: false,
+            escalationAttempted: false,
+            recentToolCalls: [],
+            recentWriteContents: [],
+            recentWriteFilePaths: [],
+            memorySaved: false,
+            accumulatedDeviations: [],
+            recentInterventionTexts: [],
+            batchCompletions: 0,
+            taskDoneSignal: false,
+            phaseCompleteSignal: false,
+            planCompleteSignal: false,
+            interventionCount: 0,
+            interventionDisabled: false,
+            lessonCount: 0,
+            iteration: 0,
+            oracleInFlight: false,
+            oracleInFlightSinceMs: null,
+            signalAtMs: 0,
+            lastViolationInjectionAtMs: 0,
+            backgroundTaskInFlight: false,
+            backgroundTaskInFlightSinceMs: null,
+            backgroundTaskType: null,
+            lastWarnAtMs: 0,
+            lastWarnHash: "",
+            recentPwArgsHashes: [],
+            overflowCompactionCount: 0,
+            overflowLoopGuardTripped: false,
+          };
+          auditSessions.set(sessionID, sessionState);
+        }
+
+        // (a) Existing terminal-signal gate: DONE/intervention-cap tripped.
+        if (sessionState.interventionDisabled) {
           autoOutput.enabled = false;
+          return;
+        }
+
+        // (b) v0.31.1: Overflow loop guard.
+        //
+        // Counter logic:
+        //   - overflow=true  â†’ counter++
+        //   - overflow=false â†’ counter = 0   (reset on a clean compaction)
+        // When counter reaches compactionLoopGuard.maxOverflowRecoveries,
+        // we trip the guard ONCE for this session:
+        //   1. enable the existing intervention-disabled gate so future
+        //      autocontinue calls stay disabled for the rest of the session.
+        //   2. queue a short guidance message via pendingBotFeedback so
+        //      the model sees "resume your pending tasks" the next time
+        //      chat.messages.transform fires (TTL = PENDING_TTL_MS).
+        //
+        // If the guard is disabled in config, do nothing â€” opencode keeps
+        // full control.
+        const guard = mergedConfig.intervention.compactionLoopGuard;
+        if (guard.enabled) {
+          if (overflow) {
+            sessionState.overflowCompactionCount++;
+            if (
+              !sessionState.overflowLoopGuardTripped &&
+              sessionState.overflowCompactionCount > guard.maxOverflowRecoveries
+            ) {
+              sessionState.overflowLoopGuardTripped = true;
+              sessionState.interventionDisabled = true;
+              autoOutput.enabled = false;
+              logToFile(
+                "warn",
+                `compaction_loop_guard_tripped for session ${sessionID}: ${sessionState.overflowCompactionCount} consecutive overflow compactions; autocontinue disabled and guidance queued`,
+              );
+              // v0.31.1: MERGE with any existing PR-reviewer feedback so
+              // we never silently overwrite other queued guidance.
+              const existing = pendingBotFeedback.get(sessionID);
+              const guidanceItem = `[META-GOVERNOR] Overflow compaction loop detected (${sessionState.overflowCompactionCount} consecutive overflow compactions). opencode issue #27924 is in play. Auto-continue is now disabled for this session. Resume your pending tasks using the existing context — do NOT regenerate context you have already produced.`;
+              pendingBotFeedback.set(sessionID, {
+                items: (existing?.items ?? []).concat(guidanceItem),
+                expiresAtMs: Date.now() + PENDING_TTL_MS,
+              });
+            }
+          } else {
+            // Non-overflow compaction â†’ reset the counter (a clean
+            // compaction counts as progress, not part of the loop).
+            sessionState.overflowCompactionCount = 0;
+          }
         }
       },
+
     };
   };
 
   return plugin;
 }
-// â”€â”€â”€ v0.11.0: helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ v0.11.0: helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 /**
  * Detect whether a shell command is a `git commit` invocation.
@@ -2136,7 +2280,7 @@ export { isGitCommitCommand } from "./graph-sync";
 /**
  * Extract bot feedback lines from `gh pr checks` output.
  * Returns an array of human-readable notes like:
- *   "pr-42 Â· claude-code-review: CodeRabbit found issues: missing test for X"
+ *   "pr-42 Ã‚Â· claude-code-review: CodeRabbit found issues: missing test for X"
  * Only "fail" status is reported; "pass" and "pending" are ignored.
  */
 export function extractBotFeedbackFromGhOutput(
@@ -2153,7 +2297,7 @@ export function extractBotFeedbackFromGhOutput(
     if (match) {
       const name = match[1]!.trim();
       const details = match[3]!.trim();
-      feedback.push(`${prIdentifier} Â· ${name}: ${details}`);
+      feedback.push(`${prIdentifier} Ã‚Â· ${name}: ${details}`);
     }
   }
   return feedback;
@@ -2170,7 +2314,7 @@ export function isGhPrCommand(command: string | undefined | null): boolean {
   return /(?:^|[\s;&|])gh\s+pr(?:\s|$)/.test(normalized);
 }
 
-// ─── v0.25.0: CI monitor helpers ─────────────────────────────────────────────
+// â”€â”€â”€ v0.25.0: CI monitor helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Detect `git push ...` in a shell command. Handles `&&` chaining and line
@@ -2182,7 +2326,7 @@ export function isGitPushCommand(command: string | undefined | null): boolean {
   if (typeof command !== "string" || command.length === 0) return false
   const normalized = command.replace(/\\\n/g, " ").replace(/\s*\n\s*/g, " ")
   // Match `git push` not followed by a slash (would be `git push origin ...`
-  // which is fine — that's the remote case).
+  // which is fine â€” that's the remote case).
   // Negative lookahead: skip if next non-space chars are `--help`/`-h`
   // (informational only).
   return /(?:^|[\s;&|])git\s+push(?:\s|$)/.test(normalized)
@@ -2283,7 +2427,7 @@ async function runCIMonitor(
       await new Promise((r) => setTimeout(r, cfg.pollIntervalMs))
     }
     if (!run || run.status !== "completed") {
-      // Timed out — surface as ambiguous
+      // Timed out â€” surface as ambiguous
       logToFile(
         "warn",
         `ci_monitor: timeout waiting for run on ${sha.slice(0, 7)} (${cfg.maxWaitMs}ms)`,
@@ -2307,16 +2451,16 @@ async function runCIMonitor(
         `URL:   ${run.url}`,
         `Conclusion: ${run.conclusion}`,
         "",
-        "── FAILED-STEP LOGS (truncated) ──",
-        logs || "(no failed-log output available — run `gh run view " + run.databaseId + " --log-failed` for full output)",
+        "â”€â”€ FAILED-STEP LOGS (truncated) â”€â”€",
+        logs || "(no failed-log output available â€” run `gh run view " + run.databaseId + " --log-failed` for full output)",
         "",
-        "── ACTION ──",
+        "â”€â”€ ACTION â”€â”€",
         cfg.failOnly
           ? "Read the failed logs above, identify which tests broke, run them locally to reproduce, fix, and re-push. Use `bun run typecheck` first (fastest signal), then run only the failing test files."
           : "Review the run and take action.",
       ].join("\n")
 
-      logToFile("warn", `ci_monitor: CI failed for ${sha.slice(0, 7)} — ${run.url}`)
+      logToFile("warn", `ci_monitor: CI failed for ${sha.slice(0, 7)} â€” ${run.url}`)
       // Use persistSessionMessage so it appears in the LLM context immediately
       // for the next turn (no tool call from the LLM required).
       const sb = await import("./session-bridge")
@@ -2375,11 +2519,11 @@ export function shouldInjectPlanReminder(
   return true;
 }
 
-// â”€â”€â”€ v0.15.0 completion-signal detectors (module-level exports for testing) â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ v0.15.0 completion-signal detectors (module-level exports for testing) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 /**
  * v0.10.0 legacy detector. Matches `<promise>DONE</promise>` (with optional
- * trailing `!`) and nothing else. Retained for backwards compatibility â€”
+ * trailing `!`) and nothing else. Retained for backwards compatibility Ã¢â‚¬â€
  * new code should prefer {@link detectPhaseCompleteSignal} for per-phase
  * hints or {@link detectPlanCompleteSignal} for the terminal marker.
  */
@@ -2425,8 +2569,8 @@ export function detectPlanCompleteSignal(
  * whitespace tolerance + case-insensitivity) but captures the numeric suffix.
  *
  * Returns the number, or null when the text has no PHASE-N-COMPLETE marker.
- * Strict: only numeric suffixes match (PHASE-1-COMPLETE → 1, PHASE-12-COMPLETE
- * → 12). Non-numeric suffixes (PHASE-A-COMPLETE) and legacy DONE return null.
+ * Strict: only numeric suffixes match (PHASE-1-COMPLETE â†’ 1, PHASE-12-COMPLETE
+ * â†’ 12). Non-numeric suffixes (PHASE-A-COMPLETE) and legacy DONE return null.
  */
 export function parsePhaseWaveN(text: string): number | null {
   const m = /(?:<promise>\s*)?PHASE-(\d+)-COMPLETE\s*(?:<\/promise>)?/i.exec(
@@ -2439,7 +2583,7 @@ export function parsePhaseWaveN(text: string): number | null {
  * v0.29.0: fast non-cryptographic 32-bit hash (FNV-1a) for dedupe keys. Used
  * by the post-wave gate to skip re-detection of identical
  * `subagent_type=oracle` text echoed through unrelated tool outputs. Not
- * suitable for security — collision resistance is irrelevant here because
+ * suitable for security â€” collision resistance is irrelevant here because
  * the gate is best-effort and the wave-cooldown in
  * {@link shouldInjectPostWaveDirective} is the real backstop.
  */
@@ -2452,7 +2596,7 @@ export function simpleHash(text: string): string {
   return (h >>> 0).toString(36);
 }
 
-// ─── v0.21.0 (post-wave W5): wave-gate decision helpers (module-level exports for testing) ───
+// â”€â”€â”€ v0.21.0 (post-wave W5): wave-gate decision helpers (module-level exports for testing) â”€â”€â”€
 
 /**
  * Decide whether a post-wave landing directive should be injected NOW for the
@@ -2495,7 +2639,7 @@ export function shouldInjectPostWaveDirective(
     return false;
   }
   // Cooldown applies ONLY to same-wave re-injection (Oracle N1, 14/08/2026):
-  // a NEW wave arriving within the window must never be blocked — the agent
+  // a NEW wave arriving within the window must never be blocked â€” the agent
   // can legally land wave N+1 seconds after injecting wave N.
   if (
     sameWave &&
@@ -2544,10 +2688,10 @@ export function buildThirdPartyDirective(
   if (override) return override;
   const wave = waveN === null || waveN === undefined ? "?" : String(waveN);
   return [
-    `Wave ${wave} is Oracle-verified. This is a THIRD-PARTY repo — land it as a contribution:`,
+    `Wave ${wave} is Oracle-verified. This is a THIRD-PARTY repo â€” land it as a contribution:`,
     "1. READ FIRST the repo's contribution rules (read CONTRIBUTING.md, PR/issue templates and guides) and follow them exactly.",
-    "2. Create a CLEAN dedicated branch for THIS PR: `git checkout -b <branch>` — each PR gets its own independent branch; never mix PRs on one branch unless they fix the same problem (then commit onto that same branch).",
-    `3. Invoke the \`${aasToolPrefix}\` MCP GitHub skills (search_skills → get_skill → compose_stack) to create the PR/issue.`,
+    "2. Create a CLEAN dedicated branch for THIS PR: `git checkout -b <branch>` â€” each PR gets its own independent branch; never mix PRs on one branch unless they fix the same problem (then commit onto that same branch).",
+    `3. Invoke the \`${aasToolPrefix}\` MCP GitHub skills (search_skills â†’ get_skill â†’ compose_stack) to create the PR/issue.`,
     "4. Push the branch to your FORK (`git push -u origin HEAD`) and open the PR against the UPSTREAM repo following the repo's template.",
     "5. Request review on the PR (add reviewers) and wait for CI to pass before starting the next wave.",
   ].join("\n");
@@ -2585,7 +2729,7 @@ export function resolveRepoMode(
     }
     return "own";
   } catch {
-    // gh unavailable/failed (common with private repos) — fall back to git
+    // gh unavailable/failed (common with private repos) â€” fall back to git
     // remotes: a fork workflow usually has an "upstream" remote.
     try {
       const remotes = runner("git remote -v", {
@@ -2598,7 +2742,7 @@ export function resolveRepoMode(
         .some((l) => /^\s*upstream\s+/.test(l))
       if (hasUpstream) return "third-party";
     } catch {
-      // no git either — assume own repo
+      // no git either â€” assume own repo
     }
     return "own";
   }

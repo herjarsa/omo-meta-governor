@@ -67,6 +67,14 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
     phaseAwareDoneSignal: false,
     // v0.19.0: persist interventions to the session (TUI-visible).
     persistToSession: true,
+    // v0.31.1: overflow compaction loop guard. See CompactionLoopGuardConfig.
+    // Defends against opencode bug #27924 (recursive overflow-only compactions).
+    // Default OFF: opt-in to avoid a silent behavior change for v0.30.x users
+    // who never hit the loop. Set to true via config if you are affected.
+    compactionLoopGuard: {
+      enabled: false,
+      maxOverflowRecoveries: 2,
+    },
   },
   protocolEnforcement: {
     enabled: false,
