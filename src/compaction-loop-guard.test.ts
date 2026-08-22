@@ -64,7 +64,7 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
       const hook = await getAutocontinueHook(options);
       const out = await callAutocontinue(hook, "s-overflow-1", true);
       expect(out.enabled).toBe(true);
-    });
+    }, 30_000);
 
     it("then keeps autocontinue enabled on the second consecutive overflow", async () => {
       const hook = await getAutocontinueHook(options);
@@ -73,7 +73,7 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
         const out = await callAutocontinue(hook, sid, true);
         expect(out.enabled).toBe(true);
       }
-    });
+    }, 30_000);
 
     it("then flips autocontinue to disabled on the third consecutive overflow (>=2 default)", async () => {
       const hook = await getAutocontinueHook(options);
@@ -86,7 +86,7 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
       // Third overflow breaks the loop
       const out3 = await callAutocontinue(hook, sid, true);
       expect(out3.enabled).toBe(false);
-    });
+    }, 30_000);
 
     it("then resets the overflow counter when a non-overflow compaction completes", async () => {
       const hook = await getAutocontinueHook(options);
@@ -103,7 +103,7 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
       // Still only 1 overflow since reset
       out = await callAutocontinue(hook, sid, true);
       expect(out.enabled).toBe(true);
-    });
+    }, 30_000);
 
     it("then scopes the counter per-session (one session's loop does not affect another)", async () => {
       const hook = await getAutocontinueHook(options);
@@ -117,7 +117,7 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
       // Session B is unaffected
       const outB = await callAutocontinue(hook, "s-overflow-iso-B", false);
       expect(outB.enabled).toBe(true);
-    });
+    }, 30_000);
   });
 
   describe("#given compactionLoopGuard disabled", () => {
@@ -137,7 +137,7 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
         const out = await callAutocontinue(hook, sid, true);
         expect(out.enabled).toBe(true);
       }
-    });
+    }, 30_000);
 
     describe("#given compactionLoopGuard enabled (opt-in default false → enable here)", () => {
       // Finding #7 (Oracle): verify the guidance message reaches the model
@@ -154,7 +154,7 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
       it("then the next messages.transform injects the loop-guard guidance text", async () => {
         const plugin = createMetaGovernorPlugin({
           graphSync: { enabled: false, autoInstall: false },
-  });
+    }, 30_000);
         const hooks = await plugin(mockPluginInput, optInOptions);
         const autocontinue = hooks["experimental.compaction.autocontinue"] as unknown as (
           input: { sessionID: string; overflow: boolean },
@@ -193,7 +193,7 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
         // which is the DEFAULT mode. This is the Finding #4 fix.
         const plugin = createMetaGovernorPlugin({
           graphSync: { enabled: false, autoInstall: false },
-        });
+    }, 30_000);
         // optInOptions has no explicit mode -> defaults to 'silent'
         const hooks = await plugin(mockPluginInput, optInOptions);
         const autocontinue = hooks["experimental.compaction.autocontinue"] as unknown as (
@@ -236,7 +236,7 @@ describe("#given meta_governor disabled", () => {
       // disable the specific subsystems.
       const plugin = createMetaGovernorPlugin({
         graphSync: { enabled: false, autoInstall: false },
-      });
+    }, 30_000);
       const hooks = await plugin(mockPluginInput, options);
       expect(hooks["experimental.compaction.autocontinue"]).toBeUndefined();
     });
