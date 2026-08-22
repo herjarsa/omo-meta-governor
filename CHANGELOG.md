@@ -4,6 +4,14 @@ All notable changes to `@herjarsa/omo-meta-governor` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.31.2] - 2026-08-22
+
+### Changed
+
+- Compaction loop guard now **enabled by default** (was opt-in in v0.31.1)
+- maxOverflowRecoveries reduced from 2 to **1** - guard trips after just 1 consecutive overflow compaction
+- README defaults updated to reflect new behavior
+
 ## [0.31.1] — 2026-08-22
 
 ### 🛡️ Fixed: overflow compaction loop guard (defends against opencode bug #27924)
