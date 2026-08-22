@@ -293,6 +293,26 @@ minActionForMessage: {
               "v0.15.0: split per-phase hint from terminal signal. When true, <promise>PLAN-COMPLETE</promise> is the only terminal marker (DONE / PHASE-N-COMPLETE are per-phase hints).",
             default: false,
           },
+          compactionLoopGuard: {
+            type: "object",
+            description:
+              "v0.31.1: defense against opencode #27924 (infinite overflow-compaction loop). Counter-trips a circuit breaker after N consecutive overflow compactions to break the loop.",
+            additionalProperties: false,
+            properties: {
+              enabled: {
+                type: "boolean",
+                description:
+                  "v0.31.2: defense against opencode #27924 (infinite overflow-compaction loop). Default true (v0.31.2).",
+                default: true,
+              },
+              maxOverflowRecoveries: {
+                type: "integer",
+                description:
+                  "v0.31.2: consecutive overflow compactions tolerated before the guard trips. Default 1.",
+                default: 1,
+              },
+            },
+          },
         },
       },
       protocolEnforcement: {
