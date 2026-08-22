@@ -31,7 +31,7 @@ The plugin cannot fix opencode, but it CAN trip a circuit breaker:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | boolean | `true` | Master switch for the overflow loop guard |
-| `maxOverflowRecoveries` | integer | `2` | Max consecutive overflow compactions before the guard trips |
+| maxOverflowRecoveries | integer | 1 | Max consecutive overflow compactions before the guard trips |
 
 When the guard is enabled (default), after `maxOverflowRecoveries` consecutive
 overflow compactions (default: 2), the plugin:
