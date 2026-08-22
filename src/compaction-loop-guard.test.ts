@@ -60,7 +60,7 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
       meta_governor: {
         enabled: true,
         intervention: {
-          compactionLoopGuard: { enabled: true, maxOverflowRecoveries: 2 },
+          compactionLoopGuard: { enabled: true, maxOverflowRecoveries: 1 },
         },
       },
     };
@@ -71,26 +71,26 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
       expect(out.enabled).toBe(true);
     }, 30_000);
 
-    it("then keeps autocontinue enabled on the second consecutive overflow", async () => {
+    it("then disables autocontinue on the second consecutive overflow (maxOverflowRecoveries=1)", async () => {
       const hook = await getAutocontinueHook(options);
       const sid = "s-overflow-2";
-      for (let i = 0; i < 2; i++) {
-        const out = await callAutocontinue(hook, sid, true);
-        expect(out.enabled).toBe(true);
-      }
+      // First overflow: count=1, 1>1=false -> still enabled
+      const out1 = await callAutocontinue(hook, sid, true);
+      expect(out1.enabled).toBe(true);
+      // Second overflow: count=2, 2>1=true -> guard trips
+      const out2 = await callAutocontinue(hook, sid, true);
+      expect(out2.enabled).toBe(false);
     }, 30_000);
 
-    it("then flips autocontinue to disabled on the third consecutive overflow (>=2 default)", async () => {
+    it("then flips autocontinue to disabled on the second consecutive overflow (maxOverflowRecoveries=1)", async () => {
       const hook = await getAutocontinueHook(options);
       const sid = "s-overflow-3";
-      // First two overflow compactions should still allow auto-continue
-      for (let i = 0; i < 2; i++) {
-        const out = await callAutocontinue(hook, sid, true);
-        expect(out.enabled).toBe(true);
-      }
-      // Third overflow breaks the loop
-      const out3 = await callAutocontinue(hook, sid, true);
-      expect(out3.enabled).toBe(false);
+      // First overflow: count=1, 1>1=false -> still enabled
+      const out1 = await callAutocontinue(hook, sid, true);
+      expect(out1.enabled).toBe(true);
+      // Second overflow: count=2, 2>1=true -> guard trips
+      const out2 = await callAutocontinue(hook, sid, true);
+      expect(out2.enabled).toBe(false);
     }, 30_000);
 
     it("then resets the overflow counter when a non-overflow compaction completes", async () => {
@@ -105,18 +105,17 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
       // Now overflow again — counter restarts at 0
       out = await callAutocontinue(hook, sid, true);
       expect(out.enabled).toBe(true);
-      // Still only 1 overflow since reset
+      // 2nd overflow after reset -> guard trips (count=2, 2>1=true)
       out = await callAutocontinue(hook, sid, true);
-      expect(out.enabled).toBe(true);
+      expect(out.enabled).toBe(false);
     }, 30_000);
 
     it("then scopes the counter per-session (one session's loop does not affect another)", async () => {
       const hook = await getAutocontinueHook(options);
       const sidA = "s-overflow-iso-A";
-      // Drive session A into the loop
-      for (let i = 0; i < 2; i++) {
-        const out = await callAutocontinue(hook, sidA, true);
-      }
+      // Drive session A into the loop (1 overflow keeps enabled, 2nd trips guard)
+      const out1 = await callAutocontinue(hook, sidA, true);
+      expect(out1.enabled).toBe(true);
       const outA = await callAutocontinue(hook, sidA, true);
       expect(outA.enabled).toBe(false);
       // Session B is unaffected
@@ -130,7 +129,7 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
       meta_governor: {
         enabled: true,
         intervention: {
-          compactionLoopGuard: { enabled: false, maxOverflowRecoveries: 2 },
+          compactionLoopGuard: { enabled: false, maxOverflowRecoveries: 1 },
         },
       },
     };
@@ -151,7 +150,7 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
         meta_governor: {
           enabled: true,
           intervention: {
-            compactionLoopGuard: { enabled: true, maxOverflowRecoveries: 2 },
+            compactionLoopGuard: { enabled: true, maxOverflowRecoveries: 1 },
           },
         },
       };

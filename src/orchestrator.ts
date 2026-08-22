@@ -72,8 +72,8 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
     // Default OFF: opt-in to avoid a silent behavior change for v0.30.x users
     // who never hit the loop. Set to true via config if you are affected.
     compactionLoopGuard: {
-      enabled: false,
-      maxOverflowRecoveries: 2,
+      enabled: true,
+      maxOverflowRecoveries: 1,
     },
   },
   protocolEnforcement: {
