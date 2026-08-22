@@ -18,6 +18,7 @@ The plugin exports a default `PluginModule` from `src/index.ts`. OpenCode loads 
 | `experimental.chat.system.transform` | Before system prompt reaches the LLM | Appends protocol enforcement rules and cached graph context to the system prompt; injects decisions (when `mode: "system"`) |
 | `experimental.session.compacting` | At context compaction time | Injects top-3 relevant lessons into the compaction context so learned patterns survive window resets |
 | `experimental.compaction.autocontinue` | When auto-continue fires | Disables auto-continue when the task is verified done (DONE + Oracle, or intervention cap reached) |
+| `experimental.compaction.loopGuard` | On overflow compaction | Trips circuit breaker after N consecutive overflow compactions (default 1) to break infinite compaction loops (opencode #27924) |
 | `tool` | Custom tool registration | Registers 15 `omo_*` tools the LLM can invoke explicitly |
 
 ### Graceful Degradation
