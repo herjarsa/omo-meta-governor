@@ -85,7 +85,7 @@ export function normalizeSkillRecord(
 export interface SkillHubSyncDeps {
   backend: Pick<
     SqliteBackend,
-    "skillAddOrUpdate" | "skillGet"
+    "skillAddOrUpdate" | "skillGet" | "skillReplaceDeps"
   >
 }
 
@@ -131,4 +131,55 @@ export class SkillHubSync {
     }
     return result
   }
+
+  /**
+   * Ingest registry dependency index (deps.json shape):
+   * { [depType]: { [depName]: { skills: string[] } } }
+   */
+  async ingestDeps(
+    raw: unknown,
+  ): Promise<SkillHubDepsResult> {
+    const result: SkillHubDepsResult = { skillsTouched: 0, depsWritten: 0, invalidGroups: 0 }
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return result
+    const byType = raw as Record<string, unknown>
+    const perSkill = new Map<string, Array<{ depType: string; depName: string }>>()
+    for (const [depType, groups] of Object.entries(byType)) {
+      if (depType.length === 0 || typeof groups !== "object" || groups === null || Array.isArray(groups)) {
+        result.invalidGroups++
+        continue
+      }
+      for (const [depName, entry] of Object.entries(groups as Record<string, unknown>)) {
+        if (depName.length === 0 || typeof entry !== "object" || entry === null) {
+          result.invalidGroups++
+          continue
+        }
+        const skills = (entry as Record<string, unknown>)["skills"]
+        if (!Array.isArray(skills)) {
+          result.invalidGroups++
+          continue
+        }
+        for (const sid of skills) {
+          if (typeof sid !== "string" || sid.trim().length === 0) continue
+          const list = perSkill.get(sid)
+          if (list) list.push({ depType, depName })
+          else perSkill.set(sid, [{ depType, depName }])
+        }
+      }
+    }
+    for (const [skillId, deps] of perSkill) {
+      await this.deps.backend.skillReplaceDeps(skillId, deps)
+      result.skillsTouched++
+      result.depsWritten += deps.length
+    }
+    return result
+  }
+}
+
+export interface SkillHubDepsResult {
+  /** Distinct skills that received dep rows. */
+  skillsTouched: number
+  /** Total dep rows written across all skills. */
+  depsWritten: number
+  /** Groups skipped due to malformed shape. */
+  invalidGroups: number
 }
