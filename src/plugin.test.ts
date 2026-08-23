@@ -384,15 +384,14 @@ describe("tool.execute.before audit", () => {
       }
       await transform({}, output)
 
-      // v0.17.1 fix: tool.execute.before now sees the args content and detects
-      // the no-type-suppression violation. The violation text is injected via
-      // messages.transform. (Other injections like plan_reminder may also
-      // appear, so we check for the violation text rather than exact count.)
+      // v0.31.6: MEDIA violations are now log-only (non-blocking) to avoid killing delegation loops.
+      // They no longer inject via messages.transform (which required "continua" click).
+      // Grave violations still inject; MEDIA is suppressed.
       const allText = output.messages
         .map((m) => (m.parts[0] as Record<string, unknown> | undefined)?.text as string ?? "")
         .join("\n")
-      expect(allText).toContain("PROTOCOL VIOLATIONS")
-      expect(allText).toContain("no-type-suppression")
+      expect(allText).not.toContain("PROTOCOL VIOLATIONS")
+      expect(allText).not.toContain("no-type-suppression")
     })
 
     it("then detects empty-catch violation when args contain catch(e) {}", async () => {
@@ -419,8 +418,9 @@ describe("tool.execute.before audit", () => {
       const allText = output.messages
         .map((m) => (m.parts[0] as Record<string, unknown> | undefined)?.text as string ?? "")
         .join("\n")
-      expect(allText).toContain("PROTOCOL VIOLATIONS")
-      expect(allText).toContain("no-empty-catch")
+      // v0.31.6: MEDIA now log-only
+      expect(allText).not.toContain("PROTOCOL VIOLATIONS")
+      expect(allText).not.toContain("no-empty-catch")
     })
 
     it("then does NOT inject any protocol violation for benign writes", async () => {
