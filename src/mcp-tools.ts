@@ -40,6 +40,11 @@ import {
   buildOmoMarkDirtyTool,
   buildOmoHookStatusTool,
 } from "./custom-tools"
+import {
+  buildOmoSkillFindTool,
+  buildOmoSkillGetTool,
+  buildOmoSkillAddTool,
+} from "./skill-hub-tools"
 
 let PLUGIN_VERSION = "0.0.0"
 try {
@@ -162,6 +167,9 @@ function buildAdapters(): readonly McpAdapter[] {
     adapt(buildOmoSyncIfDirtyTool as PluginToolBuilder, "omo_sync_if_dirty", { cwd }),
     adapt(buildOmoMarkDirtyTool as PluginToolBuilder, "omo_mark_dirty", { cwd }),
     adapt(buildOmoHookStatusTool as PluginToolBuilder, "omo_hook_status", { cwd }),
+    adapt(buildOmoSkillFindTool as PluginToolBuilder, "omo_skill_find", { sqlite, cwd }),
+    adapt(buildOmoSkillGetTool as PluginToolBuilder, "omo_skill_get", { sqlite, cwd }),
+    adapt(buildOmoSkillAddTool as PluginToolBuilder, "omo_skill_add", { sqlite, cwd }),
   ]
 }
 
@@ -191,4 +199,7 @@ export const MCP_TOOL_NAMES = [
   "omo_sync_if_dirty",
   "omo_mark_dirty",
   "omo_hook_status",
+  "omo_skill_find",
+  "omo_skill_get",
+  "omo_skill_add",
 ] as const
