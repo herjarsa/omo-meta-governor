@@ -4,6 +4,29 @@ All notable changes to `@herjarsa/omo-meta-governor` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.31.4] - 2026-08-23
+
+### Added
+
+- Runtime-selectable SQLite driver (`src/sqlite-driver.ts`): `bun:sqlite` under Bun, `node:sqlite` (DatabaseSync) under Node >= 23.4, resolved via `createRequire` so bundles stay host-agnostic.
+- Live health snapshots: plugin refreshes `meta-governor-health.json` on tool-audit events (5 s throttle) via shared composer `buildPluginHealth()`; `omo_health` uses the same composer.
+- Persist retry: one retry after backoff when intervention persist times out; DI seams `__test_persistSessionMessage` / `__test_persistRetryDelayMs`.
+
+### Fixed
+
+- **OpenCode Desktop MCP mode never booted**: dist bundle statically imported `bun:sqlite`; Node ESM rejects the `bun:` scheme (`ERR_UNSUPPORTED_ESM_URL_SCHEME`). Verified via stdio handshake (exit 0, 16 tools).
+- Health file staleness misread as 'plugin dead' between `omo_health` invocations.
+- Interventions invisible in TUI/session history when persist timed out.
+
+### Changed
+
+- `omo_health` output table sourced from composer fields (no behavioral change).
+- v0.31.3 was published partially (MCP boot fix only); 0.31.4 is the complete release — do not pin 0.31.3.
+
+### Tests
+
+- +18 tests: sqlite-driver (6), health-builder (9), persist-retry (3). CI green on all release commits incl. Windows/macOS jobs.
+
 ## [0.31.2] - 2026-08-22
 
 ### Changed
