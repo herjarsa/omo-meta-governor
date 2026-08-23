@@ -17,7 +17,7 @@
  * Default DB path: `~/.omo-meta-governor/meta-governor.db`
  */
 
-import { Database } from "bun:sqlite"
+import { openDatabase, type OmoDatabase, type OmoStatement } from "./sqlite-driver"
 import { existsSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 
@@ -128,6 +128,33 @@ CREATE TABLE IF NOT EXISTS boulder_tasks (
   updated_at_ms INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS skills (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  repo_url TEXT,
+  installs INTEGER DEFAULT 0,
+  skill_id TEXT,
+  download_count INTEGER DEFAULT 0,
+  last_synced INTEGER,
+  content_hash TEXT
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS skills_fts USING fts5(name, description, content='skills', content_rowid='rowid');
+
+CREATE TRIGGER IF NOT EXISTS skills_ai AFTER INSERT ON skills BEGIN
+  INSERT INTO skills_fts(rowid, name, description) VALUES (new.rowid, new.name, new.description);
+END;
+
+CREATE TRIGGER IF NOT EXISTS skills_ad AFTER DELETE ON skills BEGIN
+  INSERT INTO skills_fts(skills_fts, rowid, name, description) VALUES ('delete', old.rowid, old.name, old.description);
+END;
+
+CREATE TRIGGER IF NOT EXISTS skills_au AFTER UPDATE ON skills BEGIN
+  INSERT INTO skills_fts(skills_fts, rowid, name, description) VALUES ('delete', old.rowid, old.name, old.description);
+  INSERT INTO skills_fts(rowid, name, description) VALUES (new.rowid, new.name, new.description);
+END;
+
 CREATE INDEX IF NOT EXISTS idx_entries_kind ON entries(kind);
 CREATE INDEX IF NOT EXISTS idx_entries_session ON entries(session_id, directory);
 CREATE INDEX IF NOT EXISTS idx_boulder_dir_session ON boulder_tasks(directory, session_id);
@@ -148,16 +175,16 @@ function generateId(prefix: string): string {
 // ---------------------------------------------------------------------------
 
 export class SqliteBackend implements AgentmemoryWriteBackend, AgentmemoryBackend, BoulderStateBackend {
-  private db: Database
+  private db: OmoDatabase
   private stmts: {
-    insertEntry: ReturnType<Database["prepare"]>
-    ftsSearch: ReturnType<Database["prepare"]>
-    boulderSelect: ReturnType<Database["prepare"]>
+    insertEntry: OmoStatement
+    ftsSearch: OmoStatement
+    boulderSelect: OmoStatement
   }
 
   constructor(dbPath?: string) {
     const path = dbPath ?? defaultDbPath()
-    this.db = new Database(path, { create: true })
+    this.db = openDatabase(path)
 
     // Performance + safety pragmas
     this.db.exec("PRAGMA journal_mode = WAL;")
@@ -170,11 +197,11 @@ export class SqliteBackend implements AgentmemoryWriteBackend, AgentmemoryBacken
 
     // Check / set schema version
     const versionRow = this.db
-      .query<{ value: string }, []>("SELECT value FROM _meta WHERE key = 'schema_version'")
-      .get()
+      .prepare("SELECT value FROM _meta WHERE key = 'schema_version'")
+      .get() as { value: string } | undefined
     if (!versionRow) {
       this.db
-        .query("INSERT INTO _meta (key, value) VALUES ('schema_version', ?)")
+        .prepare("INSERT INTO _meta (key, value) VALUES ('schema_version', ?)")
         .run(SCHEMA_VERSION)
     } else if (versionRow.value !== SCHEMA_VERSION) {
       // Future: migration logic. For v1, no migrations needed.
@@ -324,6 +351,138 @@ export class SqliteBackend implements AgentmemoryWriteBackend, AgentmemoryBacken
       )
     }
     return Promise.resolve(tasks)
+  }
+
+  // -------- Skill catalog --------
+
+  /**
+   * Search skills by name/description using FTS5.
+   * Supports optional minInstalls filter and duplicate filtering.
+   */
+  skillSearch(input: {
+    query: string
+    minInstalls?: number
+    filterDuplicates?: boolean
+  }): Promise<Array<{
+    id: string
+    name: string
+    description: string | null
+    installs: number
+    skill_id: string | null
+    repo_url: string | null
+    download_count: number
+  }>> {
+    const whereClauses: string[] = []
+    const params: unknown[] = []
+
+    if (input.query) {
+      whereClauses.push(`skills_fts MATCH ?`)
+      params.push(input.query)
+    }
+    if (input.minInstalls !== undefined) {
+      whereClauses.push(`installs >= ?`)
+      params.push(input.minInstalls)
+    }
+
+    const where = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''
+    const limit = input.filterDuplicates !== false ? 50 : 100
+
+    const rows = this.db.prepare(
+      `SELECT s.id, s.name, s.description, s.installs, s.skill_id, s.repo_url, s.download_count
+       FROM skills s
+       JOIN skills_fts f ON f.rowid = (SELECT rowid FROM skills WHERE id = s.id)
+       ${where}
+       ORDER BY rank
+       LIMIT ?`
+    ).all(...params, limit) as Array<{
+      id: string
+      name: string
+      description: string | null
+      installs: number
+      skill_id: string | null
+      repo_url: string | null
+      download_count: number
+    }>
+
+    return Promise.resolve(rows)
+  }
+
+  /**
+   * Get a specific skill by ID.
+   */
+  skillGet(id: string): Promise<{
+    id: string
+    name: string
+    description: string | null
+    repo_url: string | null
+    installs: number
+    skill_id: string | null
+    download_count: number
+    last_synced: number | null
+    content_hash: string | null
+  } | null> {
+    const row = this.db.prepare(
+      `SELECT s.id, s.name, s.description, s.repo_url, s.installs, s.skill_id, s.download_count, s.last_synced, s.content_hash
+       FROM skills s
+       WHERE s.id = ?`
+    ).get(id) as {
+      id: string
+      name: string
+      description: string | null
+      repo_url: string | null
+      installs: number
+      skill_id: string | null
+      download_count: number
+      last_synced: number | null
+      content_hash: string | null
+    } | undefined
+
+    return Promise.resolve(row ?? null)
+  }
+
+  /**
+   * Add or update a skill in the catalog.
+   * Returns the skill ID if successful.
+   */
+  skillAddOrUpdate(skill: {
+    id: string
+    name: string
+    description: string
+    repo_url?: string
+    installs?: number
+    skill_id?: string
+    download_count?: number
+    last_synced?: number
+    content_hash?: string
+  }): Promise<string> {
+    const now = Date.now()
+
+    this.db.prepare(`
+      INSERT INTO skills (id, name, description, repo_url, installs, skill_id, download_count, last_synced, content_hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        description = excluded.description,
+        repo_url = excluded.repo_url,
+        installs = excluded.installs,
+        skill_id = excluded.skill_id,
+        download_count = excluded.download_count,
+        last_synced = excluded.last_synced,
+        content_hash = excluded.content_hash,
+        updated_at = CURRENT_TIMESTAMP
+    `).run(
+      skill.id,
+      skill.name,
+      skill.description,
+      skill.repo_url,
+      skill.installs ?? 0,
+      skill.skill_id,
+      skill.download_count ?? 0,
+      skill.last_synced ?? now,
+      skill.content_hash
+    )
+
+    return Promise.resolve(skill.id)
   }
 
   // -------- Lifecycle --------
