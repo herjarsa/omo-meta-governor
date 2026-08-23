@@ -1809,3 +1809,6 @@ const { infoCli } = await import("./cli-anything")
     },
   })
 }
+
+// v0.32.0 skill-hub tools — re-exported for plugin-mode adapter
+ export { buildOmoSkillFindTool, buildOmoSkillGetTool, buildOmoSkillAddTool } from "./skill-hub-tools"
