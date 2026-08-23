@@ -468,8 +468,7 @@ export class SqliteBackend implements AgentmemoryWriteBackend, AgentmemoryBacken
         skill_id = excluded.skill_id,
         download_count = excluded.download_count,
         last_synced = excluded.last_synced,
-        content_hash = excluded.content_hash,
-        updated_at = CURRENT_TIMESTAMP
+        content_hash = excluded.content_hash
     `).run(
       skill.id,
       skill.name,
