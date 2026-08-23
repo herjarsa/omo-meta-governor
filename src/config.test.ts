@@ -386,3 +386,26 @@ expect(result.graphSync.fetchBranch).toBe("main")
 })
 })
 })
+
+describe("loadOrchestratorConfig #given skillHub (v0.32.0)", () => {
+  it("then absent skillHub projects full defaults", () => {
+    const result = loadOrchestratorConfig(undefined)
+    expect(result.skillHub.enabled).toBe(false)
+    expect(result.skillHub.syncIntervalMs).toBe(86400000)
+    expect(result.skillHub.embedBaseUrl).toBe("http://127.0.0.1:3114/v1")
+    expect(result.skillHub.embedModel).toBe("bge-m3")
+    expect(result.skillHub.minInstalls).toBe(0)
+    expect(result.skillHub.filterDuplicates).toBe(true)
+    expect(result.skillHub.depsCheck).toBe(true)
+  })
+
+  it("then partial override merges over defaults", () => {
+    const result = loadOrchestratorConfig({
+      skillHub: { enabled: true, minInstalls: 50 },
+    } as MetaGovernorPluginConfig)
+    expect(result.skillHub.enabled).toBe(true)
+    expect(result.skillHub.minInstalls).toBe(50)
+    expect(result.skillHub.syncIntervalMs).toBe(86400000)
+    expect(result.skillHub.embedModel).toBe("bge-m3")
+  })
+})
