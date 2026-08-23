@@ -24,7 +24,7 @@ describe("v0.17.3 Gap D — decision history in messages.transform", () => {
           enabled: true,
           intervention: {
             mode: "message",
-            minActionForMessage: "warn",
+            minActionForMessage: "escalate",
             includeDecisionHistory: true,
             maxHistoryMessages: 5,
           },
@@ -35,11 +35,11 @@ describe("v0.17.3 Gap D — decision history in messages.transform", () => {
 
     // First intervention: store warn decision + inject it (populates recentInterventionTexts)
     storeDecision("ses-D-1", {
-      action: "warn",
+      action: "escalate",
       message: "First warn: initial detection",
       historyEntry: {
-        decision: { action: "warn", score: -0.3, reasoning: "first", evidence: [], shouldEscalateTo: null },
-        action: "warn",
+        decision: { action: "escalate", score: -0.3, reasoning: "first", evidence: [], shouldEscalateTo: null },
+        action: "escalate",
         timestampISO: "2026-01-01T00:00:00Z",
         sessionID: "ses-D-1",
         reasoning: "first",
@@ -77,7 +77,7 @@ describe("v0.17.3 Gap D — decision history in messages.transform", () => {
     expect(secondInjection).toBeDefined()
     // Second injection should include the first in history
     expect(secondInjection).toContain("Recent decisions")
-    expect(secondInjection).toContain("[warn]")
+    expect(secondInjection).toContain("[escalate]")
     expect(secondInjection).toContain("First warn")
     expect(secondInjection).toContain("Second: escalation")
   })
@@ -101,7 +101,7 @@ describe("v0.17.3 Gap D — decision history in messages.transform", () => {
           enabled: true,
           intervention: {
             mode: "message",
-            minActionForMessage: "warn",
+            minActionForMessage: "escalate",
             includeDecisionHistory: false,
           },
         },
@@ -111,11 +111,11 @@ describe("v0.17.3 Gap D — decision history in messages.transform", () => {
 
     // First injection (populates recentInterventionTexts but won't be shown due to includeDecisionHistory=false)
     storeDecision("ses-D-2", {
-      action: "warn",
+      action: "escalate",
       message: "Only decision",
       historyEntry: {
-        decision: { action: "warn", score: -0.3, reasoning: "test", evidence: [], shouldEscalateTo: null },
-        action: "warn",
+        decision: { action: "escalate", score: -0.3, reasoning: "test", evidence: [], shouldEscalateTo: null },
+        action: "escalate",
         timestampISO: "2026-01-01T00:00:00Z",
         sessionID: "ses-D-2",
         reasoning: "test",
@@ -128,11 +128,11 @@ describe("v0.17.3 Gap D — decision history in messages.transform", () => {
 
     // Second injection
     storeDecision("ses-D-2", {
-      action: "warn",
+      action: "escalate",
       message: "Second decision",
       historyEntry: {
-        decision: { action: "warn", score: -0.3, reasoning: "test2", evidence: [], shouldEscalateTo: null },
-        action: "warn",
+        decision: { action: "escalate", score: -0.3, reasoning: "test2", evidence: [], shouldEscalateTo: null },
+        action: "escalate",
         timestampISO: "2026-01-01T00:01:00Z",
         sessionID: "ses-D-2",
         reasoning: "test2",

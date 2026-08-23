@@ -1548,31 +1548,38 @@ const graphSyncReadyProjects = new Set<string>();
             sessionState.lessonCount++;
           }
 
-          // v0.17.0 (F5.1): wire escalate action to fire a session.prompt
-          // that instructs the LLM to invoke Oracle (or user). Pure prompt
-          // builder is testable; the actual session.prompt is best-effort.
+          // v0.31.8: escalate prompt is now guarded + deferred — same session-killer root cause as persist.
+          // Previously did session.prompt immediately inside tool.execute.after, racing with the active tool loop.
+          // Now skip while backgroundTaskInFlight/oracleInFlight and defer 250ms so the current turn settles.
           if (
             output.decision.action === "escalate" &&
             toolInput.sessionID &&
             hasSessionClient()
           ) {
-            const decisionRef = output.decision.historyEntry.decision;
-            const evidenceCount = decisionRef.evidence.length;
-            const target = decisionRef.shouldEscalateTo ?? "oracle";
-            const instruction = buildEscalationPrompt({
-              reasoning: decisionRef.reasoning,
-              target,
-              evidenceCount,
-              sessionID: toolInput.sessionID,
-            });
-            void promptAgent(toolInput.sessionID, {
-              toolName: "meta_governor_escalate",
-              mcpTool: "task",
-              mcpArgs: { subagent_type: target },
-              preamble: instruction,
-            }).catch((err) => {
-              logToFile("warn", `escalation prompt failed: ${String(err)}`);
-            });
+            const stEsc = auditSessions.get(toolInput.sessionID) ?? sessionState;
+            if (stEsc?.backgroundTaskInFlight || stEsc?.oracleInFlight) {
+              logToFile("info", `escalation prompt skipped (background task in flight) for ${toolInput.sessionID}`);
+            } else {
+              const decisionRef = output.decision.historyEntry.decision;
+              const evidenceCount = decisionRef.evidence.length;
+              const target = decisionRef.shouldEscalateTo ?? "oracle";
+              const instruction = buildEscalationPrompt({
+                reasoning: decisionRef.reasoning,
+                target,
+                evidenceCount,
+                sessionID: toolInput.sessionID,
+              });
+              setTimeout(() => {
+                void promptAgent(toolInput.sessionID, {
+                  toolName: "meta_governor_escalate",
+                  mcpTool: "task",
+                  mcpArgs: { subagent_type: target },
+                  preamble: instruction,
+                }).catch((err) => {
+                  logToFile("warn", `escalation prompt failed: ${String(err)}`);
+                });
+              }, 250);
+            }
           }
 
           if (mergedConfig.intervention.mode !== "silent" && sessionState) {

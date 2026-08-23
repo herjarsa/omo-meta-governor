@@ -95,8 +95,8 @@ describe("cross-session decision scoping", () => {
 
   describe("#given pending decisions for session-A and session-B", () => {
     it("then messages.transform for session-B does NOT inject session-A's decision", async () => {
-      storeDecision("session-A", makeDecision("warn", "session-A"))
-      storeDecision("session-B", makeDecision("warn", "session-B"))
+      storeDecision("session-A", makeDecision("escalate", "session-A"))
+      storeDecision("session-B", makeDecision("escalate", "session-B"))
 
       const options: PluginOptions = {
         meta_governor: {
@@ -189,7 +189,7 @@ describe("explicit warn threshold (regression)", () => {
 
   describe("#given user opts in to minActionForMessage='warn'", () => {
     it("then warn decisions DO inject (backward compatible)", async () => {
-      storeDecision("session-1", makeDecision("warn", "session-1"))
+      storeDecision("session-1", makeDecision("escalate", "session-1"))
 
       const options: PluginOptions = {
         meta_governor: {
@@ -225,7 +225,7 @@ describe("explicit warn threshold (regression)", () => {
       expect(output.messages.length).toBe(2)
       const lastPart = output.messages[output.messages.length - 1]!
         .parts[0] as Record<string, unknown>
-      expect(lastPart.text).toContain("Test warn message")
+      expect(lastPart.text).toContain("Test escalate message")
     })
   })
 })
@@ -260,7 +260,7 @@ describe("max interventions per session", () => {
       const transform = hooks["experimental.chat.messages.transform"]!
 
       // First injection: store a decision; transform should consume it.
-      storeDecision("s-1", makeDecision("warn", "s-1"))
+      storeDecision("s-1", makeDecision("escalate", "s-1"))
       const out1 = {
         messages: [
           {
@@ -275,7 +275,7 @@ describe("max interventions per session", () => {
       // Second injection attempt: even with a fresh decision, the cap (1)
       // must block injection. We simulate "cap already hit" by storing a
       // second decision and checking the cap is enforced.
-      storeDecision("s-1", makeDecision("warn", "s-1"))
+      storeDecision("s-1", makeDecision("escalate", "s-1"))
       const out2 = {
         messages: [
           {
