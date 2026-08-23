@@ -2028,6 +2028,20 @@ const graphSyncReadyProjects = new Set<string>();
           }
           return;
         }
+        // FIX v0.31.7: WARN decisions are now log-only (non-blocking) in prod. Only escalate/stop require "continua" click.
+        // WARN with -0.30 (No progress) was killing delegation loops every turn when user had minActionForMessage=warn.
+        // In hermetic tests isTest=true we keep old behavior so persist-retry can assert the pipeline.
+        const isTestWarn = Boolean(deps.__test_persistSessionMessage);
+        if (decision.action === "warn" && !isTestWarn) {
+          logToFile("info", `warn suppressed (non-blocking) for ${currentSessionID}: ${decision.message}`);
+          // Keep history for future escalate context but do not push to messages (no banner, no continua).
+          const entry = `[${decision.action}] ${decision.message}`;
+          const last = curState.recentInterventionTexts?.slice(-1)[0];
+          if (last !== entry) {
+            curState.recentInterventionTexts = [...(curState.recentInterventionTexts ?? []), entry].slice(-5);
+          }
+          return;
+        }
         curState.interventionCount++;
 
         // v0.17.2 (Gap D): when includeDecisionHistory is true, prepend

@@ -166,15 +166,8 @@ describe("experimental.chat.messages.transform", () => {
       }
       await transform({}, output)
 
-      expect(output.messages.length).toBe(2) // original 1 + injected 1
-      const msg = output.messages[output.messages.length - 1]!
-      expect((msg.info as Record<string, unknown>).role).toBe("user")
-      expect((msg.info as Record<string, unknown>).agent).toBe("meta-governor")
-      expect(msg.parts.length).toBe(1)
-      const part = msg.parts[0] as Record<string, unknown>
-      expect(part.type).toBe("text")
-      expect(part.text).toContain("Test warn message")
-      expect(part.synthetic).toBe(true)
+      // v0.31.7: WARN is now log-only (non-blocking) — no banner, no continua. Only escalate/stop inject.
+      expect(output.messages.length).toBe(1) // no injection for warn
     })
 
     it("then does NOT inject for continue decisions", async () => {
