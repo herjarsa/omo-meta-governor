@@ -253,7 +253,7 @@ Tools that bridge to MCP servers (AgentMemory) use `src/session-bridge.ts`. The 
 ### SQLite Backend (`sqlite-backend.ts`)
 
 - Database: `~/.omo-meta-governor/meta-governor.db`
-- Runtime: `bun:sqlite` (zero npm dependencies)
+- Runtime: `sqlite-driver.ts` selects the engine at runtime — `bun:sqlite` under Bun, `node:sqlite` (DatabaseSync) under Node ≥ 23.4 — via `createRequire`, keeping dist bundles loadable on both hosts
 - Schema: `entries` table (lessons + memories + crystals) with FTS5 virtual table for natural-language search; `boulder_tasks` table for task state; `_meta` KV table for schema versioning
 - WAL mode + `synchronous=NORMAL` + `busy_timeout` for concurrent safety
 - Prepared statements cached at init

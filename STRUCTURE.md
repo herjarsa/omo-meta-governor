@@ -57,7 +57,8 @@ All source files live flat in `src/` — no subdirectories. Files are organized 
 
 | File | Purpose |
 |------|---------|
-| `sqlite-backend.ts` | SQLite backend (bun:sqlite) for lessons/memories/crystals + FTS5 search |
+| `sqlite-backend.ts` | SQLite backend (via sqlite-driver) for lessons/memories/crystals + FTS5 search |
+| `sqlite-driver.ts` | Runtime-selectable SQLite engine — `bun:sqlite` under Bun, `node:sqlite` under Node ≥23.4 — resolved via createRequire so dist bundles boot on both hosts |
 | `decision-store.ts` | In-memory Map for intervention decisions (session-scoped) |
 | `audit-state-cache.ts` | TTL+LRU bounded cache for per-session audit state |
 | `graph-retrieval.ts` | Invoke codegraph/graphify CLI, cache results per-session |
