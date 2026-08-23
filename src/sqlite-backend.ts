@@ -155,6 +155,14 @@ CREATE TRIGGER IF NOT EXISTS skills_au AFTER UPDATE ON skills BEGIN
   INSERT INTO skills_fts(rowid, name, description) VALUES (new.rowid, new.name, new.description);
 END;
 
+CREATE TABLE IF NOT EXISTS skill_deps (
+  skill_id TEXT NOT NULL,
+  dep_type TEXT NOT NULL,
+  dep_name TEXT NOT NULL,
+  PRIMARY KEY (skill_id, dep_type, dep_name)
+);
+CREATE INDEX IF NOT EXISTS idx_skill_deps_dep ON skill_deps(dep_type, dep_name);
+
 CREATE INDEX IF NOT EXISTS idx_entries_kind ON entries(kind);
 CREATE INDEX IF NOT EXISTS idx_entries_session ON entries(session_id, directory);
 CREATE INDEX IF NOT EXISTS idx_boulder_dir_session ON boulder_tasks(directory, session_id);
@@ -482,6 +490,47 @@ export class SqliteBackend implements AgentmemoryWriteBackend, AgentmemoryBacken
     )
 
     return Promise.resolve(skill.id)
+  }
+
+  // -------- Skill dependencies --------
+
+  /** Replace all dependency rows for one skill (idempotent). */
+  skillReplaceDeps(
+    skillId: string,
+    deps: Array<{ depType: string; depName: string }>,
+  ): Promise<number> {
+    this.db.exec("BEGIN")
+    try {
+      this.db.prepare(`DELETE FROM skill_deps WHERE skill_id = ?`).run(skillId)
+      const ins = this.db.prepare(
+        `INSERT OR IGNORE INTO skill_deps (skill_id, dep_type, dep_name) VALUES (?, ?, ?)`,
+      )
+      let written = 0
+      for (const d of deps) {
+        if (
+          typeof d.depType === "string" && d.depType.length > 0 &&
+          typeof d.depName === "string" && d.depName.length > 0
+        ) {
+          ins.run(skillId, d.depType, d.depName)
+          written++
+        }
+      }
+      this.db.exec("COMMIT")
+      return Promise.resolve(written)
+    } catch (err) {
+      this.db.exec("ROLLBACK")
+      throw err
+    }
+  }
+
+  /** Get dependency rows for one skill, sorted by type then name. */
+  skillGetDeps(skillId: string): Promise<Array<{ depType: string; depName: string }>> {
+    const rows = this.db
+      .prepare(
+        `SELECT dep_type AS depType, dep_name AS depName FROM skill_deps WHERE skill_id = ? ORDER BY dep_type ASC, dep_name ASC`,
+      )
+      .all(skillId) as Array<{ depType: string; depName: string }>
+    return Promise.resolve(rows)
   }
 
   // -------- Lifecycle --------
