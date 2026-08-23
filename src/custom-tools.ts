@@ -26,7 +26,7 @@ const z = tool.schema
 import type { SqliteBackend } from "./sqlite-backend"
 import type { GraphRetrieval } from "./graph-retrieval"
 import type { MetricsCollector } from "./metrics"
-import { writeHealthToFile, type PluginHealth } from "./health"
+import { buildPluginHealth, writeHealthToFile } from "./health"
 import { getDefaultCodeGraphTools, type CodeGraphTools } from "./codegraph-tools"
 import { getDefaultGraphRetrieval } from "./graph-retrieval"
 import { promptAgent, hasSessionClient } from "./session-bridge"
@@ -277,89 +277,14 @@ export function buildOmoHealthTool(deps: OmoHealthDeps) {
     args: {},
     async execute(_args, _ctx): Promise<ToolResult> {
       const snap = deps.metrics.getMetrics()
-      const decisionsDelivered = snap.counters.interventions_delivered?.count ?? 0
-      const decisionsSkipped = (snap.counters.decisions_skipped_continue?.count ?? 0) +
-        (snap.counters.decisions_skipped_no_decision?.count ?? 0) +
-        (snap.counters.decisions_skipped_no_message?.count ?? 0) +
-        (snap.counters.decisions_skipped_below_threshold?.count ?? 0)
-      const lastDecision = snap.counters.decisions_taken?.lastOccurrenceISO
-      const lastIntervention = snap.counters.interventions_delivered?.lastOccurrenceISO
-
-      // Build the health snapshot and write to file
-      const health: PluginHealth = {
+      // v0.31.3: shared composer — identical schema as plugin-side writes.
+      const health = buildPluginHealth({
         version: PLUGIN_VERSION,
-        status: snap.counters.orchestrator_errors?.count ? "degraded" : "healthy",
         enabled: true,
-        startedAtISO: snap.startedAtISO,
-        uptimeMs: snap.uptimeMs,
-        metrics: {
-          decisionsTaken: snap.counters.decisions_taken?.count ?? 0,
-          decisionsStored: snap.counters.decisions_stored?.count ?? 0,
-          interventionsDelivered: decisionsDelivered,
-          orchestratorRuns: snap.counters.orchestrator_runs?.count ?? 0,
-          orchestratorErrors: snap.counters.orchestrator_errors?.count ?? 0,
-          lastDecisionISO: lastDecision,
-          lastInterventionISO: lastIntervention,
-        },
-        logFile: {
-          path: deps.logFilePath,
-          sizeBytes: 0, // computed by describeLogFile at write time
-          rotatedFiles: 0,
-        },
-        session: {
-          id: _ctx.sessionID,
-          toolCallsObserved: snap.counters.orchestrator_runs?.count ?? 0,
-          violationsDetected: snap.counters.protocol_violations_detected?.count ?? 0,
-          interventionsSkipped: decisionsSkipped,
-          firstSeenISO: snap.startedAtISO,
-          lastSeenISO: new Date().toISOString(),
-},
-      // v0.27.0 Wave 4: graphSync upgrade telemetry + per-tool usage counters.
-      // graphToolsUsed starts at 0 for each tool — incremented in tool
-      // execution via deps.metrics.recordCounter (wired in a follow-up; for
-      // now the field exists so omo_health has a stable schema).
-      graphSync: {
-        lastUpgradeAtISO: null,
-        lastUpgradeResult: "unknown" as const,
-        lastUpgradeTarget: null,
-        lastUpgradeMs: null,
-      },
-      graphToolsUsed: {
-        omo_search: 0,
-        omo_recall: 0,
-        omo_health: 0,
-        omo_find: 0,
-        omo_impact: 0,
-        omo_remember: 0,
-        omo_recall_mcp: 0,
-        omo_path: 0,
-        omo_explain: 0,
-        omo_files: 0,
-        omo_callers: 0,
-        omo_node: 0,
-        omo_context: 0,
-        omo_affected_cg: 0,
-        omo_status: 0,
-        omo_unlock: 0,
-        omo_mark_dirty: 0,
-        omo_sync_if_dirty: 0,
-        omo_index: 0,
-        omo_visualize: 0,
-        omo_serve: 0,
-        omo_uninit: 0,
-        omo_diagnose: 0,
-        omo_merge_graphs: 0,
-        omo_save_result: 0,
-        omo_extract: 0,
-        omo_cluster_only: 0,
-        omo_label: 0,
-        omo_tree: 0,
-        omo_clone: 0,
-        omo_add: 0,
-        omo_check_update: 0,
-        omo_hook_status: 0,
-      },
-      }
+        sessionID: _ctx.sessionID ?? "__unknown__",
+        snapshot: snap,
+        logFilePath: deps.logFilePath,
+      })
       try {
         writeHealthToFile(health, deps.healthFilePath)
       } catch {
@@ -375,10 +300,10 @@ export function buildOmoHealthTool(deps: OmoHealthDeps) {
         `## Metrics (this session)\n` +
         `| Metric | Count | Last seen |\n` +
         `|--------|-------|-----------|\n` +
-        `| Decisions taken | ${health.metrics.decisionsTaken} | ${lastDecision ?? "—"} |\n` +
+        `| Decisions taken | ${health.metrics.decisionsTaken} | ${health.metrics.lastDecisionISO ?? "—"} |\n` +
         `| Decisions stored | ${health.metrics.decisionsStored} | — |\n` +
-        `| Interventions delivered | ${decisionsDelivered} | ${lastIntervention ?? "—"} |\n` +
-        `| Interventions skipped | ${decisionsSkipped} | — |\n` +
+        `| Interventions delivered | ${health.metrics.interventionsDelivered} | ${health.metrics.lastInterventionISO ?? "—"} |\n` +
+        `| Interventions skipped | ${health.session.interventionsSkipped} | — |\n` +
         `| Orchestrator runs | ${health.metrics.orchestratorRuns} | — |\n` +
         `| Orchestrator errors | ${health.metrics.orchestratorErrors} | — |\n` +
         `| Protocol violations | ${health.session.violationsDetected} | — |\n\n` +

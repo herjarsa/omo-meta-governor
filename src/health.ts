@@ -142,3 +142,128 @@ export function describeLogFile(logPath: string): { path: string; sizeBytes: num
   }
   return { path: logPath, sizeBytes, rotatedFiles }
 }
+
+// ---------------------------------------------------------------------------
+// v0.31.3 — shared health composer + throttled writer
+// ---------------------------------------------------------------------------
+
+/** Structural subset of MetricsCollector.getMetrics() the composer needs. */
+export interface MetricsSnapshotLike {
+  startedAtISO: string
+  uptimeMs: number
+  counters: Record<
+    string,
+    { count?: number; lastOccurrenceISO?: string | null } | undefined
+  >
+}
+
+export interface BuildPluginHealthInput {
+  version: string
+  enabled: boolean
+  sessionID: string
+  snapshot: MetricsSnapshotLike
+  logFilePath: string
+}
+
+/**
+ * Compose a PluginHealth snapshot from a metrics snapshot. Single source
+ * of truth for BOTH omo_health and the plugin-side periodic writer, so
+ * the on-disk schema can never drift between the two paths.
+ */
+export function buildPluginHealth(input: BuildPluginHealthInput): PluginHealth {
+  const c = input.snapshot.counters
+  const orchestratorErrors = c.orchestrator_errors?.count ?? 0
+  const interventionsSkipped =
+    (c.decisions_skipped_continue?.count ?? 0) +
+    (c.decisions_skipped_no_decision?.count ?? 0) +
+    (c.decisions_skipped_no_message?.count ?? 0) +
+    (c.decisions_skipped_below_threshold?.count ?? 0)
+  return {
+    version: input.version,
+    status: orchestratorErrors ? "degraded" : "healthy",
+    enabled: input.enabled,
+    startedAtISO: input.snapshot.startedAtISO,
+    uptimeMs: input.snapshot.uptimeMs,
+    metrics: {
+      decisionsTaken: c.decisions_taken?.count ?? 0,
+      decisionsStored: c.decisions_stored?.count ?? 0,
+      interventionsDelivered: c.interventions_delivered?.count ?? 0,
+      orchestratorRuns: c.orchestrator_runs?.count ?? 0,
+      orchestratorErrors,
+      lastDecisionISO: c.decisions_taken?.lastOccurrenceISO ?? null,
+      lastInterventionISO: c.interventions_delivered?.lastOccurrenceISO ?? null,
+    },
+    logFile: describeLogFile(input.logFilePath),
+    session: {
+      id: input.sessionID,
+      toolCallsObserved: c.orchestrator_runs?.count ?? 0,
+      violationsDetected: c.protocol_violations_detected?.count ?? 0,
+      interventionsSkipped,
+      firstSeenISO: input.snapshot.startedAtISO,
+      lastSeenISO: new Date().toISOString(),
+    },
+    graphSync: {
+      lastUpgradeAtISO: null,
+      lastUpgradeResult: "unknown",
+      lastUpgradeTarget: null,
+      lastUpgradeMs: null,
+    },
+    graphToolsUsed: {
+      omo_search: 0,
+      omo_recall: 0,
+      omo_health: 0,
+      omo_find: 0,
+      omo_impact: 0,
+      omo_remember: 0,
+      omo_recall_mcp: 0,
+      omo_path: 0,
+      omo_explain: 0,
+      omo_files: 0,
+      omo_callers: 0,
+      omo_node: 0,
+      omo_context: 0,
+      omo_affected_cg: 0,
+      omo_status: 0,
+      omo_unlock: 0,
+      omo_mark_dirty: 0,
+      omo_sync_if_dirty: 0,
+      omo_index: 0,
+      omo_visualize: 0,
+      omo_serve: 0,
+      omo_uninit: 0,
+      omo_diagnose: 0,
+      omo_merge_graphs: 0,
+      omo_save_result: 0,
+      omo_extract: 0,
+      omo_cluster_only: 0,
+      omo_label: 0,
+      omo_tree: 0,
+      omo_clone: 0,
+      omo_add: 0,
+      omo_check_update: 0,
+      omo_hook_status: 0,
+    },
+  }
+}
+
+/**
+ * Rate-limited health writer. The first write always passes through;
+ * writes inside `minIntervalMs` of the previous accepted write are
+ * dropped, so audit-hook callers can invoke it on every event without
+ * hammering the disk.
+ */
+export function createThrottledHealthWriter(
+  write: (health: PluginHealth) => void,
+  minIntervalMs: number,
+  now: () => number = Date.now,
+): { write: (health: PluginHealth) => void } {
+  let lastWriteAt = -Infinity
+  return {
+    write(health: PluginHealth): void {
+      const t = now()
+      if (t - lastWriteAt < minIntervalMs) return
+      lastWriteAt = t
+      write(health)
+    },
+  }
+}

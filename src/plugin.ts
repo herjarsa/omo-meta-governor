@@ -79,12 +79,13 @@ import {
   persistSessionMessage,
   promptAgentText,
 } from "./session-bridge";
+import type { PromptResult } from "./session-bridge";
 import { PendingDeliveryRegistry } from "./delivery-registry";
 import { setPendingDeliveryRegistry } from "./custom-tools";
 import { LOG_PATH, logToFile } from "./file-logger";
 import { resolve } from "node:path";
 import { homedir } from "node:os";
-import { describeLogFile } from "./health";
+import { buildPluginHealth, createThrottledHealthWriter, describeLogFile, writeHealthToFile } from "./health";
 import { createMetricsCollector } from "./metrics";
 import {
   loadOrchestratorConfig,
@@ -135,7 +136,13 @@ export interface MetaGovernorPluginDeps {
    * leaks across test files sharing a Bun worker â€” broke CI on macOS). */
 __test_runGraphSync?: typeof import("./graph-sync").runGraphSync;
   /** v0.28.0: test-only DI seam for runCliAnythingSync â€” same hermetic rationale. */
-  __test_runCliAnythingSync?: typeof import("./cli-anything-sync").runCliAnythingSync;
+  /** v0.28.0: test-only DI seam for runCliAnythingSync — same hermetic rationale. */
+__test_runCliAnythingSync?: typeof import("./cli-anything-sync").runCliAnythingSync;
+  /** v0.31.3: test-only DI seam — replaces persistSessionMessage so retry tests
+   * never touch a real OpenCode server. */
+__test_persistSessionMessage?: typeof import("./session-bridge").persistSessionMessage;
+  /** v0.31.3: test-only DI seam — persist-retry backoff override (ms). */
+__test_persistRetryDelayMs?: number;
 }
 
 // - Helpers
@@ -831,7 +838,9 @@ const graphSyncReadyProjects = new Set<string>();
     const persistIntervention = (sessionID: string, text: string): void => {
       if (!sessionID || !text) return;
       if (!mergedConfig.intervention.persistToSession) return;
-      void persistSessionMessage(sessionID, text).then((res) => {
+      const runPersist = (): Promise<PromptResult> =>
+        (deps.__test_persistSessionMessage ?? persistSessionMessage)(sessionID, text);
+      const logPersistResult = (res: PromptResult): void => {
         if (!res.ok) {
           logToFile("warn", `persist intervention failed for ${sessionID}`, {
             error: res.error,
@@ -839,8 +848,36 @@ const graphSyncReadyProjects = new Set<string>();
         } else {
           logToFile("info", `persisted intervention for ${sessionID}`);
         }
+      };
+      void runPersist().then((res) => {
+        if (!res.ok && res.error && /timed out/i.test(res.error)) {
+          // v0.31.3: single retry after short backoff — session.prompt times
+          // out while OpenCode is busy processing the active turn, but the
+          // same call succeeds moments later.
+          setTimeout(() => {
+            void runPersist().then(logPersistResult);
+          }, deps.__test_persistRetryDelayMs ?? 1500);
+          return;
+        }
+        logPersistResult(res);
       });
     };
+
+    // v0.31.3: refresh the on-disk health snapshot as audits happen so
+    // `cat meta-governor-health.json` reflects a LIVE plugin instead of a
+    // stale zero-metrics snapshot left behind by an old MCP-server run.
+    const healthWriter = createThrottledHealthWriter(
+      (h) => {
+        try {
+          writeHealthToFile(h, healthFilePath);
+        } catch (err) {
+          logToFile("warn", "health snapshot write failed", {
+            error: String(err),
+          });
+        }
+      },
+      5_000,
+    );
 
     return {
       // v0.30 zombie-fix: OpenCode calls dispose on plugin teardown.
@@ -1039,6 +1076,17 @@ const graphSyncReadyProjects = new Set<string>();
         toolOutput: { title: string; output: string; metadata: unknown },
       ): Promise<void> => {
         if (!mergedConfig.enabled) return;
+
+        // v0.31.3: throttled live health snapshot (writer defined above).
+        healthWriter.write(
+          buildPluginHealth({
+            version: DEFAULT_VERSION,
+            enabled: true,
+            sessionID: toolInput.sessionID || "__unknown__",
+            snapshot: metricsCollector.getMetrics(),
+            logFilePath: LOG_PATH,
+          }),
+        );
 
         // v0.17.0 (F3.6): when the LLM calls an MCP tool that was previously
         // dispatched via session-bridge, mark the pending delivery as
