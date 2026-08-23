@@ -838,29 +838,45 @@ const graphSyncReadyProjects = new Set<string>();
     const persistIntervention = (sessionID: string, text: string): void => {
       if (!sessionID || !text) return;
       if (!mergedConfig.intervention.persistToSession) return;
-      const runPersist = (): Promise<PromptResult> =>
-        (deps.__test_persistSessionMessage ?? persistSessionMessage)(sessionID, text);
-      const logPersistResult = (res: PromptResult): void => {
-        if (!res.ok) {
-          logToFile("warn", `persist intervention failed for ${sessionID}`, {
-            error: res.error,
-          });
-        } else {
-          logToFile("info", `persisted intervention for ${sessionID}`);
-        }
+      const st = auditSessions.get(sessionID);
+      if (st?.backgroundTaskInFlight || st?.oracleInFlight) {
+        logToFile("info", `persist skipped (background task in flight) for ${sessionID}`);
+        return;
+      }
+      const doPersist = (): void => {
+        const runPersist = (): Promise<PromptResult> =>
+          (deps.__test_persistSessionMessage ?? persistSessionMessage)(sessionID, text);
+        const logPersistResult = (res: PromptResult): void => {
+          if (!res.ok) {
+            logToFile("warn", `persist intervention failed for ${sessionID}`, {
+              error: res.error,
+            });
+          } else {
+            logToFile("info", `persisted intervention for ${sessionID}`);
+          }
+        };
+        void runPersist().then((res) => {
+          if (!res.ok && res.error && /timed out/i.test(res.error)) {
+            const st2 = auditSessions.get(sessionID);
+            if (st2?.backgroundTaskInFlight || st2?.oracleInFlight) {
+              logToFile("info", `persist retry skipped (background task in flight) for ${sessionID}`);
+              return;
+            }
+            setTimeout(() => {
+              void runPersist().then(logPersistResult);
+            }, deps.__test_persistRetryDelayMs ?? 1500);
+            return;
+          }
+          logPersistResult(res);
+        });
       };
-      void runPersist().then((res) => {
-        if (!res.ok && res.error && /timed out/i.test(res.error)) {
-          // v0.31.3: single retry after short backoff — session.prompt times
-          // out while OpenCode is busy processing the active turn, but the
-          // same call succeeds moments later.
-          setTimeout(() => {
-            void runPersist().then(logPersistResult);
-          }, deps.__test_persistRetryDelayMs ?? 1500);
-          return;
-        }
-        logPersistResult(res);
-      });
+      // In tests __test_persistSessionMessage is stubbed — run synchronously so the test's settle timer is deterministic.
+      // In prod, defer 250ms so messages.transform completes before we queue a session.prompt.
+      if (deps.__test_persistSessionMessage) {
+        doPersist();
+      } else {
+        setTimeout(doPersist, 250);
+      }
     };
 
     // v0.31.3: refresh the on-disk health snapshot as audits happen so
@@ -1889,7 +1905,9 @@ const graphSyncReadyProjects = new Set<string>();
         if (
           state &&
           !planReminderSent.has(currentSessionID) &&
-          shouldInjectPlanReminder(cwd, state.interventionCount)
+          !state.backgroundTaskInFlight &&
+          !state.oracleInFlight &&
+          shouldInjectPlanReminder(sessionProjectDir, state.interventionCount)
         ) {
           planReminderSent.add(currentSessionID);
           const planText = `[MetaGovernor] Before any code change, create PLAN.md or a \`## Plan\` section in AGENTS.md that enumerates the phases. After each phase, commit (local + fork + upstream). Each commit triggers automatic reindex via the graphify post-commit hook + \`codegraph sync\`.`;
@@ -1907,7 +1925,8 @@ const graphSyncReadyProjects = new Set<string>();
 
 
         const violEntry = pendingViolations.get(currentSessionID);
-        if (violEntry && violEntry.expiresAtMs > Date.now()) {
+        const suppressViolations = Boolean(state?.backgroundTaskInFlight || state?.oracleInFlight);
+        if (!suppressViolations && violEntry && violEntry.expiresAtMs > Date.now()) {
           const violations = violEntry.items;
           if (violations.length > 0) {
             const violationText = `[META-GOVERNOR PROTOCOL VIOLATIONS - YOU MUST COMPLY]\n\n${violations.map((v, i) => `${i + 1}. ${v}`).join("\n")}\n\nRemember: use codegraph/graphify for architecture queries, do not grep without trying codegraph/graphify first, no @ts-ignore/as-any, no empty catch, check memory before asking.`;
@@ -1989,6 +2008,17 @@ const graphSyncReadyProjects = new Set<string>();
         );
         if (cap > 0 && curState.interventionCount >= cap) {
           curState.interventionDisabled = true;
+          return;
+        }
+        // FIX session-killer: suppress decision injection while background task in flight — same root cause.
+        if (curState.backgroundTaskInFlight || curState.oracleInFlight) {
+          logToFile("info", `decision injection suppressed (background task in flight) for ${currentSessionID}`);
+          // Re-queue the decision so it fires after the subagent returns, instead of being lost.
+          try {
+            storeDecision(currentSessionID, decision);
+          } catch {
+            // best-effort
+          }
           return;
         }
         curState.interventionCount++;
