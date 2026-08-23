@@ -89,6 +89,19 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
     trigger: "firstImplement",
     router: "both",
   },
+  // v0.32.0: skill hub off by default in orchestrator defaults.
+  skillHub: {
+    enabled: false,
+    syncIntervalMs: 86400000,
+    bootstrapUrl: "https://skills-library.com/api/skills.json",
+    searchFallbackUrl: "https://skills.sh/api/search",
+    downloadBaseUrl: "https://skills.sh/api/download",
+    embedBaseUrl: "http://127.0.0.1:3114/v1",
+    embedModel: "bge-m3",
+    minInstalls: 0,
+    filterDuplicates: true,
+    depsCheck: true,
+  },
   // v0.22.0: graphSync orphan-sweep defaults.
 graphSync: {
 killOrphanedOnInit: true,

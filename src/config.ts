@@ -4,6 +4,7 @@ import type {
   OrchestratorConfig,
   PostWaveConfig,
   ProtocolEnforcementConfig,
+  SkillHubConfig,
   SkillPrimingConfig,
   SkillPrimingRouter,
   SkillPrimingTrigger,
@@ -155,6 +156,19 @@ export interface MetaGovernorPluginConfig {
     enabled?: boolean
     trigger?: SkillPrimingTrigger
     router?: SkillPrimingRouter
+  }
+  /** Skill hub config (v0.32.0): registry-backed catalog + hybrid search. */
+  skillHub?: {
+    enabled?: boolean
+    syncIntervalMs?: number
+    bootstrapUrl?: string
+    searchFallbackUrl?: string
+    downloadBaseUrl?: string
+    embedBaseUrl?: string
+    embedModel?: string
+    minInstalls?: number
+    filterDuplicates?: boolean
+    depsCheck?: boolean
   }
 
   /** Post-wave workflow gate (v0.21.0): landing directives after Oracle-approved waves. */
@@ -349,6 +363,19 @@ export function loadOrchestratorConfig(
       trigger: full.skillPriming?.trigger ?? "firstImplement",
       router: full.skillPriming?.router ?? "both",
     } as SkillPrimingConfig,
+    // v0.32.0: project all skillHub fields with defaults.
+    skillHub: {
+      enabled: full.skillHub?.enabled ?? false,
+      syncIntervalMs: full.skillHub?.syncIntervalMs ?? 86400000,
+      bootstrapUrl: full.skillHub?.bootstrapUrl ?? "https://skills-library.com/api/skills.json",
+      searchFallbackUrl: full.skillHub?.searchFallbackUrl ?? "https://skills.sh/api/search",
+      downloadBaseUrl: full.skillHub?.downloadBaseUrl ?? "https://skills.sh/api/download",
+      embedBaseUrl: full.skillHub?.embedBaseUrl ?? "http://127.0.0.1:3114/v1",
+      embedModel: full.skillHub?.embedModel ?? "bge-m3",
+      minInstalls: full.skillHub?.minInstalls ?? 0,
+      filterDuplicates: full.skillHub?.filterDuplicates !== false,
+      depsCheck: full.skillHub?.depsCheck !== false,
+    } as SkillHubConfig,
     // v0.22.0: project graphSync killOrphanedOnInit with default true.
 graphSync: {
       killOrphanedOnInit: full.graphSync?.killOrphanedOnInit ?? true,
