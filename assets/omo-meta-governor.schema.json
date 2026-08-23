@@ -321,11 +321,12 @@
         },
         "router": {
           "type": "string",
-          "description": "Which skill system(s) the directive references: 'aas', 'superpowers', or 'both'.",
+          "description": "Which skill system(s) the directive references: 'aas', 'superpowers', 'both', or 'registry' (skill-hub).",
           "enum": [
             "aas",
             "superpowers",
-            "both"
+            "both",
+            "registry"
           ],
           "default": "both"
         }

@@ -496,7 +496,7 @@ export interface PostWaveConfig {
  */
 export type SkillPrimingTrigger = "firstImplement" | "sessionStart";
 
-export type SkillPrimingRouter = "aas" | "superpowers" | "both";
+export type SkillPrimingRouter = "aas" | "superpowers" | "both" | "registry";
 
 export interface SkillPrimingConfig {
   /** Master switch. Default false. */
