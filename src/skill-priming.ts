@@ -68,6 +68,12 @@ export function buildSkillPrimingMessage(router: SkillPrimingRouter): string {
     )
     step++
   }
+  if (router === "registry") {
+    lines.push(
+      `${step}. Query the skill-hub catalog (omo_skill_find) for relevant skills, then inspect candidates with omo_skill_get.`
+    )
+    step++
+  }
   if (router === "both") {
     lines.push("If a superpowers skill is already active, skip the catalog step.")
   }

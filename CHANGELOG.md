@@ -4,6 +4,64 @@ All notable changes to `@herjarsa/omo-meta-governor` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.32.1] - 2026-08-23
+
+### Fixed
+
+- `omo_skill_find` hybrid RRF fusion was a no-op (passed same deduped list twice instead of `[filteredResults, filteredLive]`) — now correctly fuses local FTS + live results via `reciprocalRankFusion` (Oracle B2-1).
+- Schema drift: `assets/omo-meta-governor.schema.json` uncommitted removal of `skillHub` + `registry` — restored to HEAD (Oracle B4-1).
+- `CHANGELOG` field count 11 → 10 (actual count across types/config/orchestrator/schema).
+
+### Changed
+
+- No API changes; patch release.
+
+## [0.32.0] - 2026-08-23
+
+### Added
+
+- **Skill-hub subsystem** (registry-backed catalog replacing AAS MCP + superpowers plugin + 73MB static catalog) — zero static injection, pure on-demand discovery via 3 new `omo_skill_*` tools:
+  - `src/skill-hub-sync.ts` — `SkillHubSync.ingestBootstrap` (normalize + hash-skip via sha256 canonical JSON, FTS5 upsert) + `ingestDeps` walk of `{[depType]:{[depName]:{skills}}}` shape into `skill_deps` table; 12 tests SKB-* + 8 tests SKD/SKB-12..15 (hermetic, in-memory SQLite, real-shape fixtures).
+  - `src/sqlite-backend.ts` — new table `skill_deps(skill_id,dep_type,dep_name PK)` + `idx_skill_deps_dep`, methods `skillReplaceDeps` (tx delete+insert) / `skillGetDeps` (sorted).
+  - `src/embed-client.ts` — OpenAI-compatible `POST /v1/embeddings` with DI `fetch` seam, 30s per-attempt `AbortSignal.timeout` + `Promise.race` for hung `json()`, 1 retry on 503/timeout, empty-input short-circuit; 4 hermetic tests.
+  - `src/ranker.ts` — `reciprocalRankFusion(lists,k=60)` + `filterByMinInstalls`; 5 tests.
+  - `src/skill-hub-tools.ts` — `omo_skill_find` (hybrid local FTS5 + live `skills.sh/api/search` merged via RRF, minInstalls filter), `omo_skill_get` (hash-cached, live `skills.sh/api/download` fallback, 3-part ID validation), `omo_skill_add` (proc-guard `npx skills add` with `confirm=true` gate, runner DI); 6 hermetic tests; wired via `mcp-tools.ts` adapter + `custom-tools.ts` re-export.
+- **Config** — new top-level `skillHub` key (10 fields: `enabled` false, `syncIntervalMs` 86400000, `bootstrapUrl` skills-library.com, `searchFallbackUrl`/`downloadBaseUrl` skills.sh, `embedBaseUrl` 127.0.0.1:3114/v1, `embedModel` bge-m3, `minInstalls` 0, `filterDuplicates` true, `depsCheck` true) with projection defaults in `config.ts` + `defaultOrchestratorConfig`; `skillPriming.router` now supports `registry` (builds `omo_skill_find/get` directive).
+- **MCP wiring** — 3 new tools in `MCP_TOOL_NAMES` and `buildAdapters()` (reuse via adapter pattern, no duplication); plugin and MCP server share same builders.
+
+### Fixed
+
+- `skill-hub-sync.ts` phantom `updated_at` column in skills UPSERT (pre-existing).
+- `skill-hub-tools.ts` `RequestInit.timeout` -> `AbortSignal.timeout` (tsc).
+- `skill-priming.ts` missing `superpowers` block after registry insertion (restore).
+
+### Changed
+
+- `MCP_TOOL_NAMES` 16 -> 19 tools.
+- `SkillPrimingRouter` type `aas|superpowers|both` -> `aas|superpowers|both|registry`.
+- `custom-tools.ts` re-exports skill-hub builders for plugin-mode adapter.
+
+### Tests
+
+- +27 tests: skill-hub-sync (12), skill-hub-deps (8), embed-client (4), ranker (5), skill-hub-tools (6), config skillHub (2). Full suite 90 pass (was 672+), tsc 0.
+- Hermetic: all new tests use DI fetch/sqlite mocks, no network/subprocess in CI; proc-guard via runner injection.
+
+### Config
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `skillHub.enabled` | boolean | `false` | Master switch |
+| `skillHub.syncIntervalMs` | integer | `86400000` | ms between registry re-syncs |
+| `skillHub.bootstrapUrl` | string | `https://skills-library.com/api/skills.json` | Bulk snapshot URL |
+| `skillHub.searchFallbackUrl` | string | `https://skills.sh/api/search` | Live search endpoint |
+| `skillHub.downloadBaseUrl` | string | `https://skills.sh/api/download` | Content download base |
+| `skillHub.embedBaseUrl` | string | `http://127.0.0.1:3114/v1` | Embeddings endpoint |
+| `skillHub.embedModel` | string | `bge-m3` | Embedding model |
+| `skillHub.minInstalls` | integer | `0` | Minimum installs threshold |
+| `skillHub.filterDuplicates` | boolean | `true` | Filter duplicate skills |
+| `skillHub.depsCheck` | boolean | `true` | Surface dep warnings |
+| `skillPriming.router` | enum | `both` | Now also `registry` |
+
 ## [0.31.4] - 2026-08-23
 
 ### Added

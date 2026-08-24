@@ -496,7 +496,7 @@ export interface PostWaveConfig {
  */
 export type SkillPrimingTrigger = "firstImplement" | "sessionStart";
 
-export type SkillPrimingRouter = "aas" | "superpowers" | "both";
+export type SkillPrimingRouter = "aas" | "superpowers" | "both" | "registry";
 
 export interface SkillPrimingConfig {
   /** Master switch. Default false. */
@@ -678,6 +678,8 @@ export interface OrchestratorConfig {
   readonly protocolEnforcement: ProtocolEnforcementConfig;
   /** Skill priming config (v0.20.0): proactive skill-selection nudge. */
   readonly skillPriming: SkillPrimingConfig;
+  /** Skill hub config (v0.32.0): registry-backed catalog + hybrid search. */
+  readonly skillHub: SkillHubConfig;
   /** Post-wave workflow gate (v0.21.0): landing directives after Oracle-approved waves. */
   readonly postWave?: PostWaveConfig;
   /** CI monitor (v0.25.0): auto-trigger GH Actions on git push and surface failures. */
@@ -791,5 +793,20 @@ export interface ProtocolEnforcementSessionState {
   readonly hasCodegraphDir: boolean;
   readonly hasGraphifyDir: boolean;
   readonly oracleInvoked: boolean;
+
   readonly filesChanged: number;
+}
+
+/** Skill hub configuration (v0.32.0): registry-backed skill catalog. */
+export interface SkillHubConfig {
+  readonly enabled: boolean;
+  readonly syncIntervalMs: number;
+  readonly bootstrapUrl: string;
+  readonly searchFallbackUrl: string;
+  readonly downloadBaseUrl: string;
+  readonly embedBaseUrl: string;
+  readonly embedModel: string;
+  readonly minInstalls: number;
+  readonly filterDuplicates: boolean;
+  readonly depsCheck: boolean;
 }

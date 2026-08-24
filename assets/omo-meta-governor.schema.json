@@ -321,14 +321,32 @@
         },
         "router": {
           "type": "string",
-          "description": "Which skill system(s) the directive references: 'aas', 'superpowers', or 'both'.",
+          "description": "Which skill system(s) the directive references: 'aas', 'superpowers', 'both', or 'registry' (skill-hub).",
           "enum": [
             "aas",
             "superpowers",
-            "both"
+            "both",
+            "registry"
           ],
           "default": "both"
         }
+      }
+    },
+    "skillHub": {
+      "type": "object",
+      "description": "Skill hub config (v0.32.0): registry-backed catalog + hybrid search.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Master switch.", "default": false },
+        "syncIntervalMs": { "type": "integer", "description": "ms between registry re-syncs.", "default": 86400000 },
+        "bootstrapUrl": { "type": "string", "description": "Bulk bootstrap snapshot URL." },
+        "searchFallbackUrl": { "type": "string", "description": "Live search fallback endpoint." },
+        "downloadBaseUrl": { "type": "string", "description": "Skill content download base." },
+        "embedBaseUrl": { "type": "string", "description": "Local embeddings endpoint base." },
+        "embedModel": { "type": "string", "description": "Embedding model id.", "default": "bge-m3" },
+        "minInstalls": { "type": "integer", "description": "Minimum installs threshold.", "default": 0 },
+        "filterDuplicates": { "type": "boolean", "description": "Filter duplicate skills.", "default": true },
+        "depsCheck": { "type": "boolean", "description": "Surface dependency warnings.", "default": true }
       }
     },
     "graphSync": {
