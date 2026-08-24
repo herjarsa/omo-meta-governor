@@ -4,6 +4,18 @@ All notable changes to `@herjarsa/omo-meta-governor` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.32.1] - 2026-08-23
+
+### Fixed
+
+- `omo_skill_find` hybrid RRF fusion was a no-op (passed same deduped list twice instead of `[filteredResults, filteredLive]`) — now correctly fuses local FTS + live results via `reciprocalRankFusion` (Oracle B2-1).
+- Schema drift: `assets/omo-meta-governor.schema.json` uncommitted removal of `skillHub` + `registry` — restored to HEAD (Oracle B4-1).
+- `CHANGELOG` field count 11 → 10 (actual count across types/config/orchestrator/schema).
+
+### Changed
+
+- No API changes; patch release.
+
 ## [0.32.0] - 2026-08-23
 
 ### Added
