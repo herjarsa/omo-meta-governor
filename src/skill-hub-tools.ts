@@ -246,9 +246,8 @@ export function buildOmoSkillFindTool(deps: OmoSkillFindDeps) {
         })
 
         // Rank via RRF — each list gets equal weight (k=60 default)
-        // Since we have at most 2 lists (local + live), we pass them as an array of arrays
         const rankedIds = reciprocalRankFusion(
-          [uniqueResults.map((r) => r.id), uniqueResults.map((r) => r.id)],
+          [filteredResults.map((r) => r.id), filteredLive.map((r) => r.id)],
           60,
         )
 
