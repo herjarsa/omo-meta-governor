@@ -798,10 +798,10 @@ const graphSyncReadyProjects = new Set<string>();
     const planReminderSent = new Set<string>();
     // v0.20.0: whether the skill-priming nudge has been injected for this session
     const skillPrimingSent = new Set<string>();
-    // v0.20.0: sessions where an implementation tool (write/edit/apply_patch/...)
-    // was observed, tracked independently of the audit state â€” the audit state
-    // only exists when protocolEnforcement.auditToolCalls is enabled, but the
-    // firstImplement trigger must work under the default config too.
+    // v0.33.1: skill-priming directive cached per-session for chat.system.transform injection.
+    // Set when messages.transform fires the priming nudge; read by system.transform to push to output.system.
+    const skillPrimingSystemInjected = new Map<string, string>();
+
     const implementationToolsSeen = new Set<string>();
     // v0.21.0 (post-wave W6): per-session post-wave gate state, tracked
     // independently of the audit state (the audit state only exists when
@@ -1818,7 +1818,9 @@ const graphSyncReadyProjects = new Set<string>();
         ) {
           skillPrimingSent.add(currentSessionID);
           const skillPrimingText = buildSkillPrimingMessage(mergedConfig.skillPriming.router);
-          // v0.33.0: skill priming is NEVER banner-blocked in prod. Persist so user sees it.
+          // v0.33.1: cache for chat.system.transform injection (banner-free path the agent actually receives).
+          skillPrimingSystemInjected.set(currentSessionID, skillPrimingText);
+          // v0.33.0: skill priming NEVER banner-blocked in prod. Tests push for assertions.
           if (deps.__test_persistSessionMessage) {
             output.messages.push({
               info: { role: "user", agent: "meta-governor", synthetic: true },
@@ -2140,24 +2142,23 @@ const graphSyncReadyProjects = new Set<string>();
             "---",
           );
         }
-        // v0.13.0: inject cached graph context (C2 fix). When tool.execute.before
-        // fired a graph query earlier, the result is now in the per-session cache
-        // and we append it to the system prompt as reference material.
-        if (transformInput.sessionID) {
-          const graphContext = graphRetrieval.getCachedContext(
-            transformInput.sessionID,
+        // v0.33.1: inject skill-priming directive via system prompt (banner-free).
+        // Fires ONCE per session on the first transform call where the trigger condition is met.
+        // The agent sees this on every subsequent turn naturally — no blocking banner, no message queue.
+        // The directive is also persisted to the TUI via persistIntervention (visible to user).
+        if (transformInput.sessionID && skillPrimingSystemInjected.has(transformInput.sessionID)) {
+          output.system.push(
+            "\n### Skill Priming (MetaGovernor v0.33.1)",
+            skillPrimingSystemInjected.get(transformInput.sessionID) ?? "",
+            "---",
           );
-          if (graphContext) {
-            output.system.push(
-              "\n### Graph Context (auto-retrieved)",
-              graphContext,
-              "---",
-            );
-          }
         }
 
+        // v0.33.1: inject decisions into system prompt for BOTH 'message' and 'system' modes.
+        // 'silent' stays log-only (no injection). Banner-free path: agent receives guidance
+        // naturally on every turn via system prompt; user sees the notification in TUI via persistIntervention.
         if (
-          mergedConfig.intervention.mode === "system" &&
+          mergedConfig.intervention.mode !== "silent" &&
           transformInput.sessionID
         ) {
           // v0.10.0: also respect per-session intervention disable here
@@ -2277,7 +2278,7 @@ const graphSyncReadyProjects = new Set<string>();
       // trip a circuit breaker: flip autocontinue to disabled, AND push a
       // short guidance message so the model can resume its pending tasks
       // instead of generating more context pressure.
-"experimental.compaction.autocontinue": async (
+      "experimental.compaction.autocontinue": async (
         autoInput: { sessionID: string; overflow: boolean },
         autoOutput: { enabled: boolean }
 ): Promise<void> => {
@@ -2794,23 +2795,28 @@ export function buildOwnRepoDirective(
  * Build the landing directive text for THIRD-PARTY repos (fork/PR workflow).
  * Embeds the user's contribution rule (memory #1235): READ the repo's
  * contribution rules FIRST (CONTRIBUTING.md, PR/issue templates and guides),
- * invoke the AAS GitHub skills ({@link aasToolPrefix}) to create PR/issue,
- * and request review at the end. A user-provided override wins verbatim.
+ * create the PR via standard git/gh workflow. The aasToolPrefix parameter is
+ * kept for backward compat — when explicitly non-empty, references the user-
+ * provided MCP prefix (e.g. "github"); when empty (default), uses standard
+ * git workflow (AAS GitHub skills were retired in v0.32.0).
+ * A user-provided override wins verbatim.
  */
 export function buildThirdPartyDirective(
   override: string | undefined,
   waveN: number | null | undefined,
-  aasToolPrefix = "aas",
+  aasToolPrefix = "",
 ): string {
   if (override) return override;
   const wave = waveN === null || waveN === undefined ? "?" : String(waveN);
+  const prStep = aasToolPrefix
+    ? `3. Invoke the \`${aasToolPrefix}\` MCP GitHub skills to create the PR/issue, then `
+    : "3. ";
   return [
-    `Wave ${wave} is Oracle-verified. This is a THIRD-PARTY repo â€” land it as a contribution:`,
+    `Wave ${wave} is Oracle-verified. This is a THIRD-PARTY repo — land it as a contribution:`,
     "1. READ FIRST the repo's contribution rules (read CONTRIBUTING.md, PR/issue templates and guides) and follow them exactly.",
-    "2. Create a CLEAN dedicated branch for THIS PR: `git checkout -b <branch>` â€” each PR gets its own independent branch; never mix PRs on one branch unless they fix the same problem (then commit onto that same branch).",
-    `3. Invoke the \`${aasToolPrefix}\` MCP GitHub skills (search_skills â†’ get_skill â†’ compose_stack) to create the PR/issue.`,
-    "4. Push the branch to your FORK (`git push -u origin HEAD`) and open the PR against the UPSTREAM repo following the repo's template.",
-    "5. Request review on the PR (add reviewers) and wait for CI to pass before starting the next wave.",
+    "2. Create a CLEAN dedicated branch for THIS PR: `git checkout -b <branch>` — each PR gets its own independent branch; never mix PRs on one branch unless they fix the same problem (then commit onto that same branch).",
+    `${prStep}push the branch to your FORK (\`git push -u origin HEAD\`) and open the PR against the UPSTREAM repo following the repo's template. Use \`gh pr create\` for GitHub.`,
+    "4. Request review on the PR (add reviewers) and wait for CI to pass before starting the next wave.",
   ].join("\n");
 }
 

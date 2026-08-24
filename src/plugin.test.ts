@@ -255,7 +255,7 @@ describe("experimental.chat.system.transform", () => {
       },
     }
 
-    it("then does NOT append to system strings", async () => {
+    it("then appends decision to system strings (v0.33.1: banner-free path)", async () => {
       clearAll()
       storeDecision("test-session", makeDecision("stop"))
 
@@ -268,8 +268,10 @@ describe("experimental.chat.system.transform", () => {
       const output = { system: ["existing system prompt"] }
       await transform({ sessionID: "test-session" }, output)
 
-      expect(output.system.length).toBe(1)
-      expect(output.system[0]).toBe("existing system prompt")
+      // v0.33.1: 'message' mode now routes decisions via chat.system.transform too
+      // (banner-free; the role:'user' synthetic push was the session-killer).
+      expect(output.system.length).toBeGreaterThan(1)
+      expect(output.system.some((s) => s.includes("Test stop message"))).toBe(true)
     })
   })
 })

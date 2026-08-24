@@ -496,7 +496,12 @@ export interface PostWaveConfig {
  */
 export type SkillPrimingTrigger = "firstImplement" | "sessionStart";
 
-export type SkillPrimingRouter = "aas" | "superpowers" | "both" | "registry";
+/**
+ * v0.33.1: 'aas' is deprecated and aliased to 'registry'. The AAS MCP was
+ * retired in v0.32.0; use 'registry' for the skill-hub catalog (omo_skill_find /
+ * omo_skill_get) or 'superpowers' if you have the superpowers plugin installed.
+ */
+export type SkillPrimingRouter = "registry" | "superpowers" | "both" | "aas";
 
 export interface SkillPrimingConfig {
   /** Master switch. Default false. */
@@ -510,8 +515,10 @@ export interface SkillPrimingConfig {
    */
   readonly trigger: SkillPrimingTrigger;
   /**
-   * Which skill system(s) the directive references: "aas" (catalog),
-   * "superpowers", or "both". Default "both".
+   * Which skill system(s) the directive references: "registry" (skill-hub
+   * catalog via omo_skill_find/get/add — default), "superpowers", or "both".
+   * "aas" is deprecated and aliased to "registry" (AAS MCP retired v0.32.0).
+   * Default "registry".
    */
   readonly router: SkillPrimingRouter;
 }

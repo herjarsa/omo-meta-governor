@@ -1,17 +1,19 @@
 /**
- * Skill priming module (v0.20.0).
+ * Skill priming module (v0.20.0, v0.33.1: skill-hub routing).
  *
  * Pure functions only — no I/O, no MCP calls. The plugin's
  * messages.transform hook uses these to build and gate the once-per-session
- * skill-selection nudge: a single synthetic user message prompting the agent
- * to select precise skills for the current task via the AAS skill catalog
- * (aas search_skills / get_skill / compose_stack) and/or the task-appropriate
- * superpowers skill, before writing code.
+ * skill-selection nudge: a single synthetic directive prompting the agent
+ * to select precise skills for the current task via the skill-hub catalog
+ * (omo_skill_find / omo_skill_get) and/or the task-appropriate superpowers
+ * skill, before writing code.
+ *
+ * v0.33.1: AAS MCP tool references (aas search_skills / get_skill / compose_stack)
+ * were eliminated — those tools were retired in v0.32.0 when the skill-hub
+ * subsystem landed. Router 'aas' is now aliased to 'registry' for backward compat.
  *
  * Context-cost guardrail: the directive explicitly forbids enumerating the
- * full skill catalog. The AAS MCP is read-only and only consumes tokens when
- * the agent actually queries it (past token-bloat incident, ~205k tokens/session
- * from indexed skills — memory #1084).
+ * full skill catalog.
  */
 import type { SkillPrimingRouter, SkillPrimingTrigger } from "./types"
 
@@ -48,33 +50,29 @@ const SUPERPOWERS_SKILLS: readonly string[] = [
  * Always ends with the context-cost guardrail line.
  */
 export function buildSkillPrimingMessage(router: SkillPrimingRouter): string {
+  // v0.33.1: alias 'aas' → 'registry' (AAS MCP retired in v0.32.0).
+  const effectiveRouter = router === "aas" ? "registry" : router
   const lines: string[] = [
     "[SKILL PRIMING] This session involves implementation work. Select precise skills for this task before writing code:",
   ]
   let step = 1
-  if (router === "aas" || router === "both") {
+  if (effectiveRouter === "registry" || effectiveRouter === "both") {
     lines.push(
-      `${step}. Query the AAS skill catalog (aas search_skills) for the 2-3 capabilities most relevant to this task (e.g. testing, architecture, language-specific), and compare candidates with aas get_skill.`,
+      `${step}. Query the skill-hub catalog (omo_skill_find) for the 2-3 capabilities most relevant to this task (e.g. testing, architecture, language-specific), and inspect candidates with omo_skill_get.`,
     )
     step++
     lines.push(
-      `${step}. If 2+ viable candidates exist, compose a minimal stack (<= 3 skills) with aas compose_stack.`,
-    )
-    step++
-  }
-  if (router === "superpowers" || router === "both") {
-    lines.push(
-      `${step}. If a matching superpowers skill is available and not yet active (${SUPERPOWERS_SKILLS.join(" / ")}), load it via the skill tool.`,
+      `${step}. Compose a minimal stack of 2-3 skills by loading each via its installer (e.g. \`npx skills add <owner/repo/slug>\` via omo_skill_add).`,
     )
     step++
   }
-  if (router === "registry") {
+  if (effectiveRouter === "superpowers" || effectiveRouter === "both") {
     lines.push(
-      `${step}. Query the skill-hub catalog (omo_skill_find) for relevant skills, then inspect candidates with omo_skill_get.`
+      `${step}. If a matching superpowers skill is available and not yet active (${SUPERPOWERS_SKILLS.join(" / ")}), load it via the skill tool. (Requires the superpowers plugin to be installed separately.)`,
     )
     step++
   }
-  if (router === "both") {
+  if (effectiveRouter === "both") {
     lines.push("If a superpowers skill is already active, skip the catalog step.")
   }
   lines.push("Do NOT enumerate the full catalog — keep the stack minimal and task-specific.")

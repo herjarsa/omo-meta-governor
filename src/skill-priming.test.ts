@@ -83,13 +83,14 @@ function allText(output: { messages: Array<{ info: unknown; parts: unknown[] }> 
 // ─── Pure: buildSkillPrimingMessage ───────────────────────────────
 
 describe("buildSkillPrimingMessage", () => {
-  it("router aas → catalog instructions, no superpowers wording", () => {
+  it("router aas (aliased to registry) → skill-hub catalog instructions, no superpowers wording", () => {
     const msg = buildSkillPrimingMessage("aas")
     expect(msg).toContain("[SKILL PRIMING]")
-    expect(msg).toContain("aas search_skills")
-    expect(msg).toContain("aas get_skill")
-    expect(msg).toContain("aas compose_stack")
+    expect(msg).toContain("omo_skill_find")
+    expect(msg).toContain("omo_skill_get")
+    expect(msg).toContain("omo_skill_add")
     expect(msg).toContain("Do NOT enumerate the full catalog")
+    expect(msg).not.toContain("aas search_skills")
     expect(msg).not.toContain("superpowers")
   })
 
@@ -98,12 +99,13 @@ describe("buildSkillPrimingMessage", () => {
     expect(msg).toContain("superpowers")
     expect(msg).toContain("test-driven-development")
     expect(msg).toContain("Do NOT enumerate the full catalog")
+    expect(msg).not.toContain("omo_skill_find")
     expect(msg).not.toContain("aas search_skills")
   })
 
-  it("router both → catalog + superpowers + skip guidance", () => {
+  it("router both → skill-hub + superpowers + skip guidance", () => {
     const msg = buildSkillPrimingMessage("both")
-    expect(msg).toContain("aas search_skills")
+    expect(msg).toContain("omo_skill_find")
     expect(msg).toContain("superpowers")
     expect(msg).toContain("skip the catalog")
     expect(msg).toContain("Do NOT enumerate the full catalog")
@@ -155,11 +157,13 @@ describe("experimental.chat.messages.transform — skill priming", () => {
     expect(allText(output)).not.toContain("[SKILL PRIMING]")
   })
 
-  it("sessionStart → injects once, then never again for the session", async () => {
+  it("sessionStart → injects once (test push), then never again for the session", async () => {
     const transform = await makeTransform({ enabled: true, trigger: "sessionStart", router: "both" })
     const output = transformOutput()
     await transform({}, output)
 
+    // v0.33.1: in prod the directive goes via chat.system.transform (banner-free); the test-only push to
+    // output.messages only fires when __test_persistSessionMessage is set (it is, via makeTransform).
     expect(output.messages.length).toBe(2)
     const msg = output.messages[1]!
     expect((msg.info as Record<string, unknown>).role).toBe("user")
@@ -167,7 +171,7 @@ describe("experimental.chat.messages.transform — skill priming", () => {
     const part = msg.parts[0] as Record<string, unknown>
     expect(part.type).toBe("text")
     expect(part.text).toContain("[SKILL PRIMING]")
-    expect(part.text).toContain("aas search_skills")
+    expect(part.text).toContain("omo_skill_find")
     expect(part.synthetic).toBe(true)
 
     // Second transform call for the same session: no new injection.
@@ -202,19 +206,23 @@ describe("experimental.chat.messages.transform — skill priming", () => {
     expect(allText(output2)).toContain("[SKILL PRIMING]")
   })
 
-  it("router aas → catalog wording only; router superpowers → superpowers wording only", async () => {
+  it("router aas (aliased to registry) → skill-hub wording; router superpowers → superpowers wording", async () => {
     const t1 = await makeTransform({ enabled: true, trigger: "sessionStart", router: "aas" })
     const o1 = transformOutput("s3")
     await t1({}, o1)
     const text1 = allText(o1)
-    expect(text1).toContain("aas search_skills")
+    expect(text1).toContain("omo_skill_find")
     expect(text1).not.toContain("superpowers")
+    expect(text1).not.toContain("aas search_skills")
 
     const t2 = await makeTransform({ enabled: true, trigger: "sessionStart", router: "superpowers" })
     const o2 = transformOutput("s4")
     await t2({}, o2)
     const text2 = allText(o2)
     expect(text2).toContain("superpowers")
+    expect(text2).not.toContain("omo_skill_find")
     expect(text2).not.toContain("aas search_skills")
   })
+
 })
+

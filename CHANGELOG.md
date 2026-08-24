@@ -4,6 +4,29 @@ All notable changes to `@herjarsa/omo-meta-governor` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.33.1] - 2026-08-24
+
+### Fixed
+
+- **Skill workflow completely broken** (3 compounding bugs):
+  1. **AAS MCP dead references**: `buildSkillPrimingMessage` hardcoded `aas search_skills` / `aas get_skill` / `aas compose_stack` — those tools were retired in v0.32.0 when the skill-hub subsystem landed. Replaced with `omo_skill_find` / `omo_skill_get` / `omo_skill_add`. Router `'aas'` is now deprecated and aliased to `'registry'`.
+  2. **Skill priming never reached the agent**: after v0.33.0's banner-killer fix, the directive was gated behind the test-only `__test_persistSessionMessage` flag. In prod only `persistIntervention` ran (TUI-visible, agent-invisible). Fix: cache the directive in `skillPrimingSystemInjected` Map on detection, then re-inject via `chat.system.transform` on every turn. Agent now receives the directive naturally without any blocking banner.
+  3. **Decisions not delivered to agent for `intervention.mode === "message"`**: the system-transform injection only fired for `mode === "system"`. Fixed: both `message` and `system` modes now append decisions to the system prompt (banner-free, agent-receives).
+- **Default `skillPriming.enabled = false`** — flipped to `true` so the skill workflow fires out of the box. Default router flipped from `'both'` to `'registry'` (AAS retired). Schema updated.
+- **`buildThirdPartyDirective` hardcoded `aas MCP GitHub skills`** for third-party PR workflow. Replaced with standard `git`/`gh pr create` workflow. `aasToolPrefix` parameter retained for backward compat (empty default).
+
+### Changed
+
+- `SkillPrimingRouter` type: `'aas'` deprecated (still accepted, aliased to `'registry'`).
+- `intervention.mode === "message"`: now also appends to system prompt (was: log-only via persistIntervention).
+- `buildThirdPartyDirective(text, wave, aasToolPrefix="")`: `aasToolPrefix` no longer defaults to `"aas"`; if non-empty, the directive still references the user-provided MCP prefix.
+
+### Tests
+
+- Updated 5 tests in `skill-priming.test.ts` for new router text (`omo_skill_find` instead of `aas search_skills`).
+- Updated 1 test in `plugin.test.ts` for new system-transform behavior under `mode: "message"`.
+- 84 tests pass, tsc clean.
+
 ## [0.33.0] - 2026-08-24
 
 ### Fixed

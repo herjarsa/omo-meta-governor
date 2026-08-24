@@ -302,13 +302,13 @@
     },
     "skillPriming": {
       "type": "object",
-      "description": "Skill priming config (v0.20.0): proactive skill-selection nudge injected once per session.",
+      "description": "Skill priming config (v0.20.0, v0.33.1: skill-hub routing): proactive skill-selection nudge injected once per session. v0.33.1 defaults enabled=true, router='registry' since AAS MCP was retired.",
       "additionalProperties": false,
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Master switch for skill priming injection.",
-          "default": false
+          "description": "Master switch for skill priming injection. v0.33.1: defaults to true so the skill workflow fires out of the box.",
+          "default": true
         },
         "trigger": {
           "type": "string",
@@ -321,14 +321,14 @@
         },
         "router": {
           "type": "string",
-          "description": "Which skill system(s) the directive references: 'aas', 'superpowers', 'both', or 'registry' (skill-hub).",
+          "description": "Which skill system(s) the directive references. v0.33.1: 'aas' is deprecated (AAS MCP retired in v0.32.0) and aliased to 'registry'. 'registry' = skill-hub (omo_skill_find/get/add); 'superpowers' = external plugin; 'both' = registry + superpowers.",
           "enum": [
-            "aas",
+            "registry",
             "superpowers",
             "both",
-            "registry"
+            "aas"
           ],
-          "default": "both"
+          "default": "registry"
         }
       }
     },

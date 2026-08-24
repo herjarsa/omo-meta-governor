@@ -358,12 +358,13 @@ export function loadOrchestratorConfig(
       auditToolCalls: full.protocolEnforcement?.auditToolCalls ?? false,
     } as ProtocolEnforcementConfig,
     // v0.20.0: project all skillPriming fields with defaults.
+    // v0.33.1: enabled defaults to TRUE so the skill workflow fires out of the box;
+    // router default changed from 'both' to 'registry' since AAS MCP is retired.
     skillPriming: {
-      enabled: full.skillPriming?.enabled ?? false,
+      enabled: full.skillPriming?.enabled ?? true,
       trigger: full.skillPriming?.trigger ?? "firstImplement",
-      router: full.skillPriming?.router ?? "both",
+      router: full.skillPriming?.router ?? "registry",
     } as SkillPrimingConfig,
-    // v0.32.0: project all skillHub fields with defaults.
     skillHub: {
       enabled: full.skillHub?.enabled ?? false,
       syncIntervalMs: full.skillHub?.syncIntervalMs ?? 86400000,
