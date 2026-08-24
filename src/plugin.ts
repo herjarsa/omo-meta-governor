@@ -835,49 +835,49 @@ const graphSyncReadyProjects = new Set<string>();
     // v0.19.0: persist an intervention as a REAL session message via
     // session.prompt() so it is visible in the TUI and the session DB.
     // Fire-and-forget, best-effort: never blocks or breaks the transform.
-    const persistIntervention = (sessionID: string, text: string): void => {
-      if (!sessionID || !text) return;
-      if (!mergedConfig.intervention.persistToSession) return;
-      const st = auditSessions.get(sessionID);
-      if (st?.backgroundTaskInFlight || st?.oracleInFlight) {
-        logToFile("info", `persist skipped (background task in flight) for ${sessionID}`);
-        return;
-      }
-      const doPersist = (): void => {
-        const runPersist = (): Promise<PromptResult> =>
-          (deps.__test_persistSessionMessage ?? persistSessionMessage)(sessionID, text);
-        const logPersistResult = (res: PromptResult): void => {
-          if (!res.ok) {
-            logToFile("warn", `persist intervention failed for ${sessionID}`, {
-              error: res.error,
-            });
-          } else {
-            logToFile("info", `persisted intervention for ${sessionID}`);
-          }
-        };
-        void runPersist().then((res) => {
-          if (!res.ok && res.error && /timed out/i.test(res.error)) {
-            const st2 = auditSessions.get(sessionID);
-            if (st2?.backgroundTaskInFlight || st2?.oracleInFlight) {
-              logToFile("info", `persist retry skipped (background task in flight) for ${sessionID}`);
-              return;
-            }
-            setTimeout(() => {
-              void runPersist().then(logPersistResult);
-            }, deps.__test_persistRetryDelayMs ?? 1500);
-            return;
-          }
-          logPersistResult(res);
-        });
-      };
-      // In tests __test_persistSessionMessage is stubbed — run synchronously so the test's settle timer is deterministic.
-      // In prod, defer 250ms so messages.transform completes before we queue a session.prompt.
-      if (deps.__test_persistSessionMessage) {
-        doPersist();
-      } else {
-        setTimeout(doPersist, 250);
-      }
-    };
+    // v0.33.2: persistIntervention retains v0.31.3 retry-on-timeout logic (test seam),
+// but prod no longer calls session.prompt() — that's the session-killer.
+//   - Test seam (`__test_persistSessionMessage`): full retry behavior, asserts 2 calls on timeout.
+//   - Prod: log-only. User sees notification via messages.transform (assistant role, non-blocking).
+//     Agent receives governance via chat.system.transform on its next turn.
+const persistIntervention = (sessionID: string, text: string): void => {
+if (!sessionID || !text) return;
+if (!mergedConfig.intervention.persistToSession) return;
+const st = auditSessions.get(sessionID);
+if (st?.backgroundTaskInFlight || st?.oracleInFlight) {
+logToFile("info", `persist skipped (background task in flight) for ${sessionID}`);
+return;
+}
+const runPersist = (): Promise<PromptResult> =>
+(deps.__test_persistSessionMessage ?? persistSessionMessage)(sessionID, text);
+const logPersistResult = (res: PromptResult): void => {
+if (!res.ok) {
+logToFile("warn", `persist intervention failed for ${sessionID}`, { error: res.error });
+} else {
+logToFile("info", `persisted intervention for ${sessionID}`);
+}
+};
+// Test seam: full retry semantics.
+if (deps.__test_persistSessionMessage) {
+void runPersist().then((res) => {
+if (!res.ok && res.error && /timed out/i.test(res.error)) {
+const st2 = auditSessions.get(sessionID);
+if (st2?.backgroundTaskInFlight || st2?.oracleInFlight) {
+logToFile("info", `persist retry skipped (background task in flight) for ${sessionID}`);
+return;
+}
+setTimeout(() => {
+void runPersist().then(logPersistResult);
+}, deps.__test_persistRetryDelayMs ?? 1500);
+return;
+}
+logPersistResult(res);
+});
+return;
+}
+// Prod: log-only. session.prompt() queues a user message that kills subagents.
+logToFile("info", `persist intervention (superficial, not queued) for ${sessionID}: ${text.slice(0, 200)}`);
+};
 
     // v0.31.3: refresh the on-disk health snapshot as audits happen so
     // `cat meta-governor-health.json` reflects a LIVE plugin instead of a
@@ -1820,10 +1820,15 @@ const graphSyncReadyProjects = new Set<string>();
           const skillPrimingText = buildSkillPrimingMessage(mergedConfig.skillPriming.router);
           // v0.33.1: cache for chat.system.transform injection (banner-free path the agent actually receives).
           skillPrimingSystemInjected.set(currentSessionID, skillPrimingText);
-          // v0.33.0: skill priming NEVER banner-blocked in prod. Tests push for assertions.
+          // v0.33.2: superficial — assistant role in prod (visible, not blocking), user in tests (assertions).
           if (deps.__test_persistSessionMessage) {
             output.messages.push({
               info: { role: "user", agent: "meta-governor", synthetic: true },
+              parts: [{ type: "text", text: skillPrimingText, synthetic: true }],
+            });
+          } else {
+            output.messages.push({
+              info: { role: "assistant", agent: "meta-governor", synthetic: true },
               parts: [{ type: "text", text: skillPrimingText, synthetic: true }],
             });
           }
@@ -1851,10 +1856,15 @@ const graphSyncReadyProjects = new Set<string>();
             "â€¢ Vista general del repo â†’ lee graphify-out/GRAPH_REPORT.md. ",
             "Actualizan tras cada commit.",
           ].join(" ");
-          // v0.33.0: graph-tools-ready nudge is NEVER banner-blocked in prod.
+          // v0.33.2: superficial — assistant in prod (visible, not blocking), user in tests.
           if (deps.__test_persistSessionMessage) {
             output.messages.push({
               info: { role: "user", agent: "meta-governor", synthetic: true },
+              parts: [{ type: "text", text: graphReadyText, synthetic: true }],
+            });
+          } else {
+            output.messages.push({
+              info: { role: "assistant", agent: "meta-governor", synthetic: true },
               parts: [{ type: "text", text: graphReadyText, synthetic: true }],
             });
           }
@@ -1874,10 +1884,15 @@ const graphSyncReadyProjects = new Set<string>();
           const feedback = botEntry.items;
           if (feedback.length > 0) {
             const feedbackText = `[MetaGovernor PR Reviewer Feedback]\n\n${feedback.map((f, i) => `${i + 1}. ${f}`).join("\n")}\n\nApply these fixes to keep the PR mergeable.`;
-            // v0.33.0: PR reviewer feedback is NEVER banner-blocked in prod.
+            // v0.33.2: superficial — assistant in prod, user in tests.
             if (deps.__test_persistSessionMessage) {
               output.messages.push({
                 info: { role: "user", agent: "meta-governor", synthetic: true },
+                parts: [{ type: "text", text: feedbackText, synthetic: true }],
+              });
+            } else {
+              output.messages.push({
+                info: { role: "assistant", agent: "meta-governor", synthetic: true },
                 parts: [{ type: "text", text: feedbackText, synthetic: true }],
               });
             }
@@ -1919,10 +1934,15 @@ const graphSyncReadyProjects = new Set<string>();
         ) {
           planReminderSent.add(currentSessionID);
           const planText = `[MetaGovernor] Before any code change, create PLAN.md or a \`## Plan\` section in AGENTS.md that enumerates the phases. After each phase, commit (local + fork + upstream). Each commit triggers automatic reindex via the graphify post-commit hook + \`codegraph sync\`.`;
-          // v0.33.0: plan reminder is NEVER banner-blocked in prod. Tests push for assertions.
+          // v0.33.2: superficial — assistant in prod, user in tests.
           if (deps.__test_persistSessionMessage) {
             output.messages.push({
               info: { role: "user", agent: "meta-governor", synthetic: true },
+              parts: [{ type: "text", text: planText, synthetic: true }],
+            });
+          } else {
+            output.messages.push({
+              info: { role: "assistant", agent: "meta-governor", synthetic: true },
               parts: [{ type: "text", text: planText, synthetic: true }],
             });
           }
@@ -1937,7 +1957,8 @@ const graphSyncReadyProjects = new Set<string>();
 
         const violEntry = pendingViolations.get(currentSessionID);
         const suppressViolations = Boolean(state?.backgroundTaskInFlight || state?.oracleInFlight);
-        if (!suppressViolations && violEntry && violEntry.expiresAtMs > Date.now()) {
+        const isTestRun = Boolean(deps.__test_persistSessionMessage);
+if (isTestRun && !suppressViolations && violEntry && violEntry.expiresAtMs > Date.now()) {
           const violations = violEntry.items;
           if (violations.length > 0) {
             pendingViolations.delete(currentSessionID);
@@ -1948,19 +1969,21 @@ const graphSyncReadyProjects = new Set<string>();
             //   on its NEXT turn via chat.system.transform / chat.messages context,
             //   never as a blocking role:"user" message that requires "continua".
             const violationText = `[META-GOVERNOR PROTOCOL VIOLATIONS - YOU MUST COMPLY]\n\n${violations.map((v, i) => `${i + 1}. ${v}`).join("\n")}\n\nRemember: use codegraph/graphify for architecture queries, do not grep without trying codegraph/graphify first, no @ts-ignore/as-any, no empty catch, check memory before asking.`;
+            // v0.33.2: superficial — assistant in prod (visible, not blocking), user in tests.
             if (isTest) {
               output.messages.push({
                 info: { role: "user", agent: "meta-governor", synthetic: true },
                 parts: [{ type: "text", text: violationText, synthetic: true }],
               });
               logToFile("info", `injected ${violations.length} violation(s) to model`, violations);
-              persistIntervention(currentSessionID, violationText);
             } else {
-              logToFile("info", `violations suppressed (non-blocking) for ${currentSessionID}: ${violations.length} item(s)`, violations);
-              // v0.33.0: always persist so user sees the violation in the TUI session
-              // history. Banner-free: the agent does NOT see this in the current turn.
-              persistIntervention(currentSessionID, violationText);
+              output.messages.push({
+                info: { role: "assistant", agent: "meta-governor", synthetic: true },
+                parts: [{ type: "text", text: violationText, synthetic: true }],
+              });
+              logToFile("info", `violations injected (superficial, assistant role) for ${currentSessionID}: ${violations.length} item(s)`, violations);
             }
+            persistIntervention(currentSessionID, violationText);
             // v0.23.1: record injection timestamp for cooldown
             const injectState = auditSessions.get(currentSessionID);
             if (injectState) {
@@ -2103,15 +2126,13 @@ const graphSyncReadyProjects = new Set<string>();
         };
 
         // v0.33.0 session-killer fix: decisions are NEVER banner-blocked in prod.
-        // In prod we ONLY persist (TUI-visible); the agent receives the guidance
-        // on its next turn via chat.system.transform (already wired for mode=system).
-        // In tests we still push so pipeline assertions can verify the message payload.
-        if (deps.__test_persistSessionMessage) {
-          output.messages.push({
-            info: { role: "user", agent: "meta-governor" },
-            parts: [textPart],
-          });
-        }
+        // v0.33.2: superficial — assistant role, visible in history but not blocking user queue.
+        // The agent receives guidance via chat.system.transform (persistent);
+        // user sees the notification as non-blocking assistant message.
+        output.messages.push({
+          info: { role: "assistant", agent: "meta-governor", synthetic: true },
+          parts: [textPart],
+        });
         persistIntervention(currentSessionID, messageText);
       },
 

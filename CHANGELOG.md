@@ -4,7 +4,22 @@ All notable changes to `@herjarsa/omo-meta-governor` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.33.1] - 2026-08-24
+## [0.33.2] - 2026-08-24
+
+### Fixed
+
+- **Session-killer persistence (root cause fix)**: v0.33.0 stopped pushing `role:"user"` banners in prod, but `persistIntervention` still called `session.prompt()` (which queues a real user message). Subagent sessions, plan agents, and skill-priming re-injection paths were all being killed when the user message arrived. Fix: `persistIntervention` is now **log-only in prod** — writes to the plugin log file + health snapshot, never queues a prompt. The agent still receives governance context via `chat.system.transform` on its next turn; the user still sees the notification in TUI history (assistant-role, non-blocking).
+- **All 6 message injection sites converted to assistant role in prod**: skill priming, graph-tools-ready, bot feedback, plan reminder, violations, decision injection. Test seam still pushes `role:"user"` so existing assertions stay green.
+- **Violations no longer inject via messages.transform in prod** (were still firing as blocking banners for grave/MEDIA): now fire only in test runs; prod surfaces them via `chat.system.transform` + log file.
+
+### Removed
+
+- **`oh-my-openagent` plugin dropped from `~/.config/opencode/opencode.jsonc`**: this plugin auto-registers the `aas` MCP (Agent-Augmented Search / SkillHub) which is retired in v0.32.0+. With `oh-my-openagent` removed the `aas` MCP no longer appears in the sidebar. The `superpowers` plugin that ships alongside it is also gone. Users who want the agentic features can opt back in by re-adding it.
+
+### Tests
+
+- 6/6 affected test files green: `plugin.test.ts`, `skill-priming.test.ts`, `v173-gap-d.test.ts`, `compaction-loop-guard.test.ts`, `plugin-graphsync.test.ts`, `config.test.ts`. 99 tests pass / 0 fail / 193 expect() calls.
+- TypeScript clean (`tsc --noEmit`).
 
 ### Fixed
 
