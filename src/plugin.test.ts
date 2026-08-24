@@ -317,9 +317,12 @@ describe("minActionForMessage threshold", () => {
       clearAll()
       storeDecision("test-session", makeDecision("stop"))
 
-      const plugin = createMetaGovernorPlugin({
-        graphSync: { enabled: false, autoInstall: false },
-      })
+      // v0.33.0: prod no longer pushes role:"user" synthetic messages (banner-killer).
+      // Pass a stub __test_persistSessionMessage so the test-only push path is exercised.
+      const plugin = createMetaGovernorPlugin(
+        { graphSync: { enabled: false, autoInstall: false } },
+        { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) },
+      )
       const hooks = await plugin(mockPluginInput, options)
       const transform = hooks["experimental.chat.messages.transform"]!
 

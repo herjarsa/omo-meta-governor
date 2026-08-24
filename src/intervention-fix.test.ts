@@ -111,9 +111,11 @@ describe("cross-session decision scoping", () => {
         },
       }
 
-      const plugin = createMetaGovernorPlugin({
-        graphSync: { enabled: false, autoInstall: false },
-      })
+      // v0.33.0: pass test seam so the (test-only) push path is exercised.
+      const plugin = createMetaGovernorPlugin(
+        { graphSync: { enabled: false, autoInstall: false } },
+        { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) },
+      )
       const hooks = await plugin(mockPluginInput, options)
       const transform = hooks["experimental.chat.messages.transform"]!
 
@@ -204,9 +206,11 @@ describe("explicit warn threshold (regression)", () => {
         },
       }
 
-      const plugin = createMetaGovernorPlugin({
-        graphSync: { enabled: false, autoInstall: false },
-      })
+      // v0.33.0: pass test seam so the (test-only) push path is exercised.
+      const plugin = createMetaGovernorPlugin(
+        { graphSync: { enabled: false, autoInstall: false } },
+        { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) },
+      )
       const hooks = await plugin(mockPluginInput, options)
       const transform = hooks["experimental.chat.messages.transform"]!
 
@@ -253,9 +257,11 @@ describe("max interventions per session", () => {
         },
       }
 
-      const plugin = createMetaGovernorPlugin({
-        graphSync: { enabled: false, autoInstall: false },
-      })
+      // v0.33.0: pass test seam so the (test-only) push path is exercised.
+      const plugin = createMetaGovernorPlugin(
+        { graphSync: { enabled: false, autoInstall: false } },
+        { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) },
+      )
       const hooks = await plugin(mockPluginInput, options)
       const transform = hooks["experimental.chat.messages.transform"]!
 

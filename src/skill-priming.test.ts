@@ -60,7 +60,7 @@ function makeOptions(skillPriming: SkillPrimingOpts): PluginOptions {
 async function makeTransform(skillPriming: SkillPrimingOpts) {
   const plugin = createMetaGovernorPlugin(
     { graphSync: { enabled: false, autoInstall: false } },
-    { backends: stubBackends as never, writeBackend: stubWrite as never },
+    { backends: stubBackends as never, writeBackend: stubWrite as never, __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) },
   )
   const hooks = await plugin(mockPluginInput, makeOptions(skillPriming))
   return hooks["experimental.chat.messages.transform"]!
@@ -179,7 +179,7 @@ describe("experimental.chat.messages.transform — skill priming", () => {
   it("firstImplement → no injection before implementation, fires after a write tool", async () => {
     const plugin = createMetaGovernorPlugin(
       { graphSync: { enabled: false, autoInstall: false } },
-      { backends: stubBackends as never, writeBackend: stubWrite as never },
+      { backends: stubBackends as never, writeBackend: stubWrite as never, __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) },
     )
     const hooks = await plugin(mockPluginInput, makeOptions({ enabled: true, trigger: "firstImplement", router: "both" }))
     const transform = hooks["experimental.chat.messages.transform"]!

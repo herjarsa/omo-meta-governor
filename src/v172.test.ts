@@ -105,9 +105,11 @@ describe("includeDecisionHistory (Gap D)", () => {
       },
     })
 
-    const plugin = createMetaGovernorPlugin({
-      graphSync: { enabled: false, autoInstall: false },
-    })
+    // v0.33.0: pass test seam so the (test-only) push path is exercised.
+    const plugin = createMetaGovernorPlugin(
+      { graphSync: { enabled: false, autoInstall: false } },
+      { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) },
+    )
     const hooks = await plugin(
       {
         client: null,

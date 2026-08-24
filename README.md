@@ -166,20 +166,20 @@ fires — verified via Gap C audit).
 
 ### Intervention modes
 
-When the decision is `warn` / `escalate` / `stop`, the plugin can inject
-the rationale into the agent's context via `experimental.chat.messages.transform`:
+**v0.33.0 banner-killer fix**: all modes are now non-blocking. None of them produce the `continua` banner that previously killed delegation loops. The plugin persists guidance as a TUI notification (visible to user, invisible to agent as a blocking message-queue item). The agent still receives the violation context to correct it, either via system-prompt injection (`system` mode) or through its natural next turn after the notification.
+
+When the decision is `warn` / `escalate` / `stop`:
 
 | Mode | Mechanism | Effect |
 |------|-----------|--------|
-| `silent` | (none) | Decision is logged only |
-| `message` | `chat.messages.transform` | Injects a synthetic user message visible to the LLM |
-| `system` | `chat.system.transform` | Appends guidance to the system prompt |
+| `silent` (default) | (none) | Decision logged only; no TUI notification. Lowest noise. |
+| `message` | `session.prompt()` (deferred 250ms) | Notification persisted to session TUI; agent does NOT see it as a blocking turn. Banner-free. |
+| `system` | `chat.system.transform` | Guidance appended to system prompt on every turn; agent receives context non-blocking. |
 
 `maxInterventionsPerSession: 3` (default) hard-stops injection after 3
-interventions per session to prevent infinite instruction loops
-(v0.10.0). When `respectDoneSignal: true` (default), injection stops
-once the agent emits the terminal signal AND Oracle has verified.
-
+interventions per session to prevent instruction loops (v0.10.0). When
+`respectDoneSignal: true` (default), injection stops once the agent emits
+the terminal signal AND Oracle has verified.
 ### Protocol enforcement
 
 `src/protocol-enforcer.ts` audits tool calls against a configurable
@@ -545,8 +545,7 @@ All configuration lives under the `meta_governor` key in
 | `includeDecisionHistory` | boolean | — | Whether to include recent decision history in injection. |
 | `maxHistoryMessages` | integer | `5` | Max history entries when `includeDecisionHistory: true`. |
 | `minActionForMessage` | enum | — | Minimum action: `'warn'` (all non-continue), `'escalate'`, `'stop'`. |
-| `persistToSession` | boolean | `true` | v0.19.0: when true, intervention messages ALSO persist to the session. |
-| `maxInterventionsPerSession` | integer | `3` | v0.10.0: hard cap before auto-disable. |
+| `persistToSession` | boolean | `true` | v0.33.0: when true, notifications persist to the session via `session.prompt()` (banner-free, TUI-visible). The plugin no longer pushes `role:'user'` synthetic messages through `experimental.chat.messages.transform` (that was the session-killer — OpenCode renders them as blocking banners requiring `continua` clicks). |
 | `respectDoneSignal` | boolean | `true` | Stop injecting once terminal signal + Oracle verified. |
 | `phaseAwareDoneSignal` | boolean | `false` | v0.15.0: split per-phase hint from terminal signal. |
 | `compactionLoopGuard.enabled` | boolean | `true` | v0.31.2: defense against opencode [#27924](https://github.com/anomalyco/opencode/issues/27924) (infinite overflow-compaction loop). |

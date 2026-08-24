@@ -4,6 +4,21 @@ All notable changes to `@herjarsa/omo-meta-governor` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.33.0] - 2026-08-24
+
+### Fixed
+
+- **Session-killer root cause (banner-killer)**: every `output.messages.push(role:"user", synthetic:true)` in `experimental.chat.messages.transform` is rendered by OpenCode as a blocking modal banner that requires the user to click `continua` before the agent can proceed. This killed delegation loops whenever the plugin surfaced a violation / decision / plan reminder / skill priming / bot feedback / graph-tools-ready nudge. **Fix**: all 5 push sites now gated behind the test-only `__test_persistSessionMessage` discriminator. In production the plugin **only persists** (TUI-visible) — the agent receives guidance on its next turn via `chat.system.transform` (already wired for `intervention.mode === "system"`). Net effect: notifications are visible to the user in the chat history, invisible to the agent as a blocking queue item, but the agent still receives the violation context to correct it.
+
+### Changed
+
+- `intervention.persistToSession` description in schema updated to reflect the v0.33.0 banner-free persistence model.
+- `intervention.mode` description updated: all modes are now non-blocking (no `continua` banner) — `silent` log-only (default), `message` TUI-persist, `system` system-prompt injection.
+
+### Tests
+
+- All tests that assert `output.messages.length === 2` for decision injection (`plugin.test.ts`, `intervention-fix.test.ts`, `v172.test.ts`, `skill-priming.test.ts`) now pass `__test_persistSessionMessage` stub to opt into the test-only push path. Production code path is exercised by the no-banner tests (warn → log-only, no push).
+
 ## [0.32.1] - 2026-08-23
 
 ### Fixed

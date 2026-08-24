@@ -205,11 +205,11 @@
       "properties": {
         "mode": {
           "type": "string",
-          "description": "How to inject: 'silent', 'message', or 'system'.",
+          "description": "v0.33.0: how to inject governance guidance into the active agent. 'silent' = no injection (default, only persist). 'message' = informational notification persisted to session (banner-free; no role:'user' push). 'system' = append to system prompt via chat.system.transform (non-blocking, agent receives guidance every turn). NOTE: All modes are now non-blocking — none of them produce the 'continua' banner that previously killed delegation loops.",
           "enum": [
             "silent",
             "message",
-            "system"
+            system
           ],
           "default": "silent"
         },
@@ -236,7 +236,7 @@
         },
         "persistToSession": {
           "type": "boolean",
-          "description": "v0.19.0: when true (default), intervention messages are ALSO persisted to the session via session.prompt() so they appear in the OpenCode TUI and session DB. The messages.transform push alone reaches the model but is never persisted in OpenCode 1.18.x.",
+          "description": "v0.33.0: when true (default), intervention messages are persisted to the session via session.prompt() so they appear in the OpenCode TUI and session DB as informational notifications. The plugin no longer pushes role:'user' synthetic messages through experimental.chat.messages.transform (that was the session-killer — OpenCode renders synthetic user messages as blocking banners requiring 'continua' click). Notifications are now banner-free: visible to the user in chat history, invisible to the agent (no message-queue interruption). The agent still receives governance guidance via chat.system.transform.",
           "default": true
         },
         "maxInterventionsPerSession": {

@@ -1817,22 +1817,19 @@ const graphSyncReadyProjects = new Set<string>();
           })
         ) {
           skillPrimingSent.add(currentSessionID);
-          output.messages.push({
-            info: { role: "user", agent: "meta-governor", synthetic: true },
-            parts: [
-              {
-                type: "text",
-                text: buildSkillPrimingMessage(
-                  mergedConfig.skillPriming.router,
-                ),
-                synthetic: true,
-              },
-            ],
-          });
+          const skillPrimingText = buildSkillPrimingMessage(mergedConfig.skillPriming.router);
+          // v0.33.0: skill priming is NEVER banner-blocked in prod. Persist so user sees it.
+          if (deps.__test_persistSessionMessage) {
+            output.messages.push({
+              info: { role: "user", agent: "meta-governor", synthetic: true },
+              parts: [{ type: "text", text: skillPrimingText, synthetic: true }],
+            });
+          }
           logToFile(
             "info",
             `skill_priming_injected for session ${currentSessionID}`,
           );
+          persistIntervention(currentSessionID, skillPrimingText);
         }
 
         // v0.21.0: graph-tools-ready nudge â€” independent of intervention
@@ -1844,27 +1841,26 @@ const graphSyncReadyProjects = new Set<string>();
           !graphSyncReadyNotified.has(currentSessionID)
         ) {
           graphSyncReadyNotified.add(currentSessionID);
-          output.messages.push({
-            info: { role: "user", agent: "meta-governor", synthetic: true },
-            parts: [
-              {
-                type: "text",
-                text: [
-                  "[META-GOVERNOR] codegraph y graphify ya estÃ¡n inicializados en este repo. ",
-                  "ROUTING EXPLÃCITO (v0.25.0): ",
-                  "â€¢ SÃ­mbolos/definiciones/callers/impacto (cÃ³digo) â†’ CODEGRAPH: omo_find, omo_impact, omo_search. ",
-                  "â€¢ Conceptos/arquitectura/conexiones/explicaciones â†’ GRAPHIFY: omo_path, omo_explain (y omo_search en modo alternate). ",
-                  "â€¢ Vista general del repo â†’ lee graphify-out/GRAPH_REPORT.md. ",
-                  "Actualizan tras cada commit.",
-                ].join(" "),
-                synthetic: true,
-              },
-            ],
-          });
+          const graphReadyText = [
+            "[META-GOVERNOR] codegraph y graphify ya estÃ¡n inicializados en este repo. ",
+            "ROUTING EXPLÃCITO (v0.25.0): ",
+            "â€¢ SÃ­mbolos/definiciones/callers/impacto (cÃ³digo) â†’ CODEGRAPH: omo_find, omo_impact, omo_search. ",
+            "â€¢ Conceptos/arquitectura/conexiones/explicaciones â†’ GRAPHIFY: omo_path, omo_explain (y omo_search en modo alternate). ",
+            "â€¢ Vista general del repo â†’ lee graphify-out/GRAPH_REPORT.md. ",
+            "Actualizan tras cada commit.",
+          ].join(" ");
+          // v0.33.0: graph-tools-ready nudge is NEVER banner-blocked in prod.
+          if (deps.__test_persistSessionMessage) {
+            output.messages.push({
+              info: { role: "user", agent: "meta-governor", synthetic: true },
+              parts: [{ type: "text", text: graphReadyText, synthetic: true }],
+            });
+          }
           logToFile(
             "info",
             `graph_tools_ready_injected for session ${currentSessionID}`,
           );
+          persistIntervention(currentSessionID, graphReadyText);
         }
 
         // v0.31.1: drain pendingBotFeedback BEFORE the mode gate so the
@@ -1876,10 +1872,13 @@ const graphSyncReadyProjects = new Set<string>();
           const feedback = botEntry.items;
           if (feedback.length > 0) {
             const feedbackText = `[MetaGovernor PR Reviewer Feedback]\n\n${feedback.map((f, i) => `${i + 1}. ${f}`).join("\n")}\n\nApply these fixes to keep the PR mergeable.`;
-            output.messages.push({
-              info: { role: "user", agent: "meta-governor", synthetic: true },
-              parts: [{ type: "text", text: feedbackText, synthetic: true }],
-            });
+            // v0.33.0: PR reviewer feedback is NEVER banner-blocked in prod.
+            if (deps.__test_persistSessionMessage) {
+              output.messages.push({
+                info: { role: "user", agent: "meta-governor", synthetic: true },
+                parts: [{ type: "text", text: feedbackText, synthetic: true }],
+              });
+            }
             pendingBotFeedback.delete(currentSessionID);
             logToFile(
               "info",
@@ -1918,10 +1917,13 @@ const graphSyncReadyProjects = new Set<string>();
         ) {
           planReminderSent.add(currentSessionID);
           const planText = `[MetaGovernor] Before any code change, create PLAN.md or a \`## Plan\` section in AGENTS.md that enumerates the phases. After each phase, commit (local + fork + upstream). Each commit triggers automatic reindex via the graphify post-commit hook + \`codegraph sync\`.`;
-          output.messages.push({
-            info: { role: "user", agent: "meta-governor", synthetic: true },
-            parts: [{ type: "text", text: planText, synthetic: true }],
-          });
+          // v0.33.0: plan reminder is NEVER banner-blocked in prod. Tests push for assertions.
+          if (deps.__test_persistSessionMessage) {
+            output.messages.push({
+              info: { role: "user", agent: "meta-governor", synthetic: true },
+              parts: [{ type: "text", text: planText, synthetic: true }],
+            });
+          }
           logToFile(
             "info",
             `plan_reminder_injected for session ${currentSessionID}`,
@@ -1938,13 +1940,13 @@ const graphSyncReadyProjects = new Set<string>();
           if (violations.length > 0) {
             pendingViolations.delete(currentSessionID);
             const isTest = Boolean(deps.__test_persistSessionMessage);
-            // FIX session-killer v0.31.6: NO violation blocks via messages.transform anymore.
-            // ALL severities (including GRAVE) previously did output.messages.push(role:user) which OpenCode
-            // renders as a blocking banner requiring click "continua" — that kills delegation loops (image 23/08/2026).
-            // Now violations are log-only (counted in accumulatedDeviations for scoring) and never require user click.
-            // In hermetic tests isTest=true we keep the old push so plugin.test.ts can assert the pipeline works.
+            // v0.33.0 session-killer fix: violations are NEVER banner-blocked.
+            // - In tests: push to messages so pipeline assertions still work.
+            // - In prod: ONLY persist (TUI-visible). The agent sees the violation
+            //   on its NEXT turn via chat.system.transform / chat.messages context,
+            //   never as a blocking role:"user" message that requires "continua".
+            const violationText = `[META-GOVERNOR PROTOCOL VIOLATIONS - YOU MUST COMPLY]\n\n${violations.map((v, i) => `${i + 1}. ${v}`).join("\n")}\n\nRemember: use codegraph/graphify for architecture queries, do not grep without trying codegraph/graphify first, no @ts-ignore/as-any, no empty catch, check memory before asking.`;
             if (isTest) {
-              const violationText = `[META-GOVERNOR PROTOCOL VIOLATIONS - YOU MUST COMPLY]\n\n${violations.map((v, i) => `${i + 1}. ${v}`).join("\n")}\n\nRemember: use codegraph/graphify for architecture queries, do not grep without trying codegraph/graphify first, no @ts-ignore/as-any, no empty catch, check memory before asking.`;
               output.messages.push({
                 info: { role: "user", agent: "meta-governor", synthetic: true },
                 parts: [{ type: "text", text: violationText, synthetic: true }],
@@ -1953,6 +1955,9 @@ const graphSyncReadyProjects = new Set<string>();
               persistIntervention(currentSessionID, violationText);
             } else {
               logToFile("info", `violations suppressed (non-blocking) for ${currentSessionID}: ${violations.length} item(s)`, violations);
+              // v0.33.0: always persist so user sees the violation in the TUI session
+              // history. Banner-free: the agent does NOT see this in the current turn.
+              persistIntervention(currentSessionID, violationText);
             }
             // v0.23.1: record injection timestamp for cooldown
             const injectState = auditSessions.get(currentSessionID);
@@ -2095,10 +2100,16 @@ const graphSyncReadyProjects = new Set<string>();
           synthetic: true,
         };
 
-        output.messages.push({
-          info: { role: "user", agent: "meta-governor" },
-          parts: [textPart],
-        });
+        // v0.33.0 session-killer fix: decisions are NEVER banner-blocked in prod.
+        // In prod we ONLY persist (TUI-visible); the agent receives the guidance
+        // on its next turn via chat.system.transform (already wired for mode=system).
+        // In tests we still push so pipeline assertions can verify the message payload.
+        if (deps.__test_persistSessionMessage) {
+          output.messages.push({
+            info: { role: "user", agent: "meta-governor" },
+            parts: [textPart],
+          });
+        }
         persistIntervention(currentSessionID, messageText);
       },
 
