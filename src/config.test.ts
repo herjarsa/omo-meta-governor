@@ -325,21 +325,21 @@ describe("loadOrchestratorConfig — graphRetrieval", () => {
   })
 })
 
-describe("loadOrchestratorConfig — skillPriming", () => {
+describe("loadOrchestratorConfig — skillPriming (v0.33.1 defaults)", () => {
   describe("#given undefined skillPriming config", () => {
     const config: MetaGovernorPluginConfig = { enabled: true }
     const result = loadOrchestratorConfig(config)
 
-    it("then skillPriming.enabled defaults to false", () => {
-      expect(result.skillPriming.enabled).toBe(false)
+    it("then skillPriming.enabled defaults to true (v0.33.1)", () => {
+      expect(result.skillPriming.enabled).toBe(true)
     })
 
     it("then skillPriming.trigger defaults to 'firstImplement'", () => {
       expect(result.skillPriming.trigger).toBe("firstImplement")
     })
 
-    it("then skillPriming.router defaults to 'both'", () => {
-      expect(result.skillPriming.router).toBe("both")
+    it("then skillPriming.router defaults to 'registry' (v0.33.1; AAS retired)", () => {
+      expect(result.skillPriming.router).toBe("registry")
     })
   })
 
@@ -364,12 +364,12 @@ describe("loadOrchestratorConfig — skillPriming", () => {
     }
     const result = loadOrchestratorConfig(config)
 
-it("then trigger and router keep defaults", () => {
-expect(result.skillPriming.enabled).toBe(true)
-expect(result.skillPriming.trigger).toBe("firstImplement")
-expect(result.skillPriming.router).toBe("both")
-})
-})
+    it("then trigger and router keep defaults (firstImplement / registry)", () => {
+      expect(result.skillPriming.enabled).toBe(true)
+      expect(result.skillPriming.trigger).toBe("firstImplement")
+      expect(result.skillPriming.router).toBe("registry")
+    })
+  })
 })
 
 describe("loadOrchestratorConfig — graphSync (v0.25.1 reindexOnFetch)", () => {

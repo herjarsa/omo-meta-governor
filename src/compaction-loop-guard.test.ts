@@ -158,7 +158,8 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
       it("then the next messages.transform injects the loop-guard guidance text", async () => {
         const plugin = createMetaGovernorPlugin({
           graphSync: { enabled: false, autoInstall: false },
-    }, 30_000);
+        // v0.33.0: pass test seam so the (test-only) push path is exercised.
+        }, { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) }, 30_000);
         const hooks = await plugin(mockPluginInput, optInOptions);
         const autocontinue = hooks["experimental.compaction.autocontinue"] as unknown as (
           input: { sessionID: string; overflow: boolean },
@@ -197,7 +198,8 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
         // which is the DEFAULT mode. This is the Finding #4 fix.
         const plugin = createMetaGovernorPlugin({
           graphSync: { enabled: false, autoInstall: false },
-    }, 30_000);
+    // v0.33.0: pass test seam so the (test-only) push path is exercised.
+    }, { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) }, 30_000);
         // optInOptions has no explicit mode -> defaults to 'silent'
         const hooks = await plugin(mockPluginInput, optInOptions);
         const autocontinue = hooks["experimental.compaction.autocontinue"] as unknown as (

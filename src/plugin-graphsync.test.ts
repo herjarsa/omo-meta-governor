@@ -134,6 +134,8 @@ describe("graphSync init placement", () => {
     const deps: MetaGovernorPluginDeps = {
       ...makeDeps(seen),
       __test_runGraphSync: readyRunGraphSync,
+      // v0.33.0: pass test seam so the (test-only) push path is exercised.
+      __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }),
     }
     const plugin = createMetaGovernorPlugin(
       { graphSync: { enabled: true, autoInstall: false, installTimeoutMs: 100 } },

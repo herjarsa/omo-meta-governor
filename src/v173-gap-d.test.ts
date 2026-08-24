@@ -6,9 +6,10 @@ describe("v0.17.3 Gap D — decision history in messages.transform", () => {
   beforeEach(() => clearAll())
 
   it("then includes prior interventions in text when includeDecisionHistory is true", async () => {
-    const plugin = createMetaGovernorPlugin({
-      graphSync: { enabled: false, autoInstall: false },
-    })
+    const plugin = createMetaGovernorPlugin(
+      { graphSync: { enabled: false, autoInstall: false } },
+      { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) }
+    )
     const hooks = await plugin(
       {
         client: null as any,
@@ -83,9 +84,10 @@ describe("v0.17.3 Gap D — decision history in messages.transform", () => {
   })
 
   it("then does NOT include history when includeDecisionHistory is false", async () => {
-    const plugin = createMetaGovernorPlugin({
-      graphSync: { enabled: false, autoInstall: false },
-    })
+    const plugin = createMetaGovernorPlugin(
+      { graphSync: { enabled: false, autoInstall: false } },
+      { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) }
+    )
     const hooks = await plugin(
       {
         client: null as any,

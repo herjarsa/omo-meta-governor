@@ -2146,12 +2146,36 @@ const graphSyncReadyProjects = new Set<string>();
         // Fires ONCE per session on the first transform call where the trigger condition is met.
         // The agent sees this on every subsequent turn naturally — no blocking banner, no message queue.
         // The directive is also persisted to the TUI via persistIntervention (visible to user).
-        if (transformInput.sessionID && skillPrimingSystemInjected.has(transformInput.sessionID)) {
-          output.system.push(
-            "\n### Skill Priming (MetaGovernor v0.33.1)",
-            skillPrimingSystemInjected.get(transformInput.sessionID) ?? "",
-            "---",
-          );
+        // Handle both orderings: messages.transform may have already cached the directive,
+        // or this system.transform may run first — in that case detect and cache here.
+        if (transformInput.sessionID) {
+          const sid = transformInput.sessionID;
+          if (skillPrimingSystemInjected.has(sid)) {
+            output.system.push(
+              "\n### Skill Priming (MetaGovernor v0.33.1)",
+              skillPrimingSystemInjected.get(sid) ?? "",
+              "---",
+            );
+          } else if (
+            mergedConfig.skillPriming.enabled &&
+            !skillPrimingSent.has(sid) &&
+            shouldInjectSkillPriming({
+              trigger: mergedConfig.skillPriming.trigger,
+              recentToolCalls: auditSessions.get(sid)?.recentToolCalls ?? [],
+              implementationToolSeen: implementationToolsSeen.has(sid),
+            })
+          ) {
+            skillPrimingSent.add(sid);
+            const primingText = buildSkillPrimingMessage(mergedConfig.skillPriming.router);
+            skillPrimingSystemInjected.set(sid, primingText);
+            output.system.push(
+              "\n### Skill Priming (MetaGovernor v0.33.1)",
+              primingText,
+              "---",
+            );
+            logToFile("info", `skill_priming_injected (system) for session ${sid}`);
+            persistIntervention(sid, primingText);
+          }
         }
 
         // v0.33.1: inject decisions into system prompt for BOTH 'message' and 'system' modes.
