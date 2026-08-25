@@ -92,7 +92,8 @@ import {
   type MetaGovernorPluginConfig,
 } from "./config";
 import { loadMetaGovernorConfig } from "./config-file";
-import { storeDecision, takeDecision } from "./decision-store";
+import { storeDecision, takeDecision, getDecisionHistory } from "./decision-store";
+import { countConsecutiveStops } from "./decision-handler";
 import { GraphRetrieval, getDefaultGraphRetrieval, configureDefaultGraphRetrieval } from "./graph-retrieval";
 import { AuditStateCache } from "./audit-state-cache";
 import { DEFAULT_VERSION } from "./metrics";
@@ -1507,10 +1508,18 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
         // the deviation-detector signal in scoring-engine actually fires.
         const deviations = sessionState?.accumulatedDeviations ?? [];
 
+        // v0.34.2: count consecutive stops from the per-session history
+        // so scoring-engine's paralysis-override (>= threshold) fires.
+        // Previously the signal was always 0 because history was not threaded.
+        const sessionHistory = getDecisionHistory(toolInput.sessionID)
+        const consecutiveStops = countConsecutiveStops(sessionHistory)
+
         const orchestratorInput: MetaGovernorInput = {
           sessionID: toolInput.sessionID,
           toolName: toolInput.tool,
           toolOutput: toolOutput.output,
+          // v0.34.2: paralysis-override signal (see scoring-engine.ts:327).
+          consecutiveStops,
           // v0.17.2: thread per-session iteration so the iteration-budget
           // signal (weight 0.15) actually fires downstream.
           iteration: sessionState?.iteration ?? 0,
