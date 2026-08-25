@@ -364,12 +364,14 @@ export function installProcessExitHandlers(): boolean {
 
   const onSignal = (signal: NodeJS.Signals): void => {
     cleanup()
-    try {
-      process.removeListener(signal, onSignal)
-      process.kill(process.pid, signal)
-    } catch {
-      // best-effort
-    }
+    // v0.34.2: replaced process.kill(process.pid, signal) with process.exit(code).
+    // v0.34.1 self-targeting kill raced with cleanup() and broke opencode shutdown.
+    // Conventional exit codes: SIGINT=130, SIGTERM=143, SIGHUP=129
+    const exitCode =
+      signal === 'SIGINT'  ? 130 :
+      signal === 'SIGTERM' ? 143 :
+      signal === 'SIGHUP'  ? 129 : 1
+    process.exit(exitCode)
   }
   exitHandlerRefs.push({ event: "SIGINT", fn: onSignal })
   exitHandlerRefs.push({ event: "SIGTERM", fn: onSignal })

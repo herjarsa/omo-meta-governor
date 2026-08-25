@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 /**
  * Tests for src/proc-guard.ts — process-zombie safeguards.
  *
@@ -228,5 +229,31 @@ describe("installProcessExitHandlers (v0.30 zombie fix)", () => {
     // Third call too
     const third = killOrphanedToolProcesses()
     expect(third).toBeGreaterThanOrEqual(0)
+  })
+})
+
+
+
+
+describe("signal handler self-kill (v0.34.2 P0-1 regression)", () => {
+  it("then no handler calls process.kill(process.pid, signal) on itself", () => {
+    const src = readFileSync("src/proc-guard.ts", "utf-8")
+    // Extract the onSignal arrow body. Strip comments so the v0.34.2
+    // changelog mention in a comment does not trip the assertion.
+    const blockMatch = src.match(/const\s+onSignal[\s\S]*?\n  \}/)
+    const rawBlock = blockMatch ? blockMatch[0] : ""
+    const codeOnly = rawBlock
+      .split("\n")
+      .map((l) => l.replace(/\/\/.*$/, ""))
+      .join("\n")
+    const hasCall = /process\.kill\(\s*process\.pid\s*,/.test(codeOnly)
+    expect(hasCall).toBe(false)
+  })
+
+  it("then onSignal body uses process.exit", () => {
+    const src = readFileSync("src/proc-guard.ts", "utf-8")
+    const blockMatch = src.match(/const\s+onSignal[\s\S]*?\n  \}/)
+    const block = blockMatch ? blockMatch[0] : ""
+    expect(block).toContain("process.exit")
   })
 })
