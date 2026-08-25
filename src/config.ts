@@ -95,6 +95,10 @@ export interface MetaGovernorPluginConfig {
      * bug #27924 (recursive overflow-only compactions). When the guard
      * trips, the plugin flips opencode's autocontinue to disabled so the
      * model can resume its pending tasks.
+     *
+     * v0.34.2: defaults aligned to ON (was OFF in v0.31.x - v0.34.1).
+     * Users upgrading from v0.34.0/0.34.1 should set nabled: false
+     * explicitly if they relied on the previous OFF default.
      */
     compactionLoopGuard?: {
       enabled?: boolean
@@ -326,11 +330,15 @@ export function loadOrchestratorConfig(
       // overflow-only compactions). Max consecutive overflows tolerated
       // before the guard flips autocontinue to disabled.
       compactionLoopGuard: {
+        // v0.34.2: defaults aligned to schema/orchestrator intent. v0.34.1
+        // had false/2 in config.ts but true/1 in orchestrator.ts +
+        // generate-schema.ts — drift left users without the opencode #27924
+        // defense enabled by default.
         enabled:
-          full.intervention?.compactionLoopGuard?.enabled ?? false,
+          full.intervention?.compactionLoopGuard?.enabled ?? true,
         maxOverflowRecoveries: Math.max(
           1,
-          full.intervention?.compactionLoopGuard?.maxOverflowRecoveries ?? 2,
+          full.intervention?.compactionLoopGuard?.maxOverflowRecoveries ?? 1,
         ),
       },
     } as InterventionConfig,

@@ -412,3 +412,26 @@ describe("loadOrchestratorConfig #given skillHub (v0.32.0)", () => {
     expect(result.skillHub.embedModel).toBe("bge-m3")
   })
 })
+
+
+describe('loadOrchestratorConfig - compactionLoopGuard defaults (v0.34.2 P0-4 regression)', () => {
+  it('then enabled defaults to true', () => {
+    const result = loadOrchestratorConfig({})
+    expect(result.intervention.compactionLoopGuard.enabled).toBe(true)
+  })
+
+  it('then maxOverflowRecoveries defaults to 1', () => {
+    const result = loadOrchestratorConfig({})
+    expect(result.intervention.compactionLoopGuard.maxOverflowRecoveries).toBe(1)
+  })
+
+  it('then explicit false wins over default', () => {
+    const result = loadOrchestratorConfig({ intervention: { compactionLoopGuard: { enabled: false } } })
+    expect(result.intervention.compactionLoopGuard.enabled).toBe(false)
+  })
+
+  it('then explicit maxOverflowRecoveries wins', () => {
+    const result = loadOrchestratorConfig({ intervention: { compactionLoopGuard: { maxOverflowRecoveries: 5 } } })
+    expect(result.intervention.compactionLoopGuard.maxOverflowRecoveries).toBe(5)
+  })
+})
