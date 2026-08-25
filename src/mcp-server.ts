@@ -33,7 +33,10 @@ import { resolve as resolvePath } from "node:path"
 
 import { getAdapters, getMcpCwd, setMcpCwd } from "./mcp-tools"
 import type { McpToolResult } from "./mcp-tools"
-
+import { getDefaultSqliteBackend } from "./sqlite-backend"
+import { loadOrchestratorConfig } from "./config"
+import { loadMetaGovernorConfig } from "./config-file"
+import { runSkillHubSync } from "./skill-hub-sync"
 const SERVER_NAME = "omo-meta-governor-mcp"
 
 /**
@@ -136,6 +139,30 @@ async function main(): Promise<void> {
 
   const transport = new StdioServerTransport()
   await server.connect(transport)
+
+  // v0.33.6: Fire-and-forget skill-hub sync on startup so the local
+  // catalog is populated before any omo_skill_find call. Errors are
+  // swallowed inside runSkillHubSync (logs to console.error).
+  void (async () => {
+    try {
+      const cfg = await loadMetaGovernorConfig({ projectDir: cwd })
+      const orchestrator = loadOrchestratorConfig(cfg.config)
+      if (!orchestrator.skillHub.enabled) return
+      const result = await runSkillHubSync({
+        sqlBackend: getDefaultSqliteBackend(),
+        bootstrapUrl: orchestrator.skillHub.bootstrapUrl,
+        enabled: true,
+      })
+      if (result) {
+        console.error(
+          `[${SERVER_NAME}] skill-hub sync: inserted=${result.inserted} updated=${result.updated} skipped=${result.skippedUnchanged}`,
+        )
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error(`[${SERVER_NAME}] skill-hub sync failed: ${msg}`)
+    }
+  })()
 
   // Log to stderr so we don't pollute the stdio JSON-RPC stream. OpenCode
   // captures stderr from MCP servers and surfaces it in its own logs.

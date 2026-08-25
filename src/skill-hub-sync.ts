@@ -8,6 +8,10 @@
  * Source record shape (skills-library.com/api/skills.json, verified):
  *   { id: "owner/repo/slug", name, description, source: "owner/repo",
  *     skillId: "slug", installs, githubStars, repoUrl }
+ *
+ * v0.33.6: added runSkillHubSync wiring layer that fetches the
+ * bootstrap URL and calls ingestBootstrap. This is the layer that
+ * the MCP server startup hook now invokes.
  */
 
 import { createHash } from "node:crypto"
@@ -69,7 +73,6 @@ export function normalizeSkillRecord(
   if (typeof r.id !== "string") return null
   const id = r.id.trim()
   if (id.length === 0) return null
-  if (typeof r.name !== "string" || r.name.length === 0) return null
   if (typeof r.name !== "string" || r.name.length === 0) return null
   const description = typeof r.description === "string" ? r.description : ""
   const installs =
@@ -182,4 +185,74 @@ export interface SkillHubDepsResult {
   depsWritten: number
   /** Groups skipped due to malformed shape. */
   invalidGroups: number
+}
+
+/**
+ * v0.33.6 wiring layer: fetch the bootstrap snapshot from the
+ * configured URL and ingest it into the SqliteBackend. Designed
+ * for fire-and-forget invocation from the MCP server startup
+ * hook — all errors are swallowed and logged via console.error.
+ *
+ * Returns null when:
+ *   - skillHub.enabled is false
+ *   - the network call fails (ECONNREFUSED, timeout, non-2xx)
+ *   - the response body is not valid JSON
+ *
+ * Returns the SkillHubIngestResult on success, regardless of
+ * whether the snapshot was an empty array (the caller may want
+ * to distinguish "no sync" from "sync ran but had nothing to do").
+ */
+export interface RunSkillHubSyncOptions {
+  sqlBackend: Pick<SqliteBackend, "skillAddOrUpdate" | "skillGet" | "skillReplaceDeps">
+  bootstrapUrl: string
+  /** DI seam for tests; defaults to global fetch. */
+  fetchFn?: typeof fetch
+  enabled: boolean
+  /** Hard timeout for the fetch call. Default 8000ms. */
+  timeoutMs?: number
+}
+
+export async function runSkillHubSync(
+  opts: RunSkillHubSyncOptions,
+): Promise<SkillHubIngestResult | null> {
+  if (!opts.enabled) return null
+  const timeoutMs = opts.timeoutMs ?? 8_000
+  const fetchFn = opts.fetchFn ?? fetch
+
+  let response: Response
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      response = await fetchFn(opts.bootstrapUrl, {
+        signal: controller.signal,
+        headers: { accept: "application/json" },
+      })
+    } finally {
+      clearTimeout(timer)
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error(`[skill-hub-sync] fetch failed for ${opts.bootstrapUrl}: ${msg}`)
+    return null
+  }
+
+  if (!response.ok) {
+    console.error(
+      `[skill-hub-sync] non-2xx from ${opts.bootstrapUrl}: ${response.status} ${response.statusText}`,
+    )
+    return null
+  }
+
+  let records: unknown
+  try {
+    records = await response.json()
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error(`[skill-hub-sync] non-JSON body from ${opts.bootstrapUrl}: ${msg}`)
+    return null
+  }
+
+  const sync = new SkillHubSync({ backend: opts.sqlBackend })
+  return await sync.ingestBootstrap(records)
 }
