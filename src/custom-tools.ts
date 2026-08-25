@@ -26,6 +26,10 @@ const z = tool.schema
 import type { SqliteBackend } from "./sqlite-backend"
 import type { GraphRetrieval } from "./graph-retrieval"
 import type { MetricsCollector } from "./metrics"
+import { readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
+
 import { buildPluginHealth, writeHealthToFile } from "./health"
 import { getDefaultCodeGraphTools, type CodeGraphTools } from "./codegraph-tools"
 import { getDefaultGraphRetrieval } from "./graph-retrieval"
@@ -36,8 +40,16 @@ import { promptAgent, hasSessionClient } from "./session-bridge"
 // to dist/.
 let PLUGIN_VERSION = "0.0.0"
 try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  PLUGIN_VERSION = require("../package.json").version as string
+  PLUGIN_VERSION = (() => {
+    try {
+      const here = dirname(fileURLToPath(import.meta.url))
+      const raw = readFileSync(join(here, "..", "package.json"), "utf-8")
+      const parsed = JSON.parse(raw) as { version?: unknown }
+      return typeof parsed.version === "string" ? parsed.version : "0.0.0"
+    } catch {
+      return "0.0.0"
+    }
+  })()
 } catch { /* package.json not available at runtime */ }
 
 // v0.30.0: MCP-first helper — try the MCP server before falling back to subprocess.

@@ -15,7 +15,10 @@
  * Promise<McpToolResult> shape MCP expects.
  */
 
-import { resolve as resolvePath } from "node:path"
+import { resolve as resolvePath, dirname, join } from "node:path"
+import { readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
+
 import { homedir } from "node:os"
 
 import { getDefaultGraphRetrieval } from "./graph-retrieval"
@@ -48,7 +51,10 @@ import {
 
 let PLUGIN_VERSION = "0.0.0"
 try {
-  PLUGIN_VERSION = require("../package.json").version as string
+  const here = dirname(fileURLToPath(import.meta.url))
+  const raw = readFileSync(join(here, "..", "package.json"), "utf-8")
+  const parsed = JSON.parse(raw) as { version?: unknown }
+  if (typeof parsed.version === "string") PLUGIN_VERSION = parsed.version
 } catch {
   /* package.json not available at runtime */
 }

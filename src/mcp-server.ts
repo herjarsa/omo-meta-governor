@@ -29,7 +29,9 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
-import { resolve as resolvePath } from "node:path"
+import { readFileSync, statSync } from "node:fs"
+import { resolve as resolvePath, dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { getAdapters, getMcpCwd, setMcpCwd } from "./mcp-tools"
 import type { McpToolResult } from "./mcp-tools"
@@ -67,7 +69,6 @@ function resolveCwd(): string {
   // Without this, tools would lazy-error on first call, which is worse
   // for debugging.
   try {
-    const { statSync } = require("node:fs")
     const s = statSync(cwd)
     if (!s.isDirectory()) {
       console.error(`[${SERVER_NAME}] cwd is not a directory: ${cwd}`)
@@ -187,8 +188,13 @@ async function main(): Promise<void> {
 
 function readPackageVersion(): string {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return (require("../package.json") as { version: string }).version
+    // v0.34.2: ESM-safe version read (was require("../package.json") which
+    // throws ReferenceError when package.json declares "type":"module").
+    const here = dirname(fileURLToPath(import.meta.url))
+    const pkgPath = join(here, "..", "package.json")
+    const raw = readFileSync(pkgPath, "utf-8")
+    const parsed = JSON.parse(raw) as { version?: unknown }
+    return typeof parsed.version === "string" ? parsed.version : "0.0.0"
   } catch {
     return "0.0.0"
   }
