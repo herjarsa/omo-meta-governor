@@ -169,6 +169,33 @@ expect(props.$schema.type).toBe("string")
         expect(sh.depsCheck.default).toBe(true)
       })
     })
+
+    describe("#given postWave block (v0.21.0)", () => {
+      it("then is present with enabled default false and all v0.21 sub-properties", () => {
+        expect(props.postWave).toBeDefined()
+        const pw = props.postWave.properties!
+        expect(props.postWave.additionalProperties).toBe(false)
+        expect(pw.enabled.default).toBe(false)
+        expect(pw.repoMode.enum).toEqual(["auto", "own", "third-party"])
+        expect(pw.repoMode.default).toBe("auto")
+        expect(pw.aasToolPrefix.default).toBe("aas")
+        expect(pw.ciTimeoutMs.default).toBe(600000)
+        expect(pw.maxRetriesPerWave.default).toBe(1)
+        expect(pw.reinjectCooldownMs.default).toBe(60000)
+        expect(pw.respectSilentMode.default).toBe(false)
+  })
+    })
+
+    describe("#given graphRetrieval block (v0.25.0)", () => {
+      it("then exposes preferredTool enum with auto default", () => {
+        expect(props.graphRetrieval).toBeDefined()
+        const gr = props.graphRetrieval.properties!
+        expect(gr.preferredTool.enum).toEqual(["auto", "codegraph", "graphify", "alternate"])
+        expect(gr.preferredTool.default).toBe("auto")
+        expect(gr.preferLocalCodegraph.default).toBe(false)
+        expect(gr.contextRouting.default).toBe(false)
+      })
+    })
   })
   describe("#given the definitions", () => {
     it("then has verbosity, interventionMode, minAction definitions", () => {
@@ -180,10 +207,11 @@ expect(props.$schema.type).toBe("string")
 
   describe("#given total property count", () => {
     it("then has all expected top-level properties", () => {
-      const expectedKeys = [
-        "$schema", "enabled", "decision", "memory", "tokenPredictor",
-        "scoring", "closedLoop", "modelOverride", "intervention",
+const expectedKeys = [
+"$schema", "enabled", "decision", "memory", "tokenPredictor",
+"scoring", "closedLoop", "modelOverride", "intervention",
         "protocolEnforcement", "skillPriming", "skillHub", "graphSync",
+        "postWave", "graphRetrieval",
       ]
       for (const key of expectedKeys) {
         expect(schema.properties[key]).toBeDefined()

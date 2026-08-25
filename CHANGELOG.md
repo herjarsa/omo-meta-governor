@@ -4,6 +4,20 @@ All notable changes to `@herjarsa/omo-meta-governor` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.33.4] - 2026-08-25
+
+### Fixed
+
+- **Schema missing `postWave` and `graphRetrieval` blocks**: the regenerated v0.33.3 schema still omitted two important top-level keys present in `MetaGovernorPluginConfig` (`postWave` since v0.21.0, `graphRetrieval` since v0.25.0). Real user configs using either were silently accepted by the runtime (no validation) but didn't get IDE autocomplete. Fix: added both blocks to `src/generate-schema.ts` with all sub-properties and defaults matching `loadOrchestratorConfig` projections, plus 2 regression tests in `generate-schema.test.ts`, regenerated the asset via `bun build.ts`.
+- **Three remaining `loadMetaGovernorConfig` tests still leaked real user config**: `cliOptions only`, `cliOptions with nested values`, and `empty cliOptions` all read `~/.config/opencode/omo-meta-governor.jsonc` on disk, so they were fragile to any developer machine that had fields injected. Promoted the v0.33.3 isolation helper to the parent `loadMetaGovernorConfig priority` describe so all four tests share the same tmpdir `beforeEach` / `afterEach`. The `empty cliOptions` assertion was rewritten from `effectiveSource === "defaults"` (wrong: a valid empty `{}` file IS a source) to a shape check verifying none of the real-config keys leaked in.
+
+### Tests
+
+- `generate-schema.test.ts`: 2 new describes (`postWave` v0.21.0 shape, `graphRetrieval` v0.25.0 enum). 21/21 pass / 117 expect() calls.
+- `config-file.test.ts`: shared isolation helper at parent describe. 25/25 pass / 39 expect() calls.
+- TypeScript clean (`tsc --noEmit`).
+- `bun build.ts` green; `JSON.parse` on asset succeeds.
+
 ## [0.33.3] - 2026-08-25
 
 ### Fixed

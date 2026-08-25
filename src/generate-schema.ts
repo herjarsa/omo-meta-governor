@@ -387,48 +387,64 @@ minActionForMessage: {
           depsCheck: { "type": "boolean", description: "Surface dependency warnings.", "default": true }
         }
       },
-      graphSync: {
-        type: "object",
-        description: "Graph synchronization (auto-init codegraph/graphify).",
-        additionalProperties: false,
-        properties: {
-          enabled: {
-            type: "boolean",
-            description: "Enable auto-initialization of codegraph and graphify.",
-            default: true,
-          },
-          watch: {
-            type: "boolean",
-            description: "Enable watch mode (re-index on file changes).",
-            default: false,
-          },
+graphSync: {
+type: "object",
+description: "Graph synchronization (auto-init codegraph/graphify).",
+additionalProperties: false,
+properties: {
+enabled: {
+type: "boolean",
+description: "Enable auto-initialization of codegraph and graphify.",
+default: true,
+},
+watch: {
+type: "boolean",
+description: "Enable watch mode (re-index on file changes).",
+default: false,
+},
 killOrphanedOnInit: {
 type: "boolean",
 description: "When true, sweep orphaned graphify/codegraph processes left by previous crashed runs on graph-sync init.",
 default: true,
-          },
-          autoUpgrade: {
-            type: "boolean",
-            description: "v0.26.0: auto-upgrade installed codegraph and graphify binaries on graph-sync init. Default true. Tiered probe + pip --upgrade flag fixes 6 silent-failure bugs from v0.24.x.",
-            default: true,
-        },
-          upgradeCachePath: {
-            type: "string",
-            description: "v0.26.0: filesystem path for the upgrade cache file (tracks latest-known codegraph/graphify versions to avoid re-fetching the npm/PyPI registry on every load).",
-          },
-          checkGraphifyNeedsUpdate: {
-            type: "boolean",
-            description: "v0.26.0: when true, run 'graphify check-update' after upgrade and emit a 'graphify-reextract-triggered' diagnostic code if the schema changed (signals a semantic re-extraction is pending).",
-            default: true,
-          },
-          addToGlobalGraph: {
-            type: "boolean",
-            description: "v0.27.0: opt-in. Register the project graph in the global graphify registry after install (so 'graphify global list' surfaces it). Default false.",
-            default: false,
-          },
-        },
+},
+autoUpgrade: {
+type: "boolean",
+description: "v0.26.0: auto-upgrade installed codegraph and graphify binaries on graph-sync init. Default true. Tiered probe + pip --upgrade flag fixes 6 silent-failure bugs from v0.24.x.",
+default: true,
+},
+upgradeCachePath: {
+type: "string",
+description: "v0.26.0: filesystem path for the upgrade cache file (tracks latest-known codegraph/graphify versions to avoid re-fetching the npm/PyPI registry on every load).",
+},
+checkGraphifyNeedsUpdate: {
+type: "boolean",
+description: "v0.26.0: when true, run 'graphify check-update' after upgrade and emit a 'graphify-reextract-triggered' diagnostic code if the schema changed (signals a semantic re-extraction is pending).",
+default: true,
+},
+addToGlobalGraph: {
+type: "boolean",
+description: "v0.27.0: opt-in. Register the project graph in the global graphify registry after install (so 'graphify global list' surfaces it). Default false.",
+default: false,
+},
+},
       },
-      graphRetrieval: {
+      postWave: {
+        type: "object",
+        description: "Post-wave workflow gate (v0.21.0): landing directives after Oracle-approved waves.",
+        additionalProperties: false,
+        properties: {
+          enabled: { type: "boolean", description: "Master switch. Default false (derives from phaseAwareDoneSignal when unset).", default: false },
+          repoMode: { type: "string", description: "Repository mode: auto | own | third-party.", enum: ["auto", "own", "third-party"], default: "auto" },
+          aasToolPrefix: { type: "string", description: "Prefix for aas tool names when invoking third-party skills.", default: "aas" },
+          ciTimeoutMs: { type: "integer", description: "Max ms to wait for CI after push before reporting failure.", default: 600000, minimum: 1000 },
+          maxRetriesPerWave: { type: "integer", description: "Max retries per wave before escalating.", default: 1, minimum: 0 },
+          reinjectCooldownMs: { type: "integer", description: "Min ms between directive re-injections for the same wave.", default: 60000, minimum: 0 },
+          respectSilentMode: { type: "boolean", description: "When true, skip injection while silent mode is active.", default: false },
+          ownRepoDirective: { type: "string", description: "Directive injected for own repos (push + CI)." },
+          thirdPartyDirective: { type: "string", description: "Directive injected for third-party repos (PR/issue via aas skills)." }
+        }
+      },
+graphRetrieval: {
         type: "object",
         description: "v0.27.0: extended routing knobs for the graph retrieval layer.",
         additionalProperties: false,
