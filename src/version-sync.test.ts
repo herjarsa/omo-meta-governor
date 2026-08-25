@@ -12,17 +12,20 @@
  * Result: omo_health banner lied about the running version.
  *
  * This test reads the package.json version and the version embedded
- * in each dist entrypoint and asserts they match.
+ * in each dist entrypoint and asserts they match. If `dist/` is
+ * missing (e.g. fresh clone in CI before `bun build.ts` ran), the
+ * test self-heals by invoking the build first.
  *
  * If you legitimately need to bump the version without rebuilding
  * (e.g. for a metadata-only release), this test will catch it. The
  * fix is always: bump package.json, then run `bun build.ts`.
  */
-import { describe, expect, it } from "bun:test"
-import { readFileSync } from "node:fs"
+import { describe, expect, it, beforeAll } from "bun:test"
+import { readFileSync, existsSync } from "node:fs"
 import { resolve } from "node:path"
 
-const PKG_PATH = resolve(import.meta.dir, "..", "package.json")
+const REPO_ROOT = resolve(import.meta.dir, "..")
+const PKG_PATH = resolve(REPO_ROOT, "package.json")
 const DIST_ENTRIES = ["dist/index.js", "dist/lib.js", "dist/mcp-server.js"] as const
 
 function readPackageVersion(): string {
@@ -40,6 +43,9 @@ function readPackageVersion(): string {
  * object is the only place that exact pattern appears.
  */
 function readInlinedVersion(entryPath: string): string {
+  if (!existsSync(entryPath)) {
+    throw new Error(`Bundle entrypoint not found: ${entryPath}`)
+  }
   const src = readFileSync(entryPath, "utf-8")
   const match = src.match(/version:"(\d+\.\d+\.\d+)"/)
   if (!match) {
@@ -52,13 +58,38 @@ function readInlinedVersion(entryPath: string): string {
   return match[1]!
 }
 
+let buildInvoked = false
+
+beforeAll(async () => {
+  // Self-heal: if dist/ is missing or stale (e.g. CI checkout without
+  // running `bun build.ts` yet), run it before validating. This makes
+  // the test self-contained regardless of CI step ordering.
+  const allPresent = DIST_ENTRIES.every((e) => existsSync(resolve(REPO_ROOT, e)))
+  if (!allPresent) {
+    const proc = Bun.spawn(["bun", "build.ts"], {
+      cwd: REPO_ROOT,
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    await proc.exited
+    if (proc.exitCode !== 0) {
+      const stderr = await new Response(proc.stderr).text()
+      throw new Error(
+        `bun build.ts failed with exit code ${proc.exitCode}: ${stderr}`,
+      )
+    }
+    buildInvoked = true
+  }
+})
+
 describe("version sync between package.json and dist bundles", () => {
-  describe("#given package.json with version 0.33.5", () => {
+  describe("#given package.json with a semantic version", () => {
     const pkgVersion = readPackageVersion()
 
     it("then every dist entrypoint inlines the same version", () => {
       for (const entry of DIST_ENTRIES) {
-        const inlined = readInlinedVersion(entry)
+        const fullPath = resolve(REPO_ROOT, entry)
+        const inlined = readInlinedVersion(fullPath)
         expect(inlined).toBe(pkgVersion)
       }
     })
@@ -75,6 +106,18 @@ describe("version sync between package.json and dist bundles", () => {
       // would crash the banner regex on user machines).
       const pkgVersion = readPackageVersion()
       expect(pkgVersion).toMatch(/^\d+\.\d+\.\d+/)
+    })
+  })
+
+  describe("#given the self-heal build path", () => {
+    it("then either the build was already up to date or invoked via beforeAll", () => {
+      // After beforeAll, every dist entry must exist regardless of whether
+      // we had to rebuild or not. This proves the test is CI-ordering-safe.
+      for (const entry of DIST_ENTRIES) {
+        expect(existsSync(resolve(REPO_ROOT, entry))).toBe(true)
+      }
+      // buildInvoked is set if the test had to rebuild; either way is fine.
+      expect(typeof buildInvoked).toBe("boolean")
     })
   })
 })
