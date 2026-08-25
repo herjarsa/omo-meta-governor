@@ -267,18 +267,39 @@ describe("loadMetaGovernorConfig priority", () => {
   })
 
   describe("#given cliOptions with deepMerge behavior", () => {
-    it("then nested overrides merge, not replace entirely", async () => {
+    // v0.33.3: isolate from the real user/project config on disk by
+    // pointing both lookups at an empty tmpdir. Otherwise the leaked
+    // `tokenPredictor` from ~/.config/opencode/omo-meta-governor.jsonc
+    // makes the assertion flaky on developer machines.
+    const isoDir = resolve(tmpdir(), "omo-meta-governor-test", `iso-${Date.now()}`)
+    const isoUserPath = resolve(isoDir, "user-config.jsonc")
+    const isoProjectPath = resolve(isoDir, ".opencode", "omo-meta-governor.jsonc")
+    beforeEach(async () => {
+      await mkdir(resolve(isoDir, ".opencode"), { recursive: true })
+      // Touch a syntactically-valid empty config so loadJsoncFile returns {}
+      await writeFile(isoUserPath, "{}")
+      await writeFile(isoProjectPath, "{}")
+    })
+    afterEach(async () => {
+      try { await unlink(isoUserPath) } catch { /* ok */ }
+      try { await unlink(isoProjectPath) } catch { /* ok */ }
+      try { await rmdir(resolve(isoDir, ".opencode")) } catch { /* ok */ }
+      try { await rmdir(isoDir) } catch { /* ok */ }
+    })
+it("then nested overrides merge, not replace entirely", async () => {
       const result = await loadMetaGovernorConfig({
-        cliOptions: {
-          enabled: true,
-          memory: { query: "deep-query" },
-        },
-      })
-      expect(result.config.enabled).toBe(true)
+        projectDir: isoDir,
+        userConfigPath: isoUserPath,
+cliOptions: {
+enabled: true,
+memory: { query: "deep-query" },
+},
+})
+expect(result.config.enabled).toBe(true)
       expect(result.config.memory?.query).toBe("deep-query")
       // tokenPredictor shouldn't be set by our cliOptions
       expect(result.config.tokenPredictor).toBeUndefined()
-    })
+  })
   })
 
   describe("#given empty cliOptions", () => {

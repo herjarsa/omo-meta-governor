@@ -198,10 +198,15 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 // ─── Full config loading pipeline ──────────────────────────────────
 
 export interface ConfigFileSources {
-  /** CLI inline options (highest priority) */
-  cliOptions?: Partial<MetaGovernorPluginConfig>
-  /** Project directory for project-level config lookup */
+/** CLI inline options (highest priority) */
+cliOptions?: Partial<MetaGovernorPluginConfig>
+/** Project directory for project-level config lookup */
   projectDir?: string
+  /**
+   * Override the user-level config path (defaults to ~/.config/opencode/omo-meta-governor.jsonc).
+   * Test-only seam: lets unit tests point at a tmpdir to isolate from real user config.
+   */
+  userConfigPath?: string
 }
 
 export interface ConfigFileResult {
@@ -230,7 +235,7 @@ export async function loadMetaGovernorConfig(
   let merged: Partial<MetaGovernorPluginConfig> = {}
 
   // 1. User config (lowest file priority)
-  const userPath = getUserConfigPath()
+  const userPath = sources.userConfigPath ?? getUserConfigPath()
   const userConfig = await loadJsoncFile<Partial<MetaGovernorPluginConfig>>(userPath)
   if (userConfig) {
     merged = deepMerge(merged, userConfig)
