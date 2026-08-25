@@ -348,15 +348,21 @@ describe("minActionForMessage threshold", () => {
 
 describe("tool.execute.before audit", () => {
   describe("#given write tool with @ts-ignore + as any in args", () => {
-    const options: PluginOptions = {
-      meta_governor: {
-        enabled: true,
-        protocolEnforcement: {
-          enabled: true,
-          auditToolCalls: true,
-        },
+const options: PluginOptions = {
+meta_governor: {
+enabled: true,
+protocolEnforcement: {
+enabled: true,
+auditToolCalls: true,
+},
         intervention: { mode: "message", minActionForMessage: "warn" },
-      },
+        // v0.34.0: explicit override so the test does not pick up the
+        // user's global config (which may have enforceMode='block').
+        // Tests in this block target the protocolEnforcement path,
+        // not the skill-priming block gate, so we force directive mode.
+        skillPriming: { enabled: false, trigger: "sessionStart", router: "registry", enforceMode: "directive"
+},
+    },
     }
 
     it("then detects no-type-suppression violation and injects it via messages.transform", async () => {
@@ -454,15 +460,19 @@ describe("tool.execute.before audit", () => {
   })
 
   describe("#given protocolEnforcement.auditToolCalls is false", () => {
-    const options: PluginOptions = {
-      meta_governor: {
-        enabled: true,
-        protocolEnforcement: {
-          enabled: true,
-          auditToolCalls: false,
-        },
+const options: PluginOptions = {
+meta_governor: {
+enabled: true,
+protocolEnforcement: {
+enabled: true,
+auditToolCalls: false,
+},
         intervention: { mode: "message", minActionForMessage: "warn" },
-      },
+        // v0.34.0: explicit override so the test does not pick up the
+        // user's global config (which may have enforceMode='block').
+        skillPriming: { enabled: false, trigger: "sessionStart", router: "registry", enforceMode: "directive"
+},
+    },
     }
 
     it("then tool.execute.before short-circuits and does not audit", async () => {
