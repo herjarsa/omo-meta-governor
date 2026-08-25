@@ -801,6 +801,9 @@ const graphSyncReadyProjects = new Set<string>();
     // v0.33.1: skill-priming directive cached per-session for chat.system.transform injection.
     // Set when messages.transform fires the priming nudge; read by system.transform to push to output.system.
     const skillPrimingSystemInjected = new Map<string, string>();
+    // v0.34.0: per-session tracking for omo_skill_find invocations.
+    // Used by tool.execute.before gate when enforceMode='block'.
+    const skillFindCalled = new Set<string>();
 
     const implementationToolsSeen = new Set<string>();
     // v0.21.0 (post-wave W6): per-session post-wave gate state, tracked
@@ -914,9 +917,25 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
         _output: { args: unknown },
       ): Promise<void> => {
         if (!mergedConfig.enabled) return;
-        if (!mergedConfig.protocolEnforcement.auditToolCalls) return;
         if (!toolInput.sessionID) return;
 
+        // v0.34.0: skill-priming enforcement gate. When enforceMode='block',
+        // implementation tools (write/edit/apply_patch/...) are blocked until
+        // omo_skill_find has been called in this session.
+        if (
+          mergedConfig.skillPriming.enabled &&
+          mergedConfig.skillPriming.enforceMode === "block" &&
+          toolInput.tool !== "omo_skill_find" &&
+          !skillFindCalled.has(toolInput.sessionID) &&
+          IMPLEMENTATION_TOOLS.includes(toolInput.tool)
+        ) {
+          throw new Error(
+            `[meta-governor] skill-priming required: call omo_skill_find first to discover relevant skills before using "${toolInput.tool}". ` +
+            `Set skillPriming.enforceMode='directive' in your config to restore opt-in behavior.`,
+          );
+        }
+
+        if (!mergedConfig.protocolEnforcement.auditToolCalls) return;
         let state = auditSessions.get(toolInput.sessionID);
         if (!state) {
           state = {
@@ -1090,8 +1109,15 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
           args: unknown;
         },
         toolOutput: { title: string; output: string; metadata: unknown },
-      ): Promise<void> => {
+): Promise<void> => {
         if (!mergedConfig.enabled) return;
+
+        // v0.34.0: per-session skill-find tracking. Used by tool.execute.before
+        // gate when enforceMode='block' to permit implementation tools only
+        // after the agent has actually queried the skill-hub catalog.
+        if (toolInput.tool === "omo_skill_find" && toolInput.sessionID) {
+          skillFindCalled.add(toolInput.sessionID);
+        }
 
         // v0.31.3: throttled live health snapshot (writer defined above).
         healthWriter.write(

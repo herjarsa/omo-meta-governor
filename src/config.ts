@@ -152,11 +152,13 @@ export interface MetaGovernorPluginConfig {
     installScope?: "global" | "project"
   }
   /** Skill priming config (v0.20.0): proactive skill-selection nudge. */
-  skillPriming?: {
-    enabled?: boolean
-    trigger?: SkillPrimingTrigger
+skillPriming?: {
+enabled?: boolean
+trigger?: SkillPrimingTrigger
     router?: SkillPrimingRouter
-  }
+    /** v0.34.0: enforcement mode for the skill-priming directive. */
+    enforceMode?: "directive" | "block"
+}
   /** Skill hub config (v0.32.0): registry-backed catalog + hybrid search. */
   skillHub?: {
     enabled?: boolean
@@ -364,8 +366,10 @@ export function loadOrchestratorConfig(
       enabled: full.skillPriming?.enabled ?? true,
       trigger: full.skillPriming?.trigger ?? "firstImplement",
       router: full.skillPriming?.router ?? "registry",
-    } as SkillPrimingConfig,
-    skillHub: {
+      // v0.34.0: opt-in enforcement. Default 'directive' = backward-compat.
+      enforceMode: full.skillPriming?.enforceMode ?? "directive",
+    },
+skillHub: {
       enabled: full.skillHub?.enabled ?? false,
       syncIntervalMs: full.skillHub?.syncIntervalMs ?? 86400000,
       bootstrapUrl: full.skillHub?.bootstrapUrl ?? "https://skills-library.com/api/skills.json",

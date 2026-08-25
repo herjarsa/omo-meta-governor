@@ -341,6 +341,9 @@ describe("loadOrchestratorConfig — skillPriming (v0.33.1 defaults)", () => {
     it("then skillPriming.router defaults to 'registry' (v0.33.1; AAS retired)", () => {
       expect(result.skillPriming.router).toBe("registry")
     })
+    it("then skillPriming.enforceMode defaults to 'directive' (v0.34.0; opt-in)", () => {
+      expect(result.skillPriming.enforceMode).toBe("directive")
+  })
   })
 
   describe("#given custom skillPriming config", () => {

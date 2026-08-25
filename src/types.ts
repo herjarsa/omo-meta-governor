@@ -521,6 +521,17 @@ export interface SkillPrimingConfig {
    * Default "registry".
    */
   readonly router: SkillPrimingRouter;
+  /**
+   * v0.34.0: enforcement mode for the skill-priming directive.
+   *  - "directive" (default): inject a synthetic assistant message with the
+   *    directive; agent can choose whether to act on it. Backward-compatible.
+   *  - "block": additionally block implementation tools (write/edit/apply_patch/
+   *    multi_edit/desktop-commander_*_file/...) via tool.execute.before
+   *    until omo_skill_find has been called in this session. Inject the
+   *    directive via experimental.chat.system.transform (system role) for
+   *    stronger model adherence.
+   */
+  readonly enforceMode: "directive" | "block";
 }
 
 /**

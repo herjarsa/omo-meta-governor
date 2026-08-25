@@ -343,7 +343,7 @@ minActionForMessage: {
       },
       skillPriming: {
         type: "object",
-        description: "Skill priming config (v0.20.0, v0.33.1: skill-hub routing): proactive skill-selection nudge injected once per session. v0.33.1 defaults enabled=true, router='registry' since AAS MCP was retired.",
+        description: "Skill priming config (v0.20.0, v0.33.1: skill-hub routing, v0.34.0: enforcement mode): proactive skill-selection nudge injected once per session.",
         additionalProperties: false,
         properties: {
           enabled: {
@@ -367,6 +367,16 @@ minActionForMessage: {
               "aas"
             ],
             default: "registry"
+          },
+          // v0.34.0: enforcement mode. 'directive' (default) preserves the
+          // legacy opt-in nudge. 'block' gates implementation tools
+          // (write/edit/apply_patch/...) at tool.execute.before until
+          // omo_skill_find has been called in the session.
+          enforceMode: {
+            type: "string",
+            description: "v0.34.0: enforcement mode. 'directive' (default) = opt-in nudge. 'block' = hard gate that prevents implementation tools (write/edit/apply_patch/...) from running until omo_skill_find has been called in the session.",
+            enum: ["directive", "block"],
+            default: "directive"
           }
         }
       },

@@ -108,8 +108,19 @@ describe("buildSkillPrimingMessage", () => {
     expect(msg).toContain("omo_skill_find")
     expect(msg).toContain("superpowers")
     expect(msg).toContain("skip the catalog")
-    expect(msg).toContain("Do NOT enumerate the full catalog")
+expect(msg).toContain("Do NOT enumerate the full catalog")
   })
+
+  // v0.34.0: buildSkillPrimingMessage is enforceMode-agnostic — it builds the
+  // directive text, but the gating decision (block vs direct) lives in
+  // plugin.ts's tool.execute.before. This test pins the orthogonality so a
+  // future refactor of buildSkillPrimingMessage doesn't accidentally bake
+  // blocking language into the directive body.
+  it("v0.34.0: directive message is ortho to enforceMode (never instructs the agent to be blocked)", () => {
+    const directive = buildSkillPrimingMessage("registry")
+    expect(directive).toContain("[SKILL PRIMING]")
+    expect(directive).not.toMatch(/will be blocked|must call .* first|enforcement/i)
+})
 })
 
 // ─── Pure: shouldInjectSkillPriming ────────────────────────────────

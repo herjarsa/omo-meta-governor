@@ -479,8 +479,93 @@ describe("tool.execute.before audit", () => {
         { args: { filePath: "/tmp/bad.ts", content: "// @ts-ignore\nconst x: any = 1 as any;" } }
       )
       // No assertion on internal state — just verify no exception
+      // No assertion on internal state — just verify no exception
       expect(true).toBe(true)
     })
   })
 })
 
+
+// v0.34.0: skill-priming enforcement (enforceMode='block'). When enabled,
+// implementation tools (write/edit/apply_patch/...) are blocked at
+// tool.execute.before until omo_skill_find is invoked in the same session.
+describe("skill-priming enforceMode='block' (v0.34.0)", () => {
+  const blockOptions: PluginOptions = {
+    meta_governor: {
+      enabled: true,
+      protocolEnforcement: { enabled: true, auditToolCalls: false },
+      skillPriming: { enabled: true, trigger: "sessionStart", router: "registry", enforceMode: "block" },
+    },
+  }
+
+  it("then blocks write tool when omo_skill_find has NOT been called in this session", async () => {
+    clearAll()
+    const plugin = createMetaGovernorPlugin({ graphSync: { enabled: false, autoInstall: false } })
+    const hooks = await plugin(mockPluginInput, blockOptions)
+    const before = hooks["tool.execute.before"]!
+    await expect(
+      before(
+        { tool: "write", sessionID: "block-test-1", callID: "c1" },
+        { args: { filePath: "/tmp/x.ts", content: "x" } },
+      ),
+    ).rejects.toThrow(/skill-priming required|omo_skill_find/)
+  })
+
+  it("then allows write tool AFTER omo_skill_find has been called in this session", async () => {
+    clearAll()
+    const plugin = createMetaGovernorPlugin({ graphSync: { enabled: false, autoInstall: false } })
+    const hooks = await plugin(mockPluginInput, blockOptions)
+    const before = hooks["tool.execute.before"]!
+    const after = hooks["tool.execute.after"]!
+    // First, the agent queries the skill catalog.
+    await after(
+      { tool: "omo_skill_find", sessionID: "block-test-2", callID: "c1", args: { query: "x" } },
+      { title: "", output: "ok", metadata: {} },
+    )
+    // Now write should pass through the gate.
+    await expect(
+      before(
+        { tool: "write", sessionID: "block-test-2", callID: "c2" },
+        { args: { filePath: "/tmp/x.ts", content: "x" } },
+      ),
+    ).resolves.toBeUndefined()
+  })
+
+  it("then allow omo_skill_find itself (it's not in IMPLEMENTATION_TOOLS)", async () => {
+    clearAll()
+    const plugin = createMetaGovernorPlugin({ graphSync: { enabled: false, autoInstall: false } })
+    const hooks = await plugin(mockPluginInput, blockOptions)
+    const before = hooks["tool.execute.before"]!
+    await expect(
+      before(
+        { tool: "omo_skill_find", sessionID: "block-test-3", callID: "c1" },
+        { args: { query: "x" } },
+      ),
+    ).resolves.toBeUndefined()
+  })
+})
+
+// v0.34.0: enforceMode='directive' (default) preserves the legacy opt-in path.
+// No blocking even when omo_skill_find has not been called.
+describe("skill-priming enforceMode='directive' backward compat (v0.34.0)", () => {
+  const directiveOptions: PluginOptions = {
+    meta_governor: {
+      enabled: true,
+      protocolEnforcement: { enabled: true, auditToolCalls: false },
+      skillPriming: { enabled: true, trigger: "sessionStart", router: "registry", enforceMode: "directive" },
+    },
+  }
+
+  it("then does NOT block write tool even when omo_skill_find has not been called", async () => {
+    clearAll()
+    const plugin = createMetaGovernorPlugin({ graphSync: { enabled: false, autoInstall: false } })
+    const hooks = await plugin(mockPluginInput, directiveOptions)
+    const before = hooks["tool.execute.before"]!
+    await expect(
+      before(
+        { tool: "write", sessionID: "directive-test-1", callID: "c1" },
+        { args: { filePath: "/tmp/x.ts", content: "x" } },
+      ),
+    ).resolves.toBeUndefined()
+  })
+})

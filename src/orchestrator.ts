@@ -88,7 +88,8 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
     enabled: false,
     trigger: "firstImplement",
     router: "both",
-  },
+    enforceMode: "directive" as const,
+},
   // v0.32.0: skill hub off by default in orchestrator defaults.
   skillHub: {
     enabled: false,

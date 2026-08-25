@@ -4,6 +4,21 @@ All notable changes to `@herjarsa/omo-meta-governor` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.34.0] - 2026-08-25
+
+### Added
+
+- **Skill-priming enforcement** (`skillPriming.enforceMode: "block"`). When set to `"block"`, the plugin prevents implementation tools (`write`, `edit`, `apply_patch`, `multi_edit`, `desktop-commander_write_file`, `desktop-commander_edit_block`) from executing in `tool.execute.before` until `omo_skill_find` has been called in the same session. The blocking error includes actionable guidance pointing the agent to the skill catalog. Default remains `"directive"` (opt-in, backward-compatible).
+- New `SkillPrimingConfig.enforceMode` field: `"directive" | "block"`. Schema asset regenerated.
+
+### Tests
+
+- New: 1 unit test (`config.test.ts`) verifying the default `"directive"` value.
+- New: 1 unit test (`skill-priming.test.ts`) pinning the orthogonality between `buildSkillPrimingMessage` and `enforceMode`.
+- New: 3 integration tests (`plugin.test.ts`) covering block-mode allow-after-find, block-mode rejected without find, and omo_skill_find self-allow.
+- New: 1 backward-compat test (`plugin.test.ts`) verifying directive mode preserves the opt-in path.
+- Full suite: 861 pass, 1 pre-existing runGuarded timeout fail (unrelated to this change).
+
 ## [0.33.5] - 2026-08-25
 
 ### Fixed
