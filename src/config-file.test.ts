@@ -241,9 +241,31 @@ describe("loadJsoncFile", () => {
 // ─── Priority ordering ──────────────────────────────────────────────
 
 describe("loadMetaGovernorConfig priority", () => {
+  // v0.33.4: shared isolation fixture for every nested test. Every test below
+  // points projectDir AND userConfigPath at this tmpdir so the real
+  // ~/.config/opencode/omo-meta-governor.jsonc (which has skillPriming,
+  // skillHub, tokenPredictor, etc.) never leaks into assertions.
+  const isoDir = resolve(tmpdir(), "omo-meta-governor-test", `iso-${Date.now()}`)
+  const isoUserPath = resolve(isoDir, "user-config.jsonc")
+  const isoProjectPath = resolve(isoDir, ".opencode", "omo-meta-governor.jsonc")
+  beforeEach(async () => {
+    await mkdir(resolve(isoDir, ".opencode"), { recursive: true })
+    await writeFile(isoUserPath, "{}")
+    await writeFile(isoProjectPath, "{}")
+  })
+  afterEach(async () => {
+    try { await unlink(isoUserPath) } catch { /* ok */ }
+    try { await unlink(isoProjectPath) } catch { /* ok */ }
+    try { await rmdir(resolve(isoDir, ".opencode")) } catch { /* ok */ }
+    try { await rmdir(isoDir) } catch { /* ok */ }
+  })
+
+
   describe("#given only cliOptions", () => {
     it("then effectiveSource is cli", async () => {
       const result = await loadMetaGovernorConfig({
+        projectDir: isoDir,
+        userConfigPath: isoUserPath,
         cliOptions: { enabled: true },
       })
       expect(result.effectiveSource).toBe("cli")
@@ -254,6 +276,8 @@ describe("loadMetaGovernorConfig priority", () => {
   describe("#given cliOptions with nested values", () => {
     it("then nested values merge", async () => {
       const result = await loadMetaGovernorConfig({
+        projectDir: isoDir,
+        userConfigPath: isoUserPath,
         cliOptions: {
           enabled: true,
           memory: { query: "cli-query" },
@@ -265,55 +289,44 @@ describe("loadMetaGovernorConfig priority", () => {
       expect(result.config.scoring?.stopThreshold).toBe(0.99)
     })
   })
-
   describe("#given cliOptions with deepMerge behavior", () => {
-    // v0.33.3: isolate from the real user/project config on disk by
-    // pointing both lookups at an empty tmpdir. Otherwise the leaked
-    // `tokenPredictor` from ~/.config/opencode/omo-meta-governor.jsonc
-    // makes the assertion flaky on developer machines.
-    const isoDir = resolve(tmpdir(), "omo-meta-governor-test", `iso-${Date.now()}`)
-    const isoUserPath = resolve(isoDir, "user-config.jsonc")
-    const isoProjectPath = resolve(isoDir, ".opencode", "omo-meta-governor.jsonc")
-    beforeEach(async () => {
-      await mkdir(resolve(isoDir, ".opencode"), { recursive: true })
-      // Touch a syntactically-valid empty config so loadJsoncFile returns {}
-      await writeFile(isoUserPath, "{}")
-      await writeFile(isoProjectPath, "{}")
-    })
-    afterEach(async () => {
-      try { await unlink(isoUserPath) } catch { /* ok */ }
-      try { await unlink(isoProjectPath) } catch { /* ok */ }
-      try { await rmdir(resolve(isoDir, ".opencode")) } catch { /* ok */ }
-      try { await rmdir(isoDir) } catch { /* ok */ }
-    })
-it("then nested overrides merge, not replace entirely", async () => {
+    // Reuses the parent describe's isoDir/userConfigPath fixtures (v0.33.4).
+    it("then nested overrides merge, not replace entirely", async () => {
       const result = await loadMetaGovernorConfig({
         projectDir: isoDir,
         userConfigPath: isoUserPath,
-cliOptions: {
-enabled: true,
-memory: { query: "deep-query" },
-},
-})
-expect(result.config.enabled).toBe(true)
+        cliOptions: {
+          enabled: true,
+          memory: { query: "deep-query" },
+        },
+      })
+      expect(result.config.enabled).toBe(true)
       expect(result.config.memory?.query).toBe("deep-query")
       // tokenPredictor shouldn't be set by our cliOptions
       expect(result.config.tokenPredictor).toBeUndefined()
-  })
-  })
-
-  describe("#given empty cliOptions", () => {
-    it("then falls through to user or defaults", async () => {
-      // With no cwd and no cliOptions, walks up from process.cwd() to find
-      // project config, then falls back to ~/.config/opencode/, then defaults.
-      const result = await loadMetaGovernorConfig()
-      // Result source should be one of: project, user, or defaults.
-      expect(["project", "user", "defaults"]).toContain(result.effectiveSource)
-      // Effective config is always defined (even if empty).
-      expect(result.config).toBeDefined()
     })
   })
 
+  describe("#given empty cliOptions", () => {
+    it("then falls through without leaking real user config", async () => {
+      // v0.33.4: isolated. The empty {} stubs at user+project prevent the
+      // real ~/.config/opencode/omo-meta-governor.jsonc (which has
+      // tokenPredictor / skillPriming / skillHub) from leaking in.
+      const result = await loadMetaGovernorConfig({
+        projectDir: isoDir,
+        userConfigPath: isoUserPath,
+      })
+      expect(result.config.tokenPredictor).toBeUndefined()
+      expect(result.config.skillPriming).toBeUndefined()
+      expect(result.config.skillHub).toBeUndefined()
+      expect(result.config.enabled).toBeUndefined()
+      const expectedProjectPath = resolve(isoDir, ".opencode", "omo-meta-governor.jsonc")
+      expect(result.sources).toEqual([
+        `user:${isoUserPath}`,
+        `project:${expectedProjectPath}`,
+      ])
+    })
+  })
   describe("#given project config via loadJsoncFile", () => {
     const testDir = resolve(tmpdir(), "omo-meta-governor-test", `proj-${Date.now()}`)
     const projectConfigDir = resolve(testDir, ".opencode")
