@@ -343,13 +343,13 @@ minActionForMessage: {
       },
       skillPriming: {
         type: "object",
-        description: "Skill priming config (v0.20.0): proactive skill-selection nudge injected once per session.",
+        description: "Skill priming config (v0.20.0, v0.33.1: skill-hub routing): proactive skill-selection nudge injected once per session. v0.33.1 defaults enabled=true, router='registry' since AAS MCP was retired.",
         additionalProperties: false,
         properties: {
           enabled: {
             type: "boolean",
-            description: "Master switch for skill priming injection.",
-            default: false,
+            description: "Master switch for skill priming injection. v0.33.1: defaults to true so the skill workflow fires out of the box.",
+            default: true,
           },
           trigger: {
             type: "string",
@@ -359,11 +359,33 @@ minActionForMessage: {
           },
           router: {
             type: "string",
-            description: "Which skill system(s) the directive references: 'aas', 'superpowers', or 'both'.",
-            enum: ["aas", "superpowers", "both"],
-            default: "both",
-          },
-        },
+            description: "Which skill system(s) the directive references. v0.33.1: 'aas' is deprecated (AAS MCP retired in v0.32.0) and aliased to 'registry'. 'registry' = skill-hub (omo_skill_find/get/add); 'superpowers' = external plugin; 'both' = registry + superpowers.",
+            enum: [
+              "registry",
+              "superpowers",
+              "both",
+              "aas"
+            ],
+            default: "registry"
+          }
+        }
+      },
+      skillHub: {
+        type: "object",
+        description: "Skill hub config (v0.32.0): registry-backed catalog + hybrid search.",
+        additionalProperties: false,
+        properties: {
+          enabled: { type: "boolean", description: "Master switch.", "default": false },
+          syncIntervalMs: { "type": "integer", description: "ms between registry re-syncs.", "default": 86400000 },
+          bootstrapUrl: { "type": "string", description: "Bulk bootstrap snapshot URL." },
+          searchFallbackUrl: { "type": "string", description: "Live search fallback endpoint." },
+          downloadBaseUrl: { "type": "string", description: "Skill content download base." },
+          embedBaseUrl: { "type": "string", description: "Local embeddings endpoint base." },
+          embedModel: { "type": "string", description: "Embedding model id.", "default": "bge-m3" },
+          minInstalls: { "type": "integer", description: "Minimum installs threshold.", "default": 0 },
+          filterDuplicates: { "type": "boolean", description: "Filter duplicate skills.", "default": true },
+          depsCheck: { "type": "boolean", description: "Surface dependency warnings.", "default": true }
+        }
       },
       graphSync: {
         type: "object",

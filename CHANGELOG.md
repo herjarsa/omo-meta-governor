@@ -4,6 +4,21 @@ All notable changes to `@herjarsa/omo-meta-governor` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.33.3] - 2026-08-25
+
+### Fixed
+
+- **JSON schema asset was stale + invalid JSON** (`assets/omo-meta-governor.schema.json`): the working copy of the schema asset was reverted to a pre-v0.19 snapshot (missing the `skillHub` block, `skillPriming.router` enum lacking the `'registry'` value, `skillPriming.enabled` default still `false`, `router` default still `'both'`), AND the committed version had a syntax error (`mode.enum` had the value `system` without quotes, breaking `JSON.parse`). Without regeneration the IDE autocomplete and runtime config validation were both broken: real user configs using `skillHub` and `router: "registry"` were rejected. Fix: restored the `skillHub` block (10 sub-properties from `config.ts`) and the v0.33.1 `skillPriming` defaults in `generate-schema.ts`, added regression tests (`generate-schema.test.ts`), and regenerated the asset via `bun build.ts`. The asset is now both valid JSON and in sync with `MetaGovernorPluginConfig`.
+- **Flaky `loadMetaGovernorConfig > nested overrides merge` test** (`config-file.test.ts`): leaked real user/project config from disk (`~/.config/opencode/omo-meta-governor.jsonc` has `tokenPredictor` defined), so the assertion `expect(result.config.tokenPredictor).toBeUndefined()` failed on developer machines even though it passed in CI. Fix: extended `ConfigFileSources` with an optional `userConfigPath` test seam, and the test now writes empty JSONC stubs into a tmpdir and points both `projectDir` and `userConfigPath` at them for full isolation. The default `~/.config/opencode/...` lookup is unchanged in prod.
+
+### Tests
+
+- `generate-schema.test.ts`: 4 new assertions (router enum includes `registry`, router default = `"registry"`, `skillPriming.enabled` default = `true`, full `skillHub` block shape). 19/19 pass / 100 expect() calls.
+- `config-file.test.ts`: isolated fixture for the `cliOptions` deep-merge test. 25/25 pass / 36 expect() calls.
+- Full suite: 843/844 pass (1 pre-existing flaky in `proc-guard.test.ts` > `runGuarded > times out and resolves`, unrelated to this fix — timing-sensitive when the full suite stresses process spawning).
+- TypeScript clean (`tsc --noEmit`).
+- `bun build.ts` green; `node -e "JSON.parse(...)"` on the asset succeeds.
+
 ## [0.33.2] - 2026-08-24
 
 ### Fixed

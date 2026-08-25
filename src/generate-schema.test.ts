@@ -135,12 +135,41 @@ it("then has intervention with enum constraints", () => {
       expect(gs.watch.default).toBe(false)
     })
 
-    it("then has $schema string property", () => {
-      expect(props.$schema).toBeDefined()
-      expect(props.$schema.type).toBe("string")
+it("then has $schema string property", () => {
+expect(props.$schema).toBeDefined()
+expect(props.$schema.type).toBe("string")
+    })
+
+    describe("#given skillPriming block (v0.33.1)", () => {
+      it("then exposes router enum including 'registry' and defaults to 'registry'", () => {
+        expect(props.skillPriming).toBeDefined()
+        const sp = props.skillPriming.properties!
+        expect(sp.router.enum).toEqual(["registry", "superpowers", "both", "aas"])
+        expect(sp.router.default).toBe("registry")
+      })
+      it("then defaults enabled to true (v0.33.1: skill workflow fires out of the box)", () => {
+        expect(props.skillPriming.properties!.enabled.default).toBe(true)
+      })
+    })
+
+    describe("#given skillHub block (v0.32.0)", () => {
+      it("then is present with enabled default false and all v0.32 sub-properties", () => {
+        expect(props.skillHub).toBeDefined()
+        const sh = props.skillHub.properties!
+        expect(props.skillHub.additionalProperties).toBe(false)
+        expect(sh.enabled.default).toBe(false)
+        expect(sh.syncIntervalMs.default).toBe(86400000)
+        expect(sh.bootstrapUrl.type).toBe("string")
+        expect(sh.searchFallbackUrl.type).toBe("string")
+        expect(sh.downloadBaseUrl.type).toBe("string")
+        expect(sh.embedBaseUrl.type).toBe("string")
+        expect(sh.embedModel.default).toBe("bge-m3")
+        expect(sh.minInstalls.default).toBe(0)
+        expect(sh.filterDuplicates.default).toBe(true)
+        expect(sh.depsCheck.default).toBe(true)
+      })
     })
   })
-
   describe("#given the definitions", () => {
     it("then has verbosity, interventionMode, minAction definitions", () => {
       expect(schema.definitions?.verbosity).toBeDefined()
@@ -154,7 +183,7 @@ it("then has intervention with enum constraints", () => {
       const expectedKeys = [
         "$schema", "enabled", "decision", "memory", "tokenPredictor",
         "scoring", "closedLoop", "modelOverride", "intervention",
-        "protocolEnforcement", "graphSync",
+        "protocolEnforcement", "skillPriming", "skillHub", "graphSync",
       ]
       for (const key of expectedKeys) {
         expect(schema.properties[key]).toBeDefined()
@@ -162,3 +191,5 @@ it("then has intervention with enum constraints", () => {
     })
   })
 })
+
+
