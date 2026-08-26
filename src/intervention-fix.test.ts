@@ -12,7 +12,7 @@
 import { describe, expect, it, beforeEach } from "bun:test"
 import type { PluginInput, PluginOptions } from "@opencode-ai/plugin"
 import type { DecisionHandlerOutput } from "./types"
-import { createMetaGovernorPlugin } from "./plugin"
+import { createHermeticPlugin } from "./__test-helpers__/hermetic-plugin"
 import {
   clearAll,
   storeDecision,
@@ -112,7 +112,7 @@ describe("cross-session decision scoping", () => {
       }
 
       // v0.33.0: pass test seam so the (test-only) push path is exercised.
-      const plugin = createMetaGovernorPlugin(
+      const plugin = createHermeticPlugin(
         { graphSync: { enabled: false, autoInstall: false } },
         { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) },
       )
@@ -157,7 +157,7 @@ describe("cross-session decision scoping", () => {
         },
       }
 
-      const plugin = createMetaGovernorPlugin({
+      const plugin = createHermeticPlugin({
         graphSync: { enabled: false, autoInstall: false },
       })
       const hooks = await plugin(mockPluginInput, options)
@@ -207,7 +207,7 @@ describe("explicit warn threshold (regression)", () => {
       }
 
       // v0.33.0: pass test seam so the (test-only) push path is exercised.
-      const plugin = createMetaGovernorPlugin(
+      const plugin = createHermeticPlugin(
         { graphSync: { enabled: false, autoInstall: false } },
         { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) },
       )
@@ -258,7 +258,7 @@ describe("max interventions per session", () => {
       }
 
       // v0.33.0: pass test seam so the (test-only) push path is exercised.
-      const plugin = createMetaGovernorPlugin(
+      const plugin = createHermeticPlugin(
         { graphSync: { enabled: false, autoInstall: false } },
         { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) },
       )

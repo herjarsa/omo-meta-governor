@@ -16,7 +16,7 @@ import { describe, expect, it, beforeEach } from "bun:test"
 import type { PluginInput, PluginOptions } from "@opencode-ai/plugin"
 import type { DecisionHandlerOutput } from "./types"
 import type { PromptResult } from "./session-bridge"
-import { createMetaGovernorPlugin } from "./plugin"
+import { createHermeticPlugin } from "./__test-helpers__/hermetic-plugin"
 import { clearAll, storeDecision } from "./decision-store"
 
 // ─── Shared helpers (mirrors intervention-fix.test.ts) ──────────
@@ -96,7 +96,7 @@ async function runTransformWithDeps(
   persist: PersistStub,
   retryDelayMs: number,
 ): Promise<void> {
-  const plugin = createMetaGovernorPlugin(
+  const plugin = createHermeticPlugin(
     { graphSync: { enabled: false, autoInstall: false } },
     {
       __test_persistSessionMessage: persist,
