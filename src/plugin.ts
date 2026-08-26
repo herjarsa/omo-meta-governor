@@ -1965,11 +1965,8 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
         // (the loop is already broken). The pendingBotFeedback drain above
         // runs BEFORE this gate so the loop-guard guidance still reaches
         // the model even when interventionDisabled is true.
-        if (state?.interventionDisabled) {
-          takeDecision(currentSessionID);
-          return;
-        }
-        // v0.10.0: respect per-session intervention disable
+        // v0.10.0: respect per-session intervention disable (single guard;
+        // an identical duplicate was removed in v0.34.2 P1-7).
         if (state?.interventionDisabled) {
           takeDecision(currentSessionID);
           return;

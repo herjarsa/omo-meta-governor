@@ -1181,8 +1181,6 @@ export async function getInstalledGraphifyVersion(
       )
       return typeof r === "string" ? r : r.toString()
     }
-    return runGuardedSync(bin, args, { timeoutMs: 10_000
-    }).stdout
     return runGuardedSync(bin, args, { timeoutMs: 10_000 }).stdout
   }
   // Probe 1: graphify binary (Windows: pip installs as `graphify`)
