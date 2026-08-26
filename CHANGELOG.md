@@ -4,6 +4,42 @@ All notable changes to `@herjarsa/omo-meta-governor` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.34.2] - 2026-08-26
+
+### Added
+
+- **`skillPriming.enforceMode: "block"` now also blocks bash with redirects** (`> file`, `>> file`, `tee file`). Previously, a session could bypass the gate by writing files via shell redirects. New `bashHasFileWrite(toolInput)` helper matches common bypass patterns; full shell parser out of scope.
+- **4 new `omo_cli_anything_*` counters in `omo_health`**: `omo_cli_anything_install`, `_list`, `_search`, `_info`. The CLI-Anything hub tools (registered in `plugin.ts:639-642`) were not previously tracked in the health snapshot.
+- **`omo_health` warn log when `enabled: false` with a config file loaded**: emits `config_loaded_but_disabled` with `version`, `sources`, and a fix-it hint pointing at the missing `enabled: true`. Banner-free, file-only.
+
+### Changed
+
+- **Config precedence unified to `options inline > file config > factory arg`**. `rawConfig` (plugin.ts:406) and `rawGraphSync` (plugin.ts:497) both reordered to match the doc-comment. Users who disable a section inline (e.g. `graphSync.enabled: false` via `options.meta_governor`) now actually win over a user-level file that sets it to `true`.
+- **`writeTools` now includes `multi_edit`, `apply_patch`, `ast_grep_replace`, `refactor`** in addition to the original 5, matching `IMPLEMENTATION_TOOLS`. The skill-priming gate and `filesChanged` accounting now cover every write-shaped tool.
+- **CI publish workflow now fires `gh release create` on tag push**. Added `push: tags: ['v*']` trigger alongside `workflow_dispatch`; `Bump version` / `Publish` / `Push tags` steps guarded to `workflow_dispatch` only.
+
+### Fixed
+
+- **ESM-strict `require("../package.json")` returned `"0.0.0"`** in `mcp-server.ts`, `custom-tools.ts`, `mcp-tools.ts`. Replaced with `fileURLToPath(import.meta.url)` + `readFileSync`. Bundle version now inlines correctly into `dist/*.js`.
+- **`compactionLoopGuard.enabled` default drift**: code (`config.ts:337`) and schema (`generate-schema.ts:306`) now both default to `enabled: true`, `maxOverflowRecoveries: 1`. Matches `orchestrator.ts:75-77`.
+- **`proc-guard` self-kill via `process.kill(process.pid, signal)`** in signal handlers (proc-guard.ts:369). Replaced with `process.exit(code)` using conventional codes (SIGINT=130, SIGTERM=143, SIGHUP=129) and cleanup() runs first.
+- **`consecutiveStops` paralysis-override was dead code**. `decision-store.ts` now keeps a per-session decision history (capped at 20) in addition to the last-pending singleton. `countConsecutiveStops()` in `decision-handler.ts:216` drives the signal. `plugin.ts` threads it into `MetaGovernorInput`. `tool.execute.after` now feeds the history unconditionally so the override works in default `silent` intervention mode (previously gated by `mode !== "silent"`).
+- **Two byte-identical `interventionDisabled` guards in `plugin.ts:1968-1976`** (P1-7). Consolidated into one.
+- **Unreachable duplicate `return runGuardedSync(...).stdout` in `graph-sync.ts:1184-1186`** (P1-8). Removed.
+
+### Tests
+
+- New: `src/consecutive-stops.test.ts` — 8 cases covering history append, MAX_HISTORY trim, countConsecutiveStops, per-session isolation, clearAll semantics.
+- New: `src/config.test.ts` — 4 cases for the new P1-1 precedence contract (enabled survival, intervention.mode, graphSync.reindexOnFetch, factory-arg lowest precedence wins when alone).
+- New: `src/config.test.ts` — 4 cases for `compactionLoopGuard` defaults alignment.
+- New: `src/proc-guard.test.ts` — 2 cases for the `process.exit` signal-handler fix (P0-1).
+- New: `src/plugin.test.ts` — 3 cases for the bash-redirect bypass (P1-6): blocks `>` file, blocks `tee` file, passes read-only `ls`.
+- Full suite: 99/99 pass on `config + decision-store + consecutive-stops + proc-guard`. 9/9 pass on `health-builder.test.ts` (after P2-5 counters added). `tsc --noEmit` clean.
+
+### Config
+
+- No new fields. `rawGraphSync` precedence change is a behavior fix for users who disable `graphSync` inline while a user-level file enables it (now the inline value wins, matching the doc-comment).
+
 ## [0.34.0] - 2026-08-25
 
 ### Added
