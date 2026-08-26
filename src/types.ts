@@ -827,4 +827,6 @@ export interface SkillHubConfig {
   readonly minInstalls: number;
   readonly filterDuplicates: boolean;
   readonly depsCheck: boolean;
+  readonly choreDir: string;
+
 }

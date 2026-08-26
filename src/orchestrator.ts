@@ -14,6 +14,10 @@
  * - Graceful degradation: if any module throws, returns partial output with skipped=true
  */
 
+
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 import { aggregateRead } from "./memory-aggregator";
 import type { Backends } from "./memory-aggregator";
 import { predict } from "./token-predictor";
@@ -38,6 +42,7 @@ import type {
   TokenPredictorConfig,
   TokenPredictorOutput,
 } from "./types";
+
 
 // ─── Defaults ────────────────────────────────────────────────────
 
@@ -102,6 +107,7 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
     minInstalls: 0,
     filterDuplicates: true,
     depsCheck: true,
+    choreDir: join(homedir(), ".agents", "skills"),
   },
   // v0.22.0: graphSync orphan-sweep defaults.
 graphSync: {

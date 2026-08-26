@@ -411,7 +411,13 @@ describe("loadOrchestratorConfig #given skillHub (v0.32.0)", () => {
     expect(result.skillHub.syncIntervalMs).toBe(86400000)
     expect(result.skillHub.embedModel).toBe("bge-m3")
   })
+
+  it("then choreDir defaults to ~/.agents/skills", () => {
+    const result = loadOrchestratorConfig({} as MetaGovernorPluginConfig)
+    expect(result.skillHub.choreDir).toMatch(/[\\/]\.agents[\\/]skills$/)
+  })
 })
+
 
 
 describe('loadOrchestratorConfig - compactionLoopGuard defaults (v0.34.2 P0-4 regression)', () => {

@@ -41,6 +41,7 @@
     },
     "scripts": {
         "build": "bun build.ts",
+        "build:skills": "bun run build.ts skills",
         "typecheck": "tsc --noEmit",
         "test": "bun test"
     },

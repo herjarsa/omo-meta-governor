@@ -1,3 +1,6 @@
+import { homedir } from "node:os"
+import { join } from "node:path"
+
 import type {
   InterventionConfig,
   ModelOverrideConfig,
@@ -175,6 +178,7 @@ trigger?: SkillPrimingTrigger
     minInstalls?: number
     filterDuplicates?: boolean
     depsCheck?: boolean
+    choreDir?: string
   }
 
   /** Post-wave workflow gate (v0.21.0): landing directives after Oracle-approved waves. */
@@ -388,6 +392,7 @@ skillHub: {
       minInstalls: full.skillHub?.minInstalls ?? 0,
       filterDuplicates: full.skillHub?.filterDuplicates !== false,
       depsCheck: full.skillHub?.depsCheck !== false,
+      choreDir: full.skillHub?.choreDir ?? join(homedir(), ".agents", "skills"),
     } as SkillHubConfig,
     // v0.22.0: project graphSync killOrphanedOnInit with default true.
 graphSync: {

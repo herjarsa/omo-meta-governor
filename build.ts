@@ -1,5 +1,30 @@
 ﻿#!/usr/bin/env bun
 import { $ } from "bun"
+import { existsSync, mkdirSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { join } from "node:path"
+
+// Build skills tarball ONLY — exits before the full bundle.
+// Triggered via `bun run build:skills` in package.json.
+async function buildSkillsTarball() {
+  const bundledDir = join(import.meta.dir, "bundled-skills")
+  const outDir = join(import.meta.dir, "dist", "skills")
+  if (!existsSync(bundledDir)) {
+    console.warn(`[build:skills] ${bundledDir} does not exist; skipping`)
+    return
+  }
+  mkdirSync(outDir, { recursive: true })
+  const tarPath = join(outDir, "chore.tar.gz")
+  // Use execFileSync (no shell) to avoid shell injection via paths.
+  execFileSync("tar", ["-czf", tarPath, "-C", bundledDir, "."], { stdio: "inherit" })
+  console.log(`[build:skills] wrote ${tarPath}`)
+}
+
+if (process.argv[2] === "skills") {
+  await buildSkillsTarball()
+  process.exit(0)
+}
+
 // Build the meta-governor plugin as ESM bundle + .d.ts declarations
 const outDir = "dist"
 // Clean
@@ -19,4 +44,7 @@ await $`mkdir -p ${schemaDir}`
 const { writeSchemaFile } = await import("./src/generate-schema")
 await writeSchemaFile(`${schemaDir}/omo-meta-governor.schema.json`)
 console.log(`Schema generated: ${schemaDir}/omo-meta-governor.schema.json`)
+// Also pack the bundled skills tarball into the dist/ tree so npm publish
+// ships it inside the package (required for first-run bootstrap).
+await buildSkillsTarball()
 console.log(`Build complete: ${outDir}/`)
