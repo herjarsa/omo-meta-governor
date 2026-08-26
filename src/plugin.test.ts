@@ -579,3 +579,60 @@ describe("skill-priming enforceMode='directive' backward compat (v0.34.0)", () =
     ).resolves.toBeUndefined()
   })
 })
+
+
+// v0.34.2 (P1-6): bash with > file / 	ee file must be treated like a write tool
+// by the skill-priming gate AND the filesChanged counter. Without this, a user could
+// bypass enforceMode='block' entirely by writing files via bash redirects.
+describe('bash redirect bypass (P1-6)', () => {
+  const blockOptions: PluginOptions = {
+    meta_governor: {
+      enabled: true,
+      protocolEnforcement: { enabled: true, auditToolCalls: false },
+      skillPriming: { enabled: true, trigger: 'sessionStart', router: 'registry', enforceMode: 'block' },
+    },
+  }
+
+  it('then blocks bash with > file when omo_skill_find has NOT been called', async () => {
+    clearAll()
+    const plugin = createMetaGovernorPlugin({ graphSync: { enabled: false, autoInstall: false } })
+    const hooks = await plugin(mockPluginInput, blockOptions)
+    const before = hooks['tool.execute.before']!
+    await expect(
+      before(
+        { tool: 'bash', sessionID: 'bash-block-1', callID: 'c1', args: { command: 'echo hi > /tmp/x' } },
+        { args: { command: 'echo hi > /tmp/x' } },
+      ),
+    ).rejects.toThrow(/skill-priming required|omo_skill_find/)
+  })
+
+  it('then blocks bash with 	ee file when omo_skill_find has NOT been called', async () => {
+    clearAll()
+    const plugin = createMetaGovernorPlugin({ graphSync: { enabled: false, autoInstall: false } })
+    const hooks = await plugin(mockPluginInput, blockOptions)
+    const before = hooks['tool.execute.before']!
+    await expect(
+      before(
+        { tool: 'bash', sessionID: 'bash-block-2', callID: 'c1', args: { command: 'cat foo | tee /tmp/y' } },
+        { args: { command: 'cat foo | tee /tmp/y' } },
+      ),
+    ).rejects.toThrow(/skill-priming required|omo_skill_find/)
+  })
+
+  it('then does NOT block bash with no redirect (read-only)', async () => {
+    clearAll()
+    const plugin = createMetaGovernorPlugin({ graphSync: { enabled: false, autoInstall: false } })
+    const hooks = await plugin(mockPluginInput, blockOptions)
+    const before = hooks['tool.execute.before']!
+    await expect(
+      before(
+        { tool: 'bash', sessionID: 'bash-ok-1', callID: 'c1', args: { command: 'ls -la' } },
+        { args: { command: 'ls -la' } },
+      ),
+    ).resolves.toBeUndefined()
+  })
+
+  // Note: the filesChanged accounting on bash redirect-target extraction is
+  // verified indirectly via the gate tests above. A direct assertion would require
+  // exposing the internal session-state map, which is out of scope for this fix.
+})
