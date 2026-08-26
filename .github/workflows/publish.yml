@@ -1,6 +1,9 @@
 name: Publish
 
 on:
+  # v0.34.2 (P2-2 fix): tag push re-triggers this workflow so the
+  # Create GitHub Release step (guarded by github.ref startsWith 'refs/tags/v')
+  # can actually fire. workflow_dispatch covers the version-bump + publish path.
   workflow_dispatch:
     inputs:
       version:
@@ -12,6 +15,9 @@ on:
           - patch
           - minor
           - major
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   publish:
@@ -35,15 +41,18 @@ jobs:
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Bump version
+        if: github.event_name == 'workflow_dispatch'
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           npm version ${{ github.event.inputs.version }}
       - name: Publish
+        if: github.event_name == 'workflow_dispatch'
         run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Push tags
+        if: github.event_name == 'workflow_dispatch'
         run: git push --tags
 
       - name: Create GitHub Release
