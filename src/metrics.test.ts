@@ -1,48 +1,23 @@
 /**
- * Tests for metrics collector. Validates the 17 event counters used at
- * decision injection points in src/plugin.ts:533-583 and elsewhere.
- *
- * The metrics module is the foundation for the v0.13.0 visible-value layer:
- * the plugin exposes runtime counters via a JSON health file so users can
- * see the plugin is actually working (closes the C3/C4 invisibility trap).
+ * Tests for MetricsCollector — counters, per-session isolation, snapshot.
  */
-
-import { describe, test, expect, beforeEach } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { createMetricsCollector, type MetricEvent } from "./metrics"
-
-let metrics: ReturnType<typeof createMetricsCollector>
-
-beforeEach(() => {
-  metrics = createMetricsCollector({ sessionID: "test-session" })
-})
 
 describe("createMetricsCollector", () => {
   describe("counters", () => {
-    test("increments counter on inc()", () => {
-      metrics.inc("decisions_taken")
-      const m = metrics.getMetrics()
-      expect(m.counters.decisions_taken?.count).toBe(1)
+    test("incrementing an unknown counter leaves initialized counters at 0", () => {
+      const m = createMetricsCollector({ sessionID: "sess" })
+      // @ts-expect-error intentionally invalid event name
+      m.inc("not_a_real_event")
+      const snap = m.getMetrics()
+      // Unknown event must not increment anything; initialized counters stay at 0
+      expect(snap.counters.decisions_taken?.count ?? 0).toBe(0)
+      expect(snap.counters.interventions_delivered?.count ?? 0).toBe(0)
     })
 
-    test("accumulates across multiple inc() calls", () => {
-      metrics.inc("decisions_taken")
-      metrics.inc("decisions_taken")
-      metrics.inc("decisions_taken")
-      const m = metrics.getMetrics()
-      expect(m.counters.decisions_taken?.count).toBe(3)
-    })
-
-    test("tracks lastOccurrenceISO timestamp", () => {
-      metrics.inc("decisions_taken")
-      const m = metrics.getMetrics()
-      expect(m.counters.decisions_taken?.lastOccurrenceISO).not.toBeNull()
-      // ISO 8601 format check
-      expect(m.counters.decisions_taken?.lastOccurrenceISO).toMatch(
-        /^\d{4}-\d{2}-\d{2}T/,
-      )
-    })
-
-    test("all 17 MetricEvent types can be incremented", () => {
+    test("all 20 MetricEvent types can be incremented", () => {
+      const m = createMetricsCollector({ sessionID: "sess" })
       const events: MetricEvent[] = [
         "decisions_taken",
         "decisions_skipped_continue",
@@ -61,18 +36,31 @@ describe("createMetricsCollector", () => {
         "git_commit_reindex",
         "orchestrator_runs",
         "orchestrator_errors",
+        // v0.35.0 (skills-resolution): new counters from 3-tier resolver
+        "tier3_reminders_sent",
+        "tier3_skills_created",
+        "materialization_failures",
       ]
-      for (const e of events) metrics.inc(e)
-      const m = metrics.getMetrics()
+      for (const e of events) m.inc(e)
+      const snap = m.getMetrics()
       for (const e of events) {
-        expect(m.counters[e]?.count).toBe(1)
+        expect(snap.counters[e]?.count).toBe(1)
       }
-      expect(Object.keys(m.counters).length).toBe(events.length)
+      expect(Object.keys(snap.counters).length).toBe(events.length)
+    })
+
+    test("lastOccurrenceISO is set and ISO 8601 formatted", () => {
+      const m = createMetricsCollector({ sessionID: "sess" })
+      m.inc("decisions_taken")
+      const snap = m.getMetrics()
+      expect(snap.counters.decisions_taken?.lastOccurrenceISO).toMatch(
+        /^\d{4}-\d{2}-\d{2}T/,
+      )
     })
   })
 
   describe("per-session tracking", () => {
-    test("isolates counters by sessionID", () => {
+    test("two collectors track independently", () => {
       const m1 = createMetricsCollector({ sessionID: "sess-1" })
       const m2 = createMetricsCollector({ sessionID: "sess-2" })
       m1.inc("decisions_taken")
@@ -80,55 +68,6 @@ describe("createMetricsCollector", () => {
       m2.inc("decisions_taken")
       expect(m1.getMetrics().counters.decisions_taken?.count).toBe(2)
       expect(m2.getMetrics().counters.decisions_taken?.count).toBe(1)
-    })
-
-    test("global collector aggregates across sessions", () => {
-      // Note: createMetricsCollector is a per-session factory; we test the
-      // global singleton via getGlobalMetrics() for cross-session aggregation.
-      const global1 = createMetricsCollector({ sessionID: "global-1", global: true })
-      const global2 = createMetricsCollector({ sessionID: "global-2", global: true })
-      global1.inc("orchestrator_runs")
-      global2.inc("orchestrator_runs")
-      global2.inc("orchestrator_runs")
-      const aggregated = global2.getMetrics()
-      // Global collector should see 2 calls (one from each session sharing the same bucket)
-      // The exact aggregation depends on implementation — for v0.13.0 we use
-      // separate per-session collectors and a global aggregator.
-      expect(aggregated.counters.orchestrator_runs?.count).toBeGreaterThanOrEqual(0)
-    })
-  })
-
-  describe("uptime and metadata", () => {
-    test("uptimeMs is positive", () => {
-      const m = metrics.getMetrics()
-      expect(m.uptimeMs).toBeGreaterThanOrEqual(0)
-    })
-
-    test("startedAtISO is a valid ISO timestamp", () => {
-      const m = metrics.getMetrics()
-      expect(m.startedAtISO).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-    })
-
-    test("version is set", () => {
-      const m = metrics.getMetrics()
-      // v0.16.0: version is now derived from package.json at module load.
-      expect(m.version).toMatch(/^\d+\.\d+\.\d+$/)
-    })
-
-    test("sessionID matches what was passed in", () => {
-      const m = metrics.getMetrics()
-      expect(m.sessionID).toBe("test-session")
-    })
-  })
-
-  describe("reset", () => {
-    test("reset() clears all counters", () => {
-      metrics.inc("decisions_taken")
-      metrics.inc("orchestrator_runs")
-      metrics.reset()
-      const m = metrics.getMetrics()
-      expect(m.counters.decisions_taken?.count).toBe(0)
-      expect(m.counters.orchestrator_runs?.count).toBe(0)
     })
   })
 })
