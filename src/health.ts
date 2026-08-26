@@ -85,6 +85,11 @@ export interface PluginHealth {
     omo_add: number
     omo_check_update: number
     omo_hook_status: number
+    // v0.34.2 (P2-5): CLI-Anything hub tools registered in plugin.ts:639-642.
+    omo_cli_anything_install: number
+    omo_cli_anything_list: number
+    omo_cli_anything_search: number
+    omo_cli_anything_info: number
   }
 }
 
@@ -242,6 +247,11 @@ export function buildPluginHealth(input: BuildPluginHealthInput): PluginHealth {
       omo_add: 0,
       omo_check_update: 0,
       omo_hook_status: 0,
+      // v0.34.2 (P2-5): CLI-Anything hub tool counters.
+      omo_cli_anything_install: 0,
+      omo_cli_anything_list: 0,
+      omo_cli_anything_search: 0,
+      omo_cli_anything_info: 0,
     },
   }
 }
