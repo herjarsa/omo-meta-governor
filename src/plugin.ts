@@ -583,7 +583,22 @@ const graphSyncReadyProjects = new Set<string>();
 
     // 2. If disabled, return empty hooks
     // 2. If disabled, still register custom tools (but skip governance hooks)
+    // v0.34.2 (P2-3): if the user has a config file but nabled:false, log a
+    // warn with a fix-it hint so they don't think the plugin is broken.
     if (!mergedConfig.enabled) {
+      if (fileConfigSource.sources.length > 0) {
+        logToFile(
+          "warn",
+          "config_loaded_but_disabled",
+          {
+            version: DEFAULT_VERSION,
+            sources: fileConfigSource.sources,
+            hint:
+              "Set meta_governor.enabled=true (or top-level enabled:true) " +
+              "in your omo-meta-governor.jsonc to activate governance.",
+          },
+        )
+      }
       return {
         tool: {
           omo_search: omoSearchTool,
