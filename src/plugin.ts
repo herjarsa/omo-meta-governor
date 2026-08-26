@@ -11,6 +11,7 @@ import type {
   DecisionHandlerOutput,
   MemoryBackends,
   MetaGovernorInput,
+  MetaGovernorOutput,
 } from "./types";
 import {
   runGraphSync,
@@ -1575,8 +1576,9 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
           currentLessonCount: sessionState?.lessonCount ?? 0,
         };
 
+        let output: MetaGovernorOutput | undefined
         try {
-          const output = await runMetaGovernor(orchestratorInput);
+          output = await runMetaGovernor(orchestratorInput);
 
           // v0.17.0 (F5.4): increment lesson count when a lesson was actually saved
           if (output.lessonSaved?.lessonSaved && sessionState) {
@@ -1711,11 +1713,19 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
                 sessionState.lastWarnAtMs = now;
                 sessionState.lastWarnHash = reasoningHash;
               }
-              storeDecision(toolInput.sessionID, decision);
             }
           }
         } catch {
           // MetaGovernor must NEVER break a tool call
+        }
+        // v0.34.2 (P0-2b): feed per-session decision history UNCONDITIONALLY so
+        // scoring-engine's paralysis-override (countConsecutiveStops) fires
+        // regardless of intervention.mode. Previously this was gated behind
+        // mode !== "silent" (the default!), so the history never populated
+        // in default config and paralysis-override stayed dead.
+        // Guard: only store when we have a real decision (not skipped).
+        if (output && output.decision && output.decision.action !== "continue") {
+          storeDecision(toolInput.sessionID, output.decision)
         }
 
         // v0.11.0: detect `git commit` and trigger reindex as a backup
