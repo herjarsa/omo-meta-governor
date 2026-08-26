@@ -15,7 +15,7 @@ import { describe, expect, it, afterEach, beforeEach } from "bun:test"
 import { spawn } from "node:child_process"
 import { writeFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import {
   killProcessTree,
   isProcessAlive,
@@ -237,7 +237,7 @@ describe("installProcessExitHandlers (v0.30 zombie fix)", () => {
 
 describe("signal handler self-kill (v0.34.2 P0-1 regression)", () => {
   it("then no handler calls process.kill(process.pid, signal) on itself", () => {
-    const src = readFileSync("src/proc-guard.ts", "utf-8")
+    const src = readFileSync(resolve(import.meta.dir, "proc-guard.ts"), "utf-8")
     // Extract the onSignal arrow body. Strip comments so the v0.34.2
     // changelog mention in a comment does not trip the assertion.
     const blockMatch = src.match(/const\s+onSignal[\s\S]*?\n  \}/)
@@ -251,7 +251,7 @@ describe("signal handler self-kill (v0.34.2 P0-1 regression)", () => {
   })
 
   it("then onSignal body uses process.exit", () => {
-    const src = readFileSync("src/proc-guard.ts", "utf-8")
+    const src = readFileSync(resolve(import.meta.dir, "proc-guard.ts"), "utf-8")
     const blockMatch = src.match(/const\s+onSignal[\s\S]*?\n  \}/)
     const block = blockMatch ? blockMatch[0] : ""
     expect(block).toContain("process.exit")
