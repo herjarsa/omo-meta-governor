@@ -30,6 +30,9 @@ import {
   type TierFilter,
 } from "./skills-resolver.js"
 import { materializeSkill } from "./skills-materialize.js"
+import { shouldSendReminder, formatReminder, type Tier3ReminderState } from "./skills-tier3-reminder.js"
+
+
 
 
 // ---------------------------------------------------------------------------
@@ -42,6 +45,8 @@ export interface OmoSkillFindDeps {
   embedClient?: EmbedClient
   cwd: string
   choreDir?: string
+  /** v0.35.0 (Tier 3 health): collector for tier3_reminders_sent counter. */
+  metrics?: { inc(name: string): void }
 }
 
 
@@ -58,7 +63,17 @@ export interface OmoSkillFindDeps {
  * Merge via reciprocalRankFusion(k=60) from src/ranker.ts.
  */
 export function buildOmoSkillFindTool(deps: OmoSkillFindDeps) {
+  // v0.35.0 (Tier 3 advisory): per-plugin-instance reminder state. Declared
+  // inside the builder closure so each buildOmoSkillFindTool call gets its
+  // own Map; module-level singletons would leak state between plugin instances
+  // and across test runs.
+  const tier3State: Tier3ReminderState = {
+    sent: new Map(),
+    maxPerSession: 3,
+    cooldownMs: 0,
+  }
   return tool({
+
     description:
       "Search the skill-hub catalog by name/description. " +
       "Hybrid local FTS5 + live fallback via skills.sh/api/search. " +
@@ -234,11 +249,18 @@ export function buildOmoSkillFindTool(deps: OmoSkillFindDeps) {
         const allResults = [...filteredResults, ...filteredLive] // already filtered by minInstalls
 
         if (allResults.length === 0) {
+          // v0.35.0 (Tier 3 advisory): rate-limited reminder when search returns
+          // zero results across both local FTS5 and live fallback.
+          let tier3Reminder: string | undefined
+          if (shouldSendReminder(query, tier3State)) {
+            tier3Reminder = formatReminder()
+            deps.metrics?.inc('tier3_reminders_sent')
+          }
           return {
             title: "omo_skill_find: no results",
             output: `No results found${
               minInstalls !== undefined ? ` with at least ${minInstalls} installs` : ""
-            }.`,
+            }${tier3Reminder ? `\n\n${tier3Reminder}` : ""}`,
             metadata: {
               tool: "omo_skill_find",
               query,
@@ -246,6 +268,7 @@ export function buildOmoSkillFindTool(deps: OmoSkillFindDeps) {
               timedOut: false,
               durationMs: Date.now() - start,
               sessionID: ctx.sessionID,
+              tier3Reminder: tier3Reminder ?? null,
             },
           }
         }

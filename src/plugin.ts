@@ -107,6 +107,7 @@ import {
   auditToolCall,
   DEFAULT_PROTOCOL_PATH,
 } from "./protocol-enforcer";
+import { startSkillsFsWatcher } from "./skills-fs-watcher";
 import {
   buildSkillPrimingMessage,
   shouldInjectSkillPriming,
@@ -580,7 +581,12 @@ const graphSyncReadyProjects = new Set<string>();
         }
       })
     }
+    // v0.35.0 (Tier 3): declared up here so `dispose` can close it even when
+    // the plugin is disabled (the early-return for !enabled would otherwise
+    // leave the watcher reference in TDZ).
+    let skillsFsWatcher: Awaited<ReturnType<typeof startSkillsFsWatcher>> | null = null;
 
+    // 2. If disabled, return empty hooks
     // 2. If disabled, return empty hooks
     // 2. If disabled, still register custom tools (but skip governance hooks)
     // v0.34.2 (P2-3): if the user has a config file but nabled:false, log a
@@ -642,12 +648,12 @@ const graphSyncReadyProjects = new Set<string>();
           omo_cli_anything_info: omoCliAnythingInfoTool,
         },
       // v0.30 zombie-fix: install process-exit handlers + dispose sweep
-      dispose: (): Promise<void> => {
+      dispose: async (): Promise<void> => {
         try { installProcessExitHandlers() } catch { /* best-effort */ }
         try { stopWatches() } catch { /* best-effort */ }
         try { killTrackedProcesses() } catch { /* best-effort */ }
         try { killOrphanedToolProcesses() } catch { /* best-effort */ }
-        return Promise.resolve()
+        try { if (skillsFsWatcher) await skillsFsWatcher.stop() } catch { /* best-effort */ }
       },
     };
     }
@@ -938,17 +944,50 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
       5_000,
     );
 
+    // v0.35.0 (Tier 3): watch cwd/.agents/skills/ for SKILL.md create/write.
+    // The callback bumps the tier3_skills_created health counter. The watcher
+    // itself does NOT invalidate the resolver cache (resolver re-reads on every
+    // call — pure functions, no cache to invalidate). Fire-and-forget: errors
+    // are logged, never thrown.
+
+    try {
+      const projectSkillsDir = join(sessionProjectDir, ".agents", "skills");
+      skillsFsWatcher = await startSkillsFsWatcher({
+        projectDir: projectSkillsDir,
+        onChange: async (p, event) => {
+          // Spec: only count creates, not edits. The resolver re-scans on
+          // every call, so change events don't need any action.
+          if (event !== "add") return;
+          try {
+            metricsCollector.inc("tier3_skills_created");
+            logToFile("info", `tier3_skills_created: ${p}`);
+          } catch (err) {
+            logToFile("warn", `tier3 watcher onChange failed: ${String(err)}`);
+          }
+        },
+
+
+
+
+
+
+
+      });
+    } catch (err) {
+      logToFile("warn", `tier3 fs watcher failed to start: ${String(err)}`);
+    }
+
     return {
       // v0.30 zombie-fix: OpenCode calls dispose on plugin teardown.
       // Without this hook, detached graphify/codegraph/python children
       // (spawned with unref()) survive parent exit and pile up as zombies
       // (user reported 30+ python.exe after closing opencode).
-      dispose: (): Promise<void> => {
+      dispose: async (): Promise<void> => {
         try { installProcessExitHandlers() } catch { /* best-effort */ }
         try { stopWatches() } catch { /* best-effort */ }
         try { killTrackedProcesses() } catch { /* best-effort */ }
         try { killOrphanedToolProcesses() } catch { /* best-effort */ }
-        return Promise.resolve()
+        try { if (skillsFsWatcher) await skillsFsWatcher.stop() } catch { /* best-effort */ }
       },
       // - Tool execute before (protocol audit)
       // v0.17.1: also receive output so we can audit tool args (was {} before).

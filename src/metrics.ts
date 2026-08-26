@@ -65,6 +65,9 @@ export type MetricEvent =
   | "git_commit_reindex"
   | "orchestrator_runs"
   | "orchestrator_errors"
+  | "materialization_failures"
+  | "tier3_reminders_sent"
+  | "tier3_skills_created"
 
 export interface MetricBucket {
   count: number
@@ -105,6 +108,9 @@ const ALL_EVENTS: readonly MetricEvent[] = [
   "git_commit_reindex",
   "orchestrator_runs",
   "orchestrator_errors",
+  "materialization_failures",
+  "tier3_reminders_sent",
+  "tier3_skills_created",
 ] as const
 
 function emptyCounters(): Record<MetricEvent, MetricBucket> {

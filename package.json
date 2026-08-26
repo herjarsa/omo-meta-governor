@@ -6,6 +6,9 @@
         "url": "https://github.com/herjarsa/omo-meta-governor.git"
     },
     "main": "./dist/index.js",
+    "dependencies": {
+        "chokidar": "^4.0.1"
+    },
     "devDependencies": {
         "@colbymchenry/codegraph": "^1.5.0",
         "@modelcontextprotocol/sdk": "^1.30.0",
