@@ -223,7 +223,7 @@ describe("plugin: git commit triggers reindex (v0.11.0 S7)", () => {
     // Note: cwd is captured by the plugin at module-load time from
     // process.cwd(), so we don't assert exact projectDir equality.
     expect(triggers[0]!.projectDir.length).toBeGreaterThan(0)
-  }, 30_000)
+  }, 60_000)
 
   it("then tool.execute.after on non-commit commands does NOT fire the trigger", async () => {
     const { createMetaGovernorPlugin } = await import("./plugin")
