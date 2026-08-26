@@ -14,12 +14,21 @@
 
 import { tool, type ToolResult } from "@opencode-ai/plugin"
 import { z } from "zod"
+import { join } from "node:path"
+import { homedir } from "node:os"
 
 // Reuse existing modules
 import type { SqliteBackend } from "./sqlite-backend"
 import type { EmbedClient, FetchFn } from "./embed-client"
 import { reciprocalRankFusion } from "./ranker"
 import { filterByMinInstalls } from "./ranker"
+import {
+  searchSkills,
+  type ResolverState,
+  type HubEntry,
+  type SkillDescriptor,
+  type TierFilter,
+} from "./skills-resolver.js"
 
 // ---------------------------------------------------------------------------
 // OmoSkillFindDeps
@@ -30,7 +39,9 @@ export interface OmoSkillFindDeps {
   fetch?: FetchFn
   embedClient?: EmbedClient
   cwd: string
+  choreDir?: string
 }
+
 
 /**
  * Build the `omo_skill_find` tool.
@@ -680,4 +691,125 @@ function formatFindResults(
   }
 
   return output
+}
+
+// ---------------------------------------------------------------------------
+// unifiedSkillFind — resolver delegation for omo_skill_find
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a `ResolverState` wired to the existing skill-hub backends.
+ *
+ * - choreDir: global chore skills directory (defaults to ~/.agents/skills)
+ * - projectDir: cwd/.agents/skills (project-local skills)
+ * - hubSearch: runs the existing local FTS5 + live fallback + RRF hybrid
+ *   pipeline and returns HubEntry[] so the resolver can compose the
+ *   unified response with { source: 'hub', tier: 2 }.
+ *
+ * Additive: the existing `omo_skill_find` tool body remains untouched
+ * for backward compat with v0.32.0 callers; new callers can opt into the
+ * unified descriptor shape via this helper.
+ */
+export function buildResolverState(deps: OmoSkillFindDeps): ResolverState {
+  const choreDir = deps.choreDir ?? join(homedir(), ".agents", "skills")
+  const projectDir = join(deps.cwd, ".agents", "skills")
+  const hubSearch: ResolverState["hubSearch"] = async (query, limit) => {
+    let localResults: Array<{
+      id: string
+      name: string
+      description: string | null
+      installs: number
+    }> = []
+    try {
+      localResults = await deps.sqlite.skillSearch({
+        query,
+        filterDuplicates: true,
+      })
+      localResults = localResults.map((r) => ({
+        id: r.id,
+        name: r.name,
+        description: r.description,
+        installs: r.installs,
+      }))
+    } catch {
+      // fall through to live only
+    }
+    let liveResults: Array<{
+      id: string
+      name: string
+      description: string | null
+      installs: number
+    }> = []
+    try {
+      const searchUrl = `https://skills.sh/api/search?q=${encodeURIComponent(
+        query,
+      )}&limit=${limit}`
+      const fetchFn = deps.fetch ?? (async (input: string) => {
+        const res = await fetch(input)
+        return new Response(res.body, { status: res.status })
+      }) as FetchFn
+      const res = await fetchFn(searchUrl, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      })
+      if (res.ok) {
+        const data = (await res.json()) as {
+          skills: Array<{
+            id: string
+            name: string
+            description: string | null
+            installs: number
+          }>
+        }
+        liveResults = (data.skills || []).map((r) => ({
+          id: r.id,
+          name: r.name,
+          description: r.description,
+          installs: r.installs,
+        }))
+      }
+    } catch {
+      // live unavailable; FTS-only path
+    }
+    const seen = new Set<string>()
+    const uniqueResults = [...localResults, ...liveResults].filter((r) => {
+      if (seen.has(r.id)) return false
+      seen.add(r.id)
+      return true
+    })
+    const rankedIds = reciprocalRankFusion(
+      [localResults.map((r) => r.id), liveResults.map((r) => r.id)],
+      60,
+    )
+    const out: HubEntry[] = []
+    for (const id of rankedIds) {
+      const match = uniqueResults.find((r) => r.id === id)
+      if (match) {
+        out.push({
+          slug: match.id,
+          name: match.name,
+          description: match.description ?? "",
+          installs: match.installs,
+        })
+      }
+    }
+    return out
+  }
+  return { choreDir, projectDir, hubSearch }
+}
+
+/**
+ * Unified skill search — delegates to the skills resolver across all
+ * three tiers (project-local > chore global > hub catalog). Returns
+ * descriptors in the additive { source, tier, path, contentHash } shape.
+ *
+ * Additive: does not replace the existing omo_skill_find tool body.
+ */
+export async function unifiedSkillFind(
+  deps: OmoSkillFindDeps,
+  query: string,
+  opts: { tier?: TierFilter; limit?: number } = {},
+): Promise<SkillDescriptor[]> {
+  const state = buildResolverState(deps)
+  return searchSkills(query, state, opts)
 }
