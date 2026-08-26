@@ -399,10 +399,14 @@ export function createMetaGovernorPlugin(
       });
       throw err;
     }
+    // v0.34.2 (P1-1): precedence is options inline > file config > factory arg.
+    // Previously the order was inverted (factory arg spread first), so the file
+    // config would silently drop factory-arg values and inline options would lose
+    // to file config. Align with config-file.ts semantic: CLI > project > user.
     const rawConfig = {
-      ...config,
-      ...fileConfigSource.config,
-      ...((options?.meta_governor as MetaGovernorPluginConfig) ?? {}),
+      ...(config as MetaGovernorPluginConfig),                 // 3. factory arg (lowest)
+      ...fileConfigSource.config,                              // 2. file (CLI > project > user per config-file.ts)
+      ...((options?.meta_governor as MetaGovernorPluginConfig) ?? {}), // 1. options inline (highest)
     };
     let mergedConfig: ReturnType<typeof loadOrchestratorConfig>;
     try {
@@ -471,12 +475,15 @@ const graphSyncReadyProjects = new Set<string>();
     const sessionProjectDir = _input.directory
       ? resolve(_input.directory)
       : cwd;
+    // v0.34.2 (P1-1): graphSync precedence aligned with rawConfig (options > file > factory arg).
+    // The previous ordering let factory arg win over inline options, which broke users who
+    // disabled graphSync inline while a user-level file enabled it.
     const rawGraphSync =
-      config.graphSync ??
       (fileConfigSource.config as MetaGovernorPluginConfig | undefined)
         ?.graphSync ??
       (options?.meta_governor as MetaGovernorPluginConfig | undefined)
-        ?.graphSync;
+        ?.graphSync ??
+      config.graphSync;
     const graphSyncEnabledAtInvocation = rawGraphSync?.enabled !== false;
     if (graphSyncEnabledAtInvocation) {
       // Test-only hook: assert placement without executing real CLI commands.

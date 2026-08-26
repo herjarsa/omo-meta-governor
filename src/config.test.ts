@@ -435,3 +435,32 @@ describe('loadOrchestratorConfig - compactionLoopGuard defaults (v0.34.2 P0-4 re
     expect(result.intervention.compactionLoopGuard.maxOverflowRecoveries).toBe(5)
   })
 })
+
+
+// v0.34.2 P1-1 regression: config precedence. The plugin-level spread lives at
+// plugin.ts:402-406 (options inline > file config > factory arg). The unit
+// contract verified here: loadOrchestratorConfig must respect any user-supplied
+// field at any depth, so that whichever layer wins in plugin.ts is preserved.
+describe('Config precedence (P1-1 regression)', () => {
+  it('then a user-supplied nabled: true survives regardless of source layer', () => {
+    const factory = loadOrchestratorConfig({ enabled: true })
+    expect(factory.enabled).toBe(true)
+    const file = loadOrchestratorConfig({ enabled: true })
+    expect(file.enabled).toBe(true)
+  })
+
+  it('then factory nabled: false is preserved (lowest precedence wins when alone)', () => {
+    const result = loadOrchestratorConfig({ enabled: false })
+    expect(result.enabled).toBe(false)
+  })
+
+  it('then intervention.mode is preserved through loadOrchestratorConfig', () => {
+    const result = loadOrchestratorConfig({ intervention: { mode: 'silent' } })
+    expect(result.intervention.mode).toBe('silent')
+  })
+
+  it('then graphSync.reindexOnFetch=false survives (used to verify the P1-1 alignment)', () => {
+    const result = loadOrchestratorConfig({ graphSync: { reindexOnFetch: false } })
+    expect(result.graphSync?.reindexOnFetch).toBe(false)
+  })
+})
