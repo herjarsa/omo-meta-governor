@@ -246,4 +246,32 @@ describe("SqliteBackend", () => {
       expect(new Set(results.map((r) => r.id)).size).toBe(20) // all unique
     })
   })
+
+  // v0.35.0 (Tier 2 materialization): last_materialized_at column +
+  // setSkillMaterializedAt() + getSkillMaterializedAt() round-trip.
+  describe("skills last_materialized_at (v0.35.0)", () => {
+    test("setSkillMaterializedAt writes the timestamp and getSkillMaterializedAt reads it back", async () => {
+      const id = "owner/repo/sample-skill"
+      await backend.skillAddOrUpdate({
+        id,
+        name: "Sample",
+        description: "Sample skill for materialization test",
+        installs: 0,
+        download_count: 0,
+        last_synced: Date.now(),
+        content_hash: "abc",
+      })
+      const ts = "2026-08-26T18:00:00.000Z"
+      backend.setSkillMaterializedAt(id, ts)
+      expect(backend.getSkillMaterializedAt(id)).toBe(ts)
+    })
+
+    test("setSkillMaterializedAt is a no-op for unknown slugs (no row created)", () => {
+      const before = backend.getSkillMaterializedAt("does/not/exist")
+      backend.setSkillMaterializedAt("does/not/exist", "2026-08-26T00:00:00.000Z")
+      const after = backend.getSkillMaterializedAt("does/not/exist")
+      expect(before).toBeNull()
+      expect(after).toBeNull()
+    })
+  })
 })

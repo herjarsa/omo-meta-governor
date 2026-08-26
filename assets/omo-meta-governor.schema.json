@@ -391,6 +391,11 @@
           "type": "boolean",
           "description": "Surface dependency warnings.",
           "default": true
+        },
+        "autoMaterialize": {
+          "type": "boolean",
+          "description": "v0.35.0: write fetched hub SKILL.md to <cwd>/.agents/skills/<slug>/SKILL.md.",
+          "default": true
         }
       }
     },

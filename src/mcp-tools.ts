@@ -174,7 +174,7 @@ function buildAdapters(): readonly McpAdapter[] {
     adapt(buildOmoMarkDirtyTool as PluginToolBuilder, "omo_mark_dirty", { cwd }),
     adapt(buildOmoHookStatusTool as PluginToolBuilder, "omo_hook_status", { cwd }),
     adapt(buildOmoSkillFindTool as PluginToolBuilder, "omo_skill_find", { sqlite, cwd }),
-    adapt(buildOmoSkillGetTool as PluginToolBuilder, "omo_skill_get", { sqlite, cwd }),
+    adapt(buildOmoSkillGetTool as PluginToolBuilder, "omo_skill_get", { sqlite, cwd, metrics, autoMaterialize: true }),
     adapt(buildOmoSkillAddTool as PluginToolBuilder, "omo_skill_add", { sqlite, cwd }),
   ]
 }

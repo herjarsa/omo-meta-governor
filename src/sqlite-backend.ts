@@ -137,7 +137,8 @@ CREATE TABLE IF NOT EXISTS skills (
   skill_id TEXT,
   download_count INTEGER DEFAULT 0,
   last_synced INTEGER,
-  content_hash TEXT
+  content_hash TEXT,
+  last_materialized_at TEXT
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS skills_fts USING fts5(name, description, content='skills', content_rowid='rowid');
@@ -212,7 +213,20 @@ export class SqliteBackend implements AgentmemoryWriteBackend, AgentmemoryBacken
         .prepare("INSERT INTO _meta (key, value) VALUES ('schema_version', ?)")
         .run(SCHEMA_VERSION)
     } else if (versionRow.value !== SCHEMA_VERSION) {
-      // Future: migration logic. For v1, no migrations needed.
+      // Additive migration: v1 → v2 adds skills.last_materialized_at.
+      // Existing rows survive — ALTER TABLE ADD COLUMN with no DEFAULT
+      // leaves them as NULL, which is what we want.
+      if (versionRow.value === "1") {
+        const cols = this.db
+          .prepare("PRAGMA table_info(skills)")
+          .all() as Array<{ name: string }>
+        if (!cols.some((c) => c.name === "last_materialized_at")) {
+          this.db.exec("ALTER TABLE skills ADD COLUMN last_materialized_at TEXT")
+        }
+        this.db
+          .prepare("UPDATE _meta SET value = ? WHERE key = 'schema_version'")
+          .run(SCHEMA_VERSION)
+      }
     }
 
     // Prepare statements once
@@ -490,6 +504,31 @@ export class SqliteBackend implements AgentmemoryWriteBackend, AgentmemoryBacken
     )
 
     return Promise.resolve(skill.id)
+  }
+
+  /**
+   * Record that a skill's SKILL.md has been materialized to disk at the
+   * given ISO timestamp. Used by omo_skill_get after a successful write
+   * to <projectDir>/.agents/skills/<slug>/SKILL.md so the resolver can
+   * label the slug as `source: 'hub-materialized'` vs `source: 'custom'`.
+   * The slug matches the trailing component of `skills.id` (format
+   * `owner/repo/slug`). The caller passes the short slug; this method
+   * matches it against the trailing path segment because hub sync stores
+   * the full id form. This is a no-op when no row matches, since
+   * materialization must not create a catalog row out of thin air
+   * (the row was already created by skillAddOrUpdate during hub sync).
+   */
+  setSkillMaterializedAt(slug: string, ts: string): void {
+    this.db.prepare(
+      "UPDATE skills SET last_materialized_at = ? WHERE id LIKE ? OR id = ?"
+    ).run(ts, `%/${slug}`, slug)
+  }
+  /** Lookup the last_materialized_at timestamp for a skill row, or null. */
+  getSkillMaterializedAt(slug: string): string | null {
+    const row = this.db
+      .prepare("SELECT last_materialized_at FROM skills WHERE id = ?")
+      .get(slug) as { last_materialized_at: string | null } | undefined
+    return row?.last_materialized_at ?? null
   }
 
   // -------- Skill dependencies --------

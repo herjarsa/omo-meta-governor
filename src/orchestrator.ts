@@ -108,6 +108,7 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
     filterDuplicates: true,
     depsCheck: true,
     choreDir: join(homedir(), ".agents", "skills"),
+    autoMaterialize: true,
   },
   // v0.22.0: graphSync orphan-sweep defaults.
 graphSync: {

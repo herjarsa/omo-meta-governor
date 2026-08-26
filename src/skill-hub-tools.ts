@@ -29,6 +29,8 @@ import {
   type SkillDescriptor,
   type TierFilter,
 } from "./skills-resolver.js"
+import { materializeSkill } from "./skills-materialize.js"
+
 
 // ---------------------------------------------------------------------------
 // OmoSkillFindDeps
@@ -315,7 +317,14 @@ export interface OmoSkillGetDeps {
   fetch?: FetchFn
   embedClient?: EmbedClient
   cwd: string
+  /** v0.35.0 (Tier 2 materialization): when true, write fetched SKILL.md
+   *  bodies to <cwd>/.agents/skills/<slug>/SKILL.md so opencode can Read()
+   *  them directly. Default true. Wired from `config.skillHub.autoMaterialize`. */
+  autoMaterialize?: boolean
+  /** v0.35.0 (Tier 2 health): collector for materialization_failures counter. */
+  metrics?: { inc(name: string): void }
 }
+
 
 /**
  * Build the `omo_skill_get` tool.
@@ -328,6 +337,8 @@ export interface OmoSkillGetDeps {
  * Returns first file contents preview.
  * Graceful: if not found → friendly hint.
  */
+
+
 export function buildOmoSkillGetTool(deps: OmoSkillGetDeps) {
   return tool({
     description:
@@ -391,7 +402,7 @@ export function buildOmoSkillGetTool(deps: OmoSkillGetDeps) {
           }
         }
 
-        const [, owner, repo, slug] = idParts as [unknown, string, string, string]
+        const [owner, repo, slug] = idParts
         const liveUrl = `https://skills.sh/api/download/${owner}/${repo}/${slug}`
 
         const fetchFn = deps.fetch ?? (async (input: string) => {
@@ -448,6 +459,29 @@ export function buildOmoSkillGetTool(deps: OmoSkillGetDeps) {
 
           // Return the first file's contents as a preview
           const firstFile = data.files[0]
+
+          // v0.35.0 (Tier 2 materialization): write the SKILL.md body to
+          // <cwd>/.agents/skills/<slug>/SKILL.md so opencode can Read()
+          // it directly. Side-effect only — does not change the response
+          // shape the caller sees.
+          const mat = await materializeSkill({
+            projectDir: join(deps.cwd, ".agents", "skills"),
+            slug,
+            body: firstFile.contents,
+            autoMaterialize: deps.autoMaterialize !== false,
+          })
+          if (mat.written) {
+            try {
+              deps.sqlite.setSkillMaterializedAt(slug, new Date().toISOString())
+            } catch {
+              // best-effort; materialized file is still on disk
+            }
+          }
+          if (mat.reason === 'denied') {
+            // Spec: failures are warnings, never throw. Increment counter for visibility.
+            deps.metrics?.inc('materialization_failures')
+          }
+
           return {
             title: `omo_skill_get: ${skillId} — ${firstFile.path}`,
             output: `Skill: ${skillId}\nFile: ${firstFile.path}\n\n---\n${firstFile.contents}\n---`,
@@ -458,6 +492,7 @@ export function buildOmoSkillGetTool(deps: OmoSkillGetDeps) {
               timedOut: false,
               durationMs: Date.now() - start,
               sessionID: ctx.sessionID,
+              materialization: mat,
             },
           }
         } catch (fetchErr) {

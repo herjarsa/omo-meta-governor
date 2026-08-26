@@ -179,6 +179,8 @@ trigger?: SkillPrimingTrigger
     filterDuplicates?: boolean
     depsCheck?: boolean
     choreDir?: string
+    /** v0.35.0: write fetched hub skills to <cwd>/.agents/skills/<slug>/SKILL.md. */
+    autoMaterialize?: boolean
   }
 
   /** Post-wave workflow gate (v0.21.0): landing directives after Oracle-approved waves. */
@@ -393,6 +395,8 @@ skillHub: {
       filterDuplicates: full.skillHub?.filterDuplicates !== false,
       depsCheck: full.skillHub?.depsCheck !== false,
       choreDir: full.skillHub?.choreDir ?? join(homedir(), ".agents", "skills"),
+      // v0.35.0: default true so hub-fetched skills land on disk and opencode can Read() them.
+      autoMaterialize: full.skillHub?.autoMaterialize ?? true,
     } as SkillHubConfig,
     // v0.22.0: project graphSync killOrphanedOnInit with default true.
 graphSync: {

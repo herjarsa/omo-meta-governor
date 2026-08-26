@@ -393,8 +393,9 @@ minActionForMessage: {
           embedBaseUrl: { "type": "string", description: "Local embeddings endpoint base." },
           embedModel: { "type": "string", description: "Embedding model id.", "default": "bge-m3" },
           minInstalls: { "type": "integer", description: "Minimum installs threshold.", "default": 0 },
-          filterDuplicates: { "type": "boolean", description: "Filter duplicate skills.", "default": true },
-          depsCheck: { "type": "boolean", description: "Surface dependency warnings.", "default": true }
+          filterDuplicates: { type: "boolean", description: "Filter duplicate skills.", "default": true },
+          depsCheck: { type: "boolean", description: "Surface dependency warnings.", "default": true },
+          autoMaterialize: { type: "boolean", description: "v0.35.0: write fetched hub SKILL.md to <cwd>/.agents/skills/<slug>/SKILL.md.", "default": true }
         }
       },
 graphSync: {

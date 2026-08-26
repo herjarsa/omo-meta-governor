@@ -28,6 +28,9 @@ export interface PluginHealth {
     interventionsDelivered: number
     orchestratorRuns: number
     orchestratorErrors: number
+    /** v0.35.0 (Tier 2 materialization): count of materializeSkill() calls
+     *  that returned reason='denied' (filesystem write failure). */
+    materializationFailures: number
     lastDecisionISO: string | null
     lastInterventionISO: string | null
   }
@@ -195,6 +198,7 @@ export function buildPluginHealth(input: BuildPluginHealthInput): PluginHealth {
       interventionsDelivered: c.interventions_delivered?.count ?? 0,
       orchestratorRuns: c.orchestrator_runs?.count ?? 0,
       orchestratorErrors,
+      materializationFailures: c.materialization_failures?.count ?? 0,
       lastDecisionISO: c.decisions_taken?.lastOccurrenceISO ?? null,
       lastInterventionISO: c.interventions_delivered?.lastOccurrenceISO ?? null,
     },

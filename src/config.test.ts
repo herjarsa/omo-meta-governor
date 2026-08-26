@@ -416,6 +416,21 @@ describe("loadOrchestratorConfig #given skillHub (v0.32.0)", () => {
     const result = loadOrchestratorConfig({} as MetaGovernorPluginConfig)
     expect(result.skillHub.choreDir).toMatch(/[\\/]\.agents[\\/]skills$/)
   })
+
+  // v0.35.0 (Tier 2 materialization): autoMaterialize must default to true
+  // so omo_skill_get writes the fetched SKILL.md to disk unless the user
+  // explicitly opts out.
+  it("then autoMaterialize defaults to true (v0.35.0)", () => {
+    const result = loadOrchestratorConfig(undefined)
+    expect(result.skillHub.autoMaterialize).toBe(true)
+  })
+
+  it("then explicit autoMaterialize=false is honored", () => {
+    const result = loadOrchestratorConfig({
+      skillHub: { autoMaterialize: false },
+    } as MetaGovernorPluginConfig)
+    expect(result.skillHub.autoMaterialize).toBe(false)
+  })
 })
 
 

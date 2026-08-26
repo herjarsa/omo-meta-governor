@@ -828,5 +828,6 @@ export interface SkillHubConfig {
   readonly filterDuplicates: boolean;
   readonly depsCheck: boolean;
   readonly choreDir: string;
-
+  /** v0.35.0: auto-write fetched hub skills to <cwd>/.agents/skills/<slug>/SKILL.md. */
+  readonly autoMaterialize: boolean;
 }
