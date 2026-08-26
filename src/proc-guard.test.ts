@@ -237,17 +237,17 @@ describe("installProcessExitHandlers (v0.30 zombie fix)", () => {
 
 describe("signal handler self-kill (v0.34.2 P0-1 regression)", () => {
   it("then no handler calls process.kill(process.pid, signal) on itself", () => {
+
     const src = readFileSync(resolve(import.meta.dir, "proc-guard.ts"), "utf-8")
-    // Extract the onSignal arrow body. Strip comments so the v0.34.2
-    // changelog mention in a comment does not trip the assertion.
-    const blockMatch = src.match(/const\s+onSignal[\s\S]*?[\r\n]\s*\}/)
-    const rawBlock = blockMatch ? blockMatch[0] : ""
-    const codeOnly = rawBlock
-      .split("\n")
-      .map((l) => l.replace(/\/\/.*$/, ""))
-      .join("\n")
-    const hasCall = /process\.kill\(\s*process\.pid\s*,/.test(codeOnly)
-    expect(hasCall).toBe(false)
+    // CRLF-safe: split on any line ending, strip // comments line-by-line.
+    // Asserts no non-comment line references process.kill(process.pid, ...).
+    const lines2 = src.split(/\r?\n/)
+    const offenders: string[] = []
+    for (const line of lines2) {
+      const code = line.replace(/\/\/.*$/, "")
+      if (/process\.kill\(\s*process\.pid\s*,/.test(code)) offenders.push(line.trim())
+    }
+    expect(offenders).toEqual([])
   })
 
   it("then onSignal body uses process.exit", () => {
