@@ -10,11 +10,14 @@
  * so the model resumes its pending tasks instead of generating more
  * context pressure.
  *
- * RED tests pin the desired behavior. They MUST FAIL until the fix lands.
+ * v0.35.0 (audit fix F2): compactionLoopGuard.enabled now defaults to true
+ * (v0.34.2 P2-3 alignment). Tests assert the default-on end-to-end behavior.
+ * All createMetaGovernorPlugin() calls routed through createHermeticPlugin()
+ * to fix the F0 subprocess-leak root cause.
  */
-import { describe, expect, it, beforeEach } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import type { PluginInput, PluginOptions } from "@opencode-ai/plugin";
-import { createMetaGovernorPlugin } from "./plugin";
+import { createHermeticPlugin } from "./__test-helpers__/hermetic-plugin";
 
 const mockPluginInput = {
   client: null as unknown as PluginInput["client"],
@@ -27,9 +30,7 @@ const mockPluginInput = {
 };
 
 async function getAutocontinueHook(options: PluginOptions) {
-  const plugin = createMetaGovernorPlugin({
-    graphSync: { enabled: false, autoInstall: false },
-  });
+  const plugin = createHermeticPlugin();
   const hooks = await plugin(mockPluginInput, options);
   const hook = hooks["experimental.compaction.autocontinue"];
   if (!hook) throw new Error("experimental.compaction.autocontinue hook missing");
@@ -50,11 +51,6 @@ async function callAutocontinue(
 }
 
 describe("experimental.compaction.autocontinue — overflow loop guard", () => {
-  beforeEach(() => {
-    // Each test uses unique sessionIDs so the per-session counter in
-    // AuditState stays isolated across tests.
-  });
-
   describe("#given compactionLoopGuard enabled (default)", () => {
     const options: PluginOptions = {
       meta_governor: {
@@ -74,10 +70,8 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
     it("then disables autocontinue on the second consecutive overflow (maxOverflowRecoveries=1)", async () => {
       const hook = await getAutocontinueHook(options);
       const sid = "s-overflow-2";
-      // First overflow: count=1, 1>1=false -> still enabled
       const out1 = await callAutocontinue(hook, sid, true);
       expect(out1.enabled).toBe(true);
-      // Second overflow: count=2, 2>1=true -> guard trips
       const out2 = await callAutocontinue(hook, sid, true);
       expect(out2.enabled).toBe(false);
     }, 30_000);
@@ -85,10 +79,8 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
     it("then flips autocontinue to disabled on the second consecutive overflow (maxOverflowRecoveries=1)", async () => {
       const hook = await getAutocontinueHook(options);
       const sid = "s-overflow-3";
-      // First overflow: count=1, 1>1=false -> still enabled
       const out1 = await callAutocontinue(hook, sid, true);
       expect(out1.enabled).toBe(true);
-      // Second overflow: count=2, 2>1=true -> guard trips
       const out2 = await callAutocontinue(hook, sid, true);
       expect(out2.enabled).toBe(false);
     }, 30_000);
@@ -96,16 +88,12 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
     it("then resets the overflow counter when a non-overflow compaction completes", async () => {
       const hook = await getAutocontinueHook(options);
       const sid = "s-overflow-reset";
-      // First overflow
       let out = await callAutocontinue(hook, sid, true);
       expect(out.enabled).toBe(true);
-      // Non-overflow compaction resets the counter
       out = await callAutocontinue(hook, sid, false);
       expect(out.enabled).toBe(true);
-      // Now overflow again — counter restarts at 0
       out = await callAutocontinue(hook, sid, true);
       expect(out.enabled).toBe(true);
-      // 2nd overflow after reset -> guard trips (count=2, 2>1=true)
       out = await callAutocontinue(hook, sid, true);
       expect(out.enabled).toBe(false);
     }, 30_000);
@@ -113,12 +101,10 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
     it("then scopes the counter per-session (one session's loop does not affect another)", async () => {
       const hook = await getAutocontinueHook(options);
       const sidA = "s-overflow-iso-A";
-      // Drive session A into the loop (1 overflow keeps enabled, 2nd trips guard)
       const out1 = await callAutocontinue(hook, sidA, true);
       expect(out1.enabled).toBe(true);
       const outA = await callAutocontinue(hook, sidA, true);
       expect(outA.enabled).toBe(false);
-      // Session B is unaffected
       const outB = await callAutocontinue(hook, "s-overflow-iso-B", false);
       expect(outB.enabled).toBe(true);
     }, 30_000);
@@ -143,9 +129,9 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
       }
     }, 30_000);
 
-    describe("#given compactionLoopGuard enabled (opt-in default false → enable here)", () => {
-      // Finding #7 (Oracle): verify the guidance message reaches the model
-      // via the next experimental.chat.messages.transform call.
+    describe("#given compactionLoopGuard enabled (default-on since v0.34.2 P2-3)", () => {
+      // v0.34.2 (P2-3): compactionLoopGuard.enabled defaults to true. No need
+      // to opt in. Tests assert the default-on end-to-end behavior.
       const optInOptions: PluginOptions = {
         meta_governor: {
           enabled: true,
@@ -156,10 +142,7 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
       };
 
       it("then the next messages.transform injects the loop-guard guidance text", async () => {
-        const plugin = createMetaGovernorPlugin({
-          graphSync: { enabled: false, autoInstall: false },
-        // v0.33.0: pass test seam so the (test-only) push path is exercised.
-        }, { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) }, 30_000);
+        const plugin = createHermeticPlugin();
         const hooks = await plugin(mockPluginInput, optInOptions);
         const autocontinue = hooks["experimental.compaction.autocontinue"] as unknown as (
           input: { sessionID: string; overflow: boolean },
@@ -171,13 +154,9 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
         ) => Promise<void>;
 
         const sid = "s-guard-messages";
-        // Trip the guard
         for (let i = 0; i < 3; i++) {
           await autocontinue({ sessionID: sid, overflow: true }, { enabled: true });
         }
-        // Now drive messages.transform: the guidance message must be
-        // appended to output.messages, even though the guard may have
-        // flipped interventionDisabled=true.
         const output = {
           messages: [
             {
@@ -194,13 +173,7 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
       });
 
       it("then the loop-guard guidance still injects under mode === 'silent' (Finding #4)", async () => {
-        // v0.31.1: the drain must run even when intervention.mode === 'silent',
-        // which is the DEFAULT mode. This is the Finding #4 fix.
-        const plugin = createMetaGovernorPlugin({
-          graphSync: { enabled: false, autoInstall: false },
-    // v0.33.0: pass test seam so the (test-only) push path is exercised.
-    }, { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) }, 30_000);
-        // optInOptions has no explicit mode -> defaults to 'silent'
+        const plugin = createHermeticPlugin();
         const hooks = await plugin(mockPluginInput, optInOptions);
         const autocontinue = hooks["experimental.compaction.autocontinue"] as unknown as (
           input: { sessionID: string; overflow: boolean },
@@ -227,22 +200,16 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
         const flattened = output.messages
           .flatMap((m) => m.parts.map((p) => p.text ?? ""))
           .join("\n");
-expect(flattened).toContain("Overflow compaction loop detected");
-});
+        expect(flattened).toContain("Overflow compaction loop detected");
+      });
     });
   });
-describe("#given meta_governor disabled", () => {
+
+  describe("#given meta_governor disabled", () => {
     const options: PluginOptions = { meta_governor: { enabled: false } };
 
     it("then compaction autocontinue hook is NOT registered (plugin returns early hooks)", async () => {
-      // When the plugin is disabled, no governance hooks are returned at
-      // all — only the custom omo_* tools. This is intentional: an enabled
-      // loop guard requires the plugin to be on. Operators who want the
-      // loop guard without other features should leave enabled=true and
-      // disable the specific subsystems.
-      const plugin = createMetaGovernorPlugin({
-        graphSync: { enabled: false, autoInstall: false },
-    }, 30_000);
+      const plugin = createHermeticPlugin();
       const hooks = await plugin(mockPluginInput, options);
       expect(hooks["experimental.compaction.autocontinue"]).toBeUndefined();
     });
