@@ -395,6 +395,7 @@ minActionForMessage: {
           minInstalls: { "type": "integer", description: "Minimum installs threshold.", "default": 0 },
           filterDuplicates: { type: "boolean", description: "Filter duplicate skills.", "default": true },
           depsCheck: { type: "boolean", description: "Surface dependency warnings.", "default": true },
+          choreDir: { type: "string", description: "v0.35.0: chore skills directory (global, read-only from plugin perspective). Skills are extracted here on first run via SHA-256-idempotent bootstrap.", "default": "~/.agents/skills" },
           autoMaterialize: { type: "boolean", description: "v0.35.0: write fetched hub SKILL.md to <cwd>/.agents/skills/<slug>/SKILL.md.", "default": true }
         }
       },

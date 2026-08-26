@@ -74,6 +74,16 @@ All source files live flat in `src/` — no subdirectories. Files are organized 
 | `protocol-enforcer.ts` | Load Sisyphus protocol; build system injection; audit tool calls for violations |
 | `custom-tools.ts` | All 12 `omo_*` tool definitions (Zod-validated args, graceful error handling) |
 
+### Skills Resolution (v0.35.0)
+| File | Purpose |
+|------|---------|
+| `skills-fs.ts` | Frontmatter parser + fs scanner for project and chore dirs |
+| `skills-bundled.ts` | Bundled skills registry (slug ↔ source) for bootstrap |
+| `skills-bootstrap.ts` | Chore tarball extraction with SHA-256 idempotency |
+| `skills-resolver.ts` | Unified `findSkill` + `searchSkills` (3-tier precedence) |
+| `skills-materialize.ts` | Hub skill write to `<cwd>/.agents/skills/<slug>/SKILL.md` |
+| `skills-tier3-reminder.ts` | Zero-results advisory → system reminder |
+| `skills-fs-watcher.ts` | chokidar watcher on `<cwd>/.agents/skills/` |
 ### Observability
 
 | File | Purpose |

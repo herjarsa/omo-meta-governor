@@ -4,6 +4,78 @@ All notable changes to `@herjarsa/omo-meta-governor` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.35.0] - 2026-08-26
+
+### Added
+
+- **3-tier skills resolver** replacing the single-registry model. `omo_skill_find` / `omo_skill_get` now read from three tiers in precedence: project-local (`<cwd>/.agents/skills/`) > chore global (`~/.agents/skills/`) > hub catalog. Pure resolver in `src/skills-resolver.ts` returns `SkillDescriptor { slug, name, description, source, tier, path, contentHash }`.
+
+- **Tier 1 (chore bootstrap)**: `src/skills-bootstrap.ts` extracts the bundled `dist/skills/chore.tar.gz` (16 canonical skills) to `~/.agents/skills/` on first run. Idempotent via SHA-256 hash check; warns on user-modified copies. Adds `materializationFailures`, `tier3RemindersSent`, `tier3SkillsCreated` health counters.
+
+- **Tier 2 (hub materialization)**: `src/skills-materialize.ts` writes fetched `SKILL.md` to `<cwd>/.agents/skills/<slug>/` on `omo_skill_get`. Gated by `skillHub.autoMaterialize` (default `true`). New SQLite column `skills.last_materialized_at`.
+
+- **Tier 3 (advisory)**: `src/skills-tier3-reminder.ts` emits a system reminder pointing at the bundled `writing-skills` chore skill when no tier matches. Rate-limited (1 per query, 3 per session).
+
+- **`src/skills-fs.ts`**: frontmatter parser + fs scanner for project and chore dirs.
+
+- **`src/skills-fs-watcher.ts`**: chokidar watcher on `cwd/.agents/skills/` to hot-reload project-local skills on writes.
+
+- **Bundled skills tarball**: `dist/skills/chore.tar.gz` built from `bundled-skills/` via `bun run build:skills`.
+
+- **New config field** `skillHub.choreDir` (default `~/.agents/skills`).
+
+
+
+### Changed
+
+- `omo_skill_find` response extended (additive) with `source`, `tier`, `path`, `contentHash` fields.
+
+- `omo_skill_get` response extended with `materialization: { written, reason, path }`.
+
+- `omo_skill_find` accepts new `tier: 'all' | 'chore' | 'custom' | 'hub'` filter.
+
+
+
+### Fixed
+
+- Plugin boots cleanly even if every skills tier fails (warn-only, never throws).
+
+- Plugin never writes to `~/.agents/skills/` (read-only on global chore dir).
+
+- Plugin never injects skill content into prompts (registry-only, no force).
+
+
+
+### Tests
+
+- `src/skills-fs.test.ts` — 4 frontmatter parser tests
+
+- `src/skills-bootstrap.test.ts` — 4 tests (extraction, idempotency, hash mismatch, manifest)
+
+- `src/skills-resolver.test.ts` — 8 precedence tests
+
+- `src/skills-materialize.test.ts` — 4 tests
+
+- `src/skills-tier3-reminder.test.ts` — 4 tests
+
+- `src/skills-fs-watcher.test.ts` — 2 tests
+
+- `src/skills-integration.test.ts` — 4 tests
+
+- `src/config.test.ts` (delta) — 2 new tests for `skillHub.choreDir` + `skillHub.autoMaterialize`
+
+
+
+**Total: 32 new tests.**
+
+
+
+### Config
+
+- New `skillHub.choreDir: string` (default `~/.agents/skills`).
+
+- New `skillHub.autoMaterialize: boolean` (default `true`).
+
 ## [0.34.2] - 2026-08-26
 
 ### Added

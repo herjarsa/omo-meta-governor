@@ -125,6 +125,19 @@ Design notes:
 - The message is synthetic-only (never persisted via `persistSessionMessage`); it is a nudge, not
   an intervention.
 
+### Skills Resolution (added v0.35.0)
+Three registries + one resolver + one materialization side effect + one
+advisory reminder. See `docs/superpowers/specs/2026-08-26-skills-resolution-design.md`
+for the full design.
+
+| Component | Responsibility |
+|---|---|
+| `src/skills-fs.ts` | Frontmatter parser + fs scanner |
+| `src/skills-bootstrap.ts` | Chore tarball extraction with idempotency |
+| `src/skills-resolver.ts` | Unified `findSkill` + `searchSkills` |
+| `src/skills-materialize.ts` | Hub skill write to project fs |
+| `src/skills-tier3-reminder.ts` | Zero-results advisory |
+| `src/skills-fs-watcher.ts` | Hot-reload of project-local skills |
 ## Protocol Enforcement
 
 `src/protocol-enforcer.ts` — reads the Sisyphus protocol markdown from disk and enforces it.

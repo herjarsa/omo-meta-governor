@@ -225,6 +225,16 @@ cost: the directive forbids enumerating the full catalog.
   }
 }
 ```
+### Skills system: 3-tier resolution
+The plugin resolves skills from three tiers, in this precedence:
+1. **Chore (global)** — bundled skills shipped with the plugin, extracted to
+   `~/.agents/skills/` on first run. Read-only from the plugin's perspective.
+2. **Hub (lazy)** — on-demand from `skills-library.com` / `skills.sh`. Materialized
+   to `<cwd>/.agents/skills/<slug>/SKILL.md` when the agent calls `omo_skill_get`.
+3. **Custom (project-local)** — written by the agent via the `writing-skills`
+   chore skill when no hub match exists.
+The plugin recommends skills to the agent; it never injects skill content into
+prompts. The agent decides which skill to use per task.
 
 ### Multi-phase plans
 
