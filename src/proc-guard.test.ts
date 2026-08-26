@@ -240,7 +240,7 @@ describe("signal handler self-kill (v0.34.2 P0-1 regression)", () => {
     const src = readFileSync(resolve(import.meta.dir, "proc-guard.ts"), "utf-8")
     // Extract the onSignal arrow body. Strip comments so the v0.34.2
     // changelog mention in a comment does not trip the assertion.
-    const blockMatch = src.match(/const\s+onSignal[\s\S]*?\n  \}/)
+    const blockMatch = src.match(/const\s+onSignal[\s\S]*?[\r\n]\s*\}/)
     const rawBlock = blockMatch ? blockMatch[0] : ""
     const codeOnly = rawBlock
       .split("\n")
