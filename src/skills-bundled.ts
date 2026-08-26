@@ -20,5 +20,5 @@ export const CHORE_SKILLS: readonly string[] = [
   "finishing-a-development-branch",
   "requesting-code-review",
   "receiving-code-review",
-  "codebase-audit",
+  "cli-hub-meta-skill",
 ] as const
