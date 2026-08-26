@@ -398,8 +398,12 @@ export class SqliteBackend implements AgentmemoryWriteBackend, AgentmemoryBacken
     const params: unknown[] = []
 
     if (input.query) {
-      whereClauses.push(`skills_fts MATCH ?`)
-      params.push(input.query)
+      // v0.35.0 (audit fix F1): sanitize FTS5 input to block operator injection
+      const sanitized = this.toFtsQuery(input.query)
+      if (sanitized && sanitized !== '""') {
+        whereClauses.push(`skills_fts MATCH ?`)
+        params.push(sanitized)
+      }
     }
     if (input.minInstalls !== undefined) {
       whereClauses.push(`installs >= ?`)
@@ -585,12 +589,12 @@ export class SqliteBackend implements AgentmemoryWriteBackend, AgentmemoryBacken
    * Splits on whitespace, escapes each token, appends `*` for prefix match.
    * Empty / whitespace-only input returns `""` (no matches).
    */
-  private toFtsQuery(query: string): string {
+  toFtsQuery(query: string): string {
     const tokens = query
       .trim()
       .split(/\s+/)
       .filter(Boolean)
-      .map((t) => t.replace(/["()*]/g, ""))
+      .map((t) => t.replace(/["()*:^]/g, ""))
       .filter(Boolean)
     if (tokens.length === 0) return '""'
     return tokens.map((t) => `"${t}"*`).join(" ")
