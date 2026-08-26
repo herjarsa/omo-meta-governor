@@ -112,7 +112,13 @@ describe("graphSync init placement", () => {
       { graphSync: { enabled: false, autoInstall: false } },
       makeDeps(seen),
     )
-    await plugin(makeInput("D:/test/project-b"), {})
+    await plugin(makeInput("D:/test/project-b"), {
+      // v0.34.2 P1-1 fix: inline options are the highest-precedence layer
+      // (options > file > factory arg). Passing graphSync:{enabled:false}
+      // here ensures the test is hermetic regardless of any user-level
+      // ~/.config/opencode/omo-meta-governor.jsonc on the dev machine.
+      meta_governor: { graphSync: { enabled: false } },
+    })
     expect(seen).toEqual([])
   })
 
@@ -144,7 +150,12 @@ describe("graphSync init placement", () => {
     const hooks = await plugin(makeInput("D:/test/project-ready"), {
       // Hermetic: governance must be ON for messages.transform to reach the
       // nudge block (it early-returns when mergedConfig.enabled is false).
-      meta_governor: { enabled: true, graphSync: { enabled: false } },
+      // v0.34.2 P1-1 fix: removed graphSync: { enabled: false } from inline
+      // options. Under the new precedence (options > file > factory arg) the
+      // inline override was disabling graphSync init, so the nudge never
+      // fired. The factory arg's graphSync: { enabled: true } now wins and
+      // graphSync init runs as the test intends.
+      meta_governor: { enabled: true },
     })
     const transform = hooks["experimental.chat.messages.transform"]!
 
