@@ -478,10 +478,14 @@ const graphSyncReadyProjects = new Set<string>();
     // v0.34.2 (P1-1): graphSync precedence aligned with rawConfig (options > file > factory arg).
     // The previous ordering let factory arg win over inline options, which broke users who
     // disabled graphSync inline while a user-level file enabled it.
+    // v0.34.2 (P1-1 followup): reordered to options > file > config.graphSync to match
+    // the doc-comment and the rawConfig precedence. The original commit landed this in
+    // the opposite order; users who disabled graphSync inline while a user-level file
+    // enabled it were silently overridden by the file.
     const rawGraphSync =
-      (fileConfigSource.config as MetaGovernorPluginConfig | undefined)
-        ?.graphSync ??
       (options?.meta_governor as MetaGovernorPluginConfig | undefined)
+        ?.graphSync ??
+      (fileConfigSource.config as MetaGovernorPluginConfig | undefined)
         ?.graphSync ??
       config.graphSync;
     const graphSyncEnabledAtInvocation = rawGraphSync?.enabled !== false;
