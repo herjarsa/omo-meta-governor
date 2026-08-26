@@ -47,15 +47,44 @@ function readInlinedVersion(entryPath: string): string {
     throw new Error(`Bundle entrypoint not found: ${entryPath}`)
   }
   const src = readFileSync(entryPath, "utf-8")
-  const match = src.match(/version:"(\d+\.\d+\.\d+)"/)
+  // v0.34.2: P0-3 changed the inlining pattern. The bundle no longer bakes
+  // the package.json as a static object literal (that required require(),
+  // which throws ReferenceError in ESM strict). Instead each entrypoint
+  // declares a fallback `zA="0.0.0"` and reads the real version at runtime
+  // via `fileURLToPath(import.meta.url)` + `readFileSync("../package.json")`.
+  // The fallback is the ONLY version-shaped string that appears in the
+  // bundle statically. If we ever stop inlining the fallback, the runtime
+  // read will throw and the plugin will report "0.0.0" in the banner.
+  const match = src.match(/[a-zA-Z_$][a-zA-Z0-9_$]*\s*=\s*"0\.0\.0"/)
   if (!match) {
     throw new Error(
-      `Could not find inlined version:"x.y.z" in ${entryPath}. ` +
-        `Either the build target changed (the inlining pattern moved) or ` +
-        `this file is not a bundle entrypoint.`,
+      `Could not find runtime-read fallback pattern (e.g. ` +
+        `\`zA="0.0.0"\`) in ${entryPath}. Either the build target changed ` +
+        `(the inlining pattern moved) or this file is not a bundle entrypoint.`,
     )
   }
-  return match[1]!
+  return "0.0.0"
+}
+
+/**
+ * v0.34.2: assert the REAL version string does NOT appear inlined in any
+ * dist entrypoint. P0-3 moved version reading to runtime (import.meta.url
+ * path resolution + readFileSync), so the literal "0.34.x" must not be
+ * baked into the bundle. If a future change re-inlines it statically, this
+ * test fails and we know to revisit.
+ */
+function readRuntimeVersionProof(entryPath: string): void {
+  const pkg = JSON.parse(readFileSync(PKG_PATH, "utf-8"))
+  const realVersion = pkg.version
+  const src = readFileSync(entryPath, "utf-8")
+  if (src.includes(`"${realVersion}"`)) {
+    throw new Error(
+      `Real version "${realVersion}" is statically inlined in ${entryPath}. ` +
+        `After v0.34.2 P0-3 the version must be read at runtime via ` +
+        `import.meta.url, not baked in. Re-check src/mcp-server.ts ` +
+        `readPackageVersion() and src/custom-tools.ts.`,
+    )
+  }
 }
 
 let buildInvoked = false
@@ -86,11 +115,28 @@ describe("version sync between package.json and dist bundles", () => {
   describe("#given package.json with a semantic version", () => {
     const pkgVersion = readPackageVersion()
 
-    it("then every dist entrypoint inlines the same version", () => {
+    it("then every dist entrypoint has the runtime-read fallback pattern", () => {
+      // v0.34.2 P0-3: bun build no longer inlines the raw package.json object
+      // (that required require(), which throws ReferenceError in ESM strict).
+      // Instead each entrypoint declares a fallback (e.g. `zA="0.0.0"`) and
+      // reads the real version at runtime via fileURLToPath(import.meta.url).
+      // We verify the fallback exists (proving the runtime-read path is
+      // wired) and then a separate assertion confirms the real version is
+      // NOT statically inlined (see readRuntimeVersionProof below).
       for (const entry of DIST_ENTRIES) {
         const fullPath = resolve(REPO_ROOT, entry)
         const inlined = readInlinedVersion(fullPath)
-        expect(inlined).toBe(pkgVersion)
+        expect(inlined).toBe("0.0.0")
+      }
+    })
+
+    it("then the real version is NOT statically inlined in any dist entrypoint", () => {
+      // P0-3 moved version reading to runtime. If a future change re-inlines
+      // the package.json statically, this assertion fails — surfacing the
+      // regression before the plugin ships a stale banner again.
+      for (const entry of DIST_ENTRIES) {
+        const fullPath = resolve(REPO_ROOT, entry)
+        readRuntimeVersionProof(fullPath)
       }
     })
 
