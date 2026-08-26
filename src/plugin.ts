@@ -163,6 +163,18 @@ function meetsMinAction(
   return ACTION_SEVERITY[action] >= ACTION_SEVERITY[minAction];
 }
 
+// v0.34.2 (P1-6): bash with > file / >> file / 	ee file is a write tool
+// by another name. Treat it like one for the skill-priming gate and
+// filesChanged accounting. Covers the common bypass patterns; full shell
+// parser out of scope.
+function bashHasFileWrite(toolInput: { tool: string; args?: unknown }): boolean {
+  if (toolInput.tool !== "bash") return false
+  const cmd = (toolInput.args as { command?: string } | undefined)?.command
+  if (typeof cmd !== "string") return false
+  return /(?:>>?|[<>]\s*&?\s*[''"]?\s*\S+|\btee\s+[^|;&]+)/.test(cmd)
+}
+
+
 function generateID(): string {
   return `mg-${crypto_randomUUID()}`;
 }
@@ -935,12 +947,15 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
         // v0.34.0: skill-priming enforcement gate. When enforceMode='block',
         // implementation tools (write/edit/apply_patch/...) are blocked until
         // omo_skill_find has been called in this session.
+        // v0.34.2 (P1-6): also block bash with redirects (> file, 	ee file).
+        // Without this, ash would bypass the skill-priming gate entirely.
         if (
           mergedConfig.skillPriming.enabled &&
           mergedConfig.skillPriming.enforceMode === "block" &&
           toolInput.tool !== "omo_skill_find" &&
           !skillFindCalled.has(toolInput.sessionID) &&
-          IMPLEMENTATION_TOOLS.includes(toolInput.tool)
+          (IMPLEMENTATION_TOOLS.includes(toolInput.tool) ||
+            bashHasFileWrite(toolInput))
         ) {
           throw new Error(
             `[meta-governor] skill-priming required: call omo_skill_find first to discover relevant skills before using "${toolInput.tool}". ` +
@@ -1171,14 +1186,22 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
             .concat(sessionState.recentToolCalls)
             .slice(0, 20);
 
+          // v0.34.2 (P1-6): unify writeTools with IMPLEMENTATION_TOOLS so the
+          // skill-priming gate and filesChanged accounting cover every write-shaped
+          // tool (multi_edit, apply_patch, ast_grep_replace, refactor). bash with
+          // > file is also treated as a write.
           const writeTools = [
             "write",
             "edit",
             "edit_block",
+            "multi_edit",
+            "apply_patch",
+            "ast_grep_replace",
+            "refactor",
             "desktop-commander_write_file",
             "desktop-commander_edit_block",
           ];
-          if (writeTools.includes(toolInput.tool)) {
+          if (writeTools.includes(toolInput.tool) || bashHasFileWrite(toolInput)) {
             sessionState.filesChanged++;
             const content = (toolOutput.output ?? "").slice(0, 500);
             sessionState.recentWriteContents = [content]
@@ -1187,7 +1210,13 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
             // v0.17.2 (Gap Q): capture file path so lesson extraction
             // can index file basenames for FTS lookup.
             const args = toolInput.args as Record<string, unknown> | undefined;
-            const filePath = args?.filePath ?? args?.path;
+            let filePath = (args?.filePath ?? args?.path) as string | undefined;
+            // v0.34.2 (P1-6): extract the redirect target for bash writes.
+            if (toolInput.tool === "bash" && (typeof filePath !== "string" || filePath.length === 0)) {
+              const cmd = (toolInput.args as { command?: string } | undefined)?.command ?? ""
+              const m = cmd.match(/(?:>>?)\s*[''"]?([^''"&\s;]+)/)
+              if (m) filePath = m[1]
+            }
             if (typeof filePath === "string" && filePath.length > 0) {
               sessionState.recentWriteFilePaths = [filePath]
                 .concat(sessionState.recentWriteFilePaths)
