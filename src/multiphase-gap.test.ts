@@ -27,7 +27,7 @@ import {
   detectPlanCompleteSignal,
   detectDoneSignal,
 } from "./plugin"
-import { createMetaGovernorPlugin } from "./plugin"
+import { createHermeticPlugin } from "./__test-helpers__/hermetic-plugin"
 
 describe("v0.13.0 plan-complete regex detector", () => {
   it("accepts <promise>PLAN-COMPLETE</promise>", () => {

@@ -15,7 +15,7 @@
 import { describe, expect, it, beforeEach } from "bun:test"
 import type { PluginInput, PluginOptions } from "@opencode-ai/plugin"
 import type { MetaGovernorPluginConfig } from "./config"
-import { createMetaGovernorPlugin } from "./plugin"
+import { createHermeticPlugin } from "./__test-helpers__/hermetic-plugin"
 import { buildSkillPrimingMessage, shouldInjectSkillPriming } from "./skill-priming"
 import { clearAll } from "./decision-store"
 
@@ -58,7 +58,7 @@ function makeOptions(skillPriming: SkillPrimingOpts): PluginOptions {
 }
 
 async function makeTransform(skillPriming: SkillPrimingOpts) {
-  const plugin = createMetaGovernorPlugin(
+  const plugin = createHermeticPlugin(
     { graphSync: { enabled: false, autoInstall: false } },
     { backends: stubBackends as never, writeBackend: stubWrite as never, __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) },
   )
@@ -192,7 +192,7 @@ describe("experimental.chat.messages.transform — skill priming", () => {
   })
 
   it("firstImplement → no injection before implementation, fires after a write tool", async () => {
-    const plugin = createMetaGovernorPlugin(
+    const plugin = createHermeticPlugin(
       { graphSync: { enabled: false, autoInstall: false } },
       { backends: stubBackends as never, writeBackend: stubWrite as never, __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) },
     )

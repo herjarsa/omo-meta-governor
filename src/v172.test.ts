@@ -66,7 +66,7 @@ describe("verifyDelivery return type (Gap I)", () => {
 describe("includeDecisionHistory (Gap D)", () => {
   it("messages.transform surfaces past decisions when includeDecisionHistory is true", async () => {
     // This is tested via integration — the plugin factory wires it
-    const { createMetaGovernorPlugin } = await import("./plugin")
+    const { createHermeticPlugin } = await import("./__test-helpers__/hermetic-plugin")
     const { clearAll, storeDecision } = await import("./decision-store")
 
     clearAll()
@@ -106,7 +106,7 @@ describe("includeDecisionHistory (Gap D)", () => {
     })
 
     // v0.33.0: pass test seam so the (test-only) push path is exercised.
-    const plugin = createMetaGovernorPlugin(
+    const plugin = createHermeticPlugin(
       { graphSync: { enabled: false, autoInstall: false } },
       { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) },
     )

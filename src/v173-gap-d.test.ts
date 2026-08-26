@@ -1,12 +1,12 @@
 import { describe, expect, it, beforeEach } from "bun:test"
-import { createMetaGovernorPlugin } from "./plugin"
+import { createHermeticPlugin } from "./__test-helpers__/hermetic-plugin"
 import { clearAll, storeDecision } from "./decision-store"
 
 describe("v0.17.3 Gap D — decision history in messages.transform", () => {
   beforeEach(() => clearAll())
 
   it("then includes prior interventions in text when includeDecisionHistory is true", async () => {
-    const plugin = createMetaGovernorPlugin(
+    const plugin = createHermeticPlugin(
       { graphSync: { enabled: false, autoInstall: false } },
       { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) }
     )
@@ -84,7 +84,7 @@ describe("v0.17.3 Gap D — decision history in messages.transform", () => {
   })
 
   it("then does NOT include history when includeDecisionHistory is false", async () => {
-    const plugin = createMetaGovernorPlugin(
+    const plugin = createHermeticPlugin(
       { graphSync: { enabled: false, autoInstall: false } },
       { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) }
     )

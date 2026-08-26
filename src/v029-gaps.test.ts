@@ -8,8 +8,8 @@
  * Pattern borrowed from src/plugin-audit-postwave.test.ts.
  */
 import { describe, test, expect, beforeEach } from "bun:test"
-import { createMetaGovernorPlugin, simpleHash } from "./plugin"
-
+import { createHermeticPlugin } from "./__test-helpers__/hermetic-plugin"
+import { simpleHash } from "./plugin"
 const mockInput = {
   client: null,
   project: null,
@@ -34,7 +34,7 @@ const auditOptions = {
 }
 
 async function makePlugin() {
-  const plugin = createMetaGovernorPlugin({
+  const plugin = createHermeticPlugin({
     graphSync: { enabled: false, autoInstall: false },
   })
   return await plugin(mockInput as never, auditOptions as never)

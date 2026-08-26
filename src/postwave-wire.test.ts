@@ -8,7 +8,7 @@
  * overwrite any setSessionClient() call made before creation.
  */
 import { describe, test, expect } from "bun:test"
-import { createMetaGovernorPlugin } from "./plugin"
+import { createHermeticPlugin } from "./__test-helpers__/hermetic-plugin"
 import { setSessionClient } from "./session-bridge"
 
 type CapturedPrompt = { sessionID: string; text: string }
@@ -62,7 +62,7 @@ describe("post-wave wire (tool.execute.after)", () => {
   test("S1: PHASE-1-COMPLETE + oracle call → own-repo directive injected once", async () => {
     setSessionClient(null)
     const prompts: CapturedPrompt[] = []
-    const plugin = createMetaGovernorPlugin({
+    const plugin = createHermeticPlugin({
       graphSync: { enabled: false, autoInstall: false },
     })
     const hooks = await plugin(makeMockInput(prompts) as never, pwOptions() as never)
@@ -100,7 +100,7 @@ describe("post-wave wire (tool.execute.after)", () => {
   test("disabled postWave → no directive even with phase + oracle", async () => {
     setSessionClient(null)
     const prompts: CapturedPrompt[] = []
-    const plugin = createMetaGovernorPlugin({
+    const plugin = createHermeticPlugin({
       graphSync: { enabled: false, autoInstall: false },
     })
     const hooks = await plugin(
@@ -123,7 +123,7 @@ describe("post-wave wire (tool.execute.after)", () => {
   test("third-party repoMode → third-party directive with aas prefix", async () => {
     setSessionClient(null)
     const prompts: CapturedPrompt[] = []
-    const plugin = createMetaGovernorPlugin({
+    const plugin = createHermeticPlugin({
       graphSync: { enabled: false, autoInstall: false },
     })
     const hooks = await plugin(
