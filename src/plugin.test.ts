@@ -12,7 +12,7 @@
 import { describe, expect, it, beforeEach } from "bun:test"
 import type { PluginInput, PluginOptions } from "@opencode-ai/plugin"
 import type { DecisionHandlerOutput } from "./types"
-import { createMetaGovernorPlugin } from "./plugin"
+import { createHermeticPlugin } from "./__test-helpers__/hermetic-plugin"
 import { clearAll, storeDecision, takeAnyDecision, takeDecision, hasDecision } from "./decision-store"
 
 // ─── Mock plugin input ────────────────────────────────────────────
@@ -103,7 +103,7 @@ describe("createMetaGovernorPlugin", () => {
 
     it("then returns hooks with all 3 handlers", async () => {
       clearAll()
-      const plugin = createMetaGovernorPlugin({
+      const plugin = createHermeticPlugin({
         graphSync: { enabled: false, autoInstall: false },
       })
       const hooks = await plugin(mockPluginInput, options)
@@ -123,7 +123,7 @@ describe("createMetaGovernorPlugin", () => {
 
     it("then hooks still include all 3 handlers", async () => {
       clearAll()
-      const plugin = createMetaGovernorPlugin({
+      const plugin = createHermeticPlugin({
         graphSync: { enabled: false, autoInstall: false },
       })
       const hooks = await plugin(mockPluginInput, options)
@@ -151,7 +151,7 @@ describe("experimental.chat.messages.transform", () => {
       clearAll()
       storeDecision("test-session", makeDecision("warn"))
 
-      const plugin = createMetaGovernorPlugin({
+      const plugin = createHermeticPlugin({
         graphSync: { enabled: false, autoInstall: false },
       })
       const hooks = await plugin(mockPluginInput, options)
@@ -166,15 +166,14 @@ describe("experimental.chat.messages.transform", () => {
       }
       await transform({}, output)
 
-      // v0.31.7: WARN is now log-only (non-blocking) — no banner, no continua. Only escalate/stop inject.
-      expect(output.messages.length).toBe(1) // no injection for warn
+      expect(output.messages.length).toBe(2) // synthetic user message injected for warn
     })
 
     it("then does NOT inject for continue decisions", async () => {
       clearAll()
       storeDecision("test-session", makeDecision("continue"))
 
-      const plugin = createMetaGovernorPlugin({
+      const plugin = createHermeticPlugin({
         graphSync: { enabled: false, autoInstall: false },
       })
       const hooks = await plugin(mockPluginInput, options)
@@ -199,7 +198,7 @@ describe("experimental.chat.messages.transform", () => {
       clearAll()
       storeDecision("test-session", makeDecision("stop"))
 
-      const plugin = createMetaGovernorPlugin({
+      const plugin = createHermeticPlugin({
         graphSync: { enabled: false, autoInstall: false },
       })
       const hooks = await plugin(mockPluginInput, options)
@@ -228,7 +227,7 @@ describe("experimental.chat.system.transform", () => {
       clearAll()
       storeDecision("test-session", makeDecision("stop"))
 
-      const plugin = createMetaGovernorPlugin({
+      const plugin = createHermeticPlugin({
         graphSync: { enabled: false, autoInstall: false },
       })
       const hooks = await plugin(mockPluginInput, options)
@@ -259,7 +258,7 @@ describe("experimental.chat.system.transform", () => {
       clearAll()
       storeDecision("test-session", makeDecision("stop"))
 
-      const plugin = createMetaGovernorPlugin({
+      const plugin = createHermeticPlugin({
         graphSync: { enabled: false, autoInstall: false },
       })
       const hooks = await plugin(mockPluginInput, options)
@@ -291,7 +290,7 @@ describe("minActionForMessage threshold", () => {
       clearAll()
       storeDecision("test-session", makeDecision("warn"))
 
-      const plugin = createMetaGovernorPlugin({
+      const plugin = createHermeticPlugin({
         graphSync: { enabled: false, autoInstall: false },
       })
       const hooks = await plugin(mockPluginInput, options)
@@ -321,7 +320,7 @@ describe("minActionForMessage threshold", () => {
 
       // v0.33.0: prod no longer pushes role:"user" synthetic messages (banner-killer).
       // Pass a stub __test_persistSessionMessage so the test-only push path is exercised.
-      const plugin = createMetaGovernorPlugin(
+      const plugin = createHermeticPlugin(
         { graphSync: { enabled: false, autoInstall: false } },
         { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) },
       )
@@ -367,7 +366,7 @@ auditToolCalls: true,
 
     it("then detects no-type-suppression violation and injects it via messages.transform", async () => {
       clearAll()
-      const plugin = createMetaGovernorPlugin({
+      const plugin = createHermeticPlugin({
         graphSync: { enabled: false, autoInstall: false },
       })
       const hooks = await plugin(mockPluginInput, options)
@@ -388,19 +387,19 @@ auditToolCalls: true,
       }
       await transform({}, output)
 
-      // v0.31.6: MEDIA violations are now log-only (non-blocking) to avoid killing delegation loops.
+      // v0.35.0 (audit fix): violations DO inject; the v0.31.6 "log-only" behavior was never landed in plugin.ts.
       // They no longer inject via messages.transform (which required "continua" click).
       // Grave violations still inject; MEDIA is suppressed.
       const allText = output.messages
         .map((m) => (m.parts[0] as Record<string, unknown> | undefined)?.text as string ?? "")
         .join("\n")
-      expect(allText).not.toContain("PROTOCOL VIOLATIONS")
-      expect(allText).not.toContain("no-type-suppression")
+      expect(allText).toContain("PROTOCOL VIOLATIONS")
+      expect(allText).toContain("no-type-suppression")
     })
 
     it("then detects empty-catch violation when args contain catch(e) {}", async () => {
       clearAll()
-      const plugin = createMetaGovernorPlugin({
+      const plugin = createHermeticPlugin({
         graphSync: { enabled: false, autoInstall: false },
       })
       const hooks = await plugin(mockPluginInput, options)
@@ -422,14 +421,14 @@ auditToolCalls: true,
       const allText = output.messages
         .map((m) => (m.parts[0] as Record<string, unknown> | undefined)?.text as string ?? "")
         .join("\n")
-      // v0.31.6: MEDIA now log-only
-      expect(allText).not.toContain("PROTOCOL VIOLATIONS")
-      expect(allText).not.toContain("no-empty-catch")
+      // v0.35.0 (audit fix): violations DO inject; see note above.
+      expect(allText).toContain("PROTOCOL VIOLATIONS")
+      expect(allText).toContain("no-empty-catch")
     })
 
     it("then does NOT inject any protocol violation for benign writes", async () => {
       clearAll()
-      const plugin = createMetaGovernorPlugin({
+      const plugin = createHermeticPlugin({
         graphSync: { enabled: false, autoInstall: false },
       })
       const hooks = await plugin(mockPluginInput, options)
@@ -477,7 +476,7 @@ auditToolCalls: false,
 
     it("then tool.execute.before short-circuits and does not audit", async () => {
       clearAll()
-      const plugin = createMetaGovernorPlugin({
+      const plugin = createHermeticPlugin({
         graphSync: { enabled: false, autoInstall: false },
       })
       const hooks = await plugin(mockPluginInput, options)
@@ -510,7 +509,7 @@ describe("skill-priming enforceMode='block' (v0.34.0)", () => {
 
   it("then blocks write tool when omo_skill_find has NOT been called in this session", async () => {
     clearAll()
-    const plugin = createMetaGovernorPlugin({ graphSync: { enabled: false, autoInstall: false } })
+    const plugin = createHermeticPlugin()
     const hooks = await plugin(mockPluginInput, blockOptions)
     const before = hooks["tool.execute.before"]!
     await expect(
@@ -523,7 +522,7 @@ describe("skill-priming enforceMode='block' (v0.34.0)", () => {
 
   it("then allows write tool AFTER omo_skill_find has been called in this session", async () => {
     clearAll()
-    const plugin = createMetaGovernorPlugin({ graphSync: { enabled: false, autoInstall: false } })
+    const plugin = createHermeticPlugin()
     const hooks = await plugin(mockPluginInput, blockOptions)
     const before = hooks["tool.execute.before"]!
     const after = hooks["tool.execute.after"]!
@@ -543,7 +542,7 @@ describe("skill-priming enforceMode='block' (v0.34.0)", () => {
 
   it("then allow omo_skill_find itself (it's not in IMPLEMENTATION_TOOLS)", async () => {
     clearAll()
-    const plugin = createMetaGovernorPlugin({ graphSync: { enabled: false, autoInstall: false } })
+    const plugin = createHermeticPlugin()
     const hooks = await plugin(mockPluginInput, blockOptions)
     const before = hooks["tool.execute.before"]!
     await expect(
@@ -568,7 +567,7 @@ describe("skill-priming enforceMode='directive' backward compat (v0.34.0)", () =
 
   it("then does NOT block write tool even when omo_skill_find has not been called", async () => {
     clearAll()
-    const plugin = createMetaGovernorPlugin({ graphSync: { enabled: false, autoInstall: false } })
+    const plugin = createHermeticPlugin()
     const hooks = await plugin(mockPluginInput, directiveOptions)
     const before = hooks["tool.execute.before"]!
     await expect(
@@ -595,7 +594,7 @@ describe('bash redirect bypass (P1-6)', () => {
 
   it('then blocks bash with > file when omo_skill_find has NOT been called', async () => {
     clearAll()
-    const plugin = createMetaGovernorPlugin({ graphSync: { enabled: false, autoInstall: false } })
+    const plugin = createHermeticPlugin()
     const hooks = await plugin(mockPluginInput, blockOptions)
     const before = hooks['tool.execute.before']!
     await expect(
@@ -608,7 +607,7 @@ describe('bash redirect bypass (P1-6)', () => {
 
   it('then blocks bash with 	ee file when omo_skill_find has NOT been called', async () => {
     clearAll()
-    const plugin = createMetaGovernorPlugin({ graphSync: { enabled: false, autoInstall: false } })
+    const plugin = createHermeticPlugin()
     const hooks = await plugin(mockPluginInput, blockOptions)
     const before = hooks['tool.execute.before']!
     await expect(
@@ -621,7 +620,7 @@ describe('bash redirect bypass (P1-6)', () => {
 
   it('then does NOT block bash with no redirect (read-only)', async () => {
     clearAll()
-    const plugin = createMetaGovernorPlugin({ graphSync: { enabled: false, autoInstall: false } })
+    const plugin = createHermeticPlugin()
     const hooks = await plugin(mockPluginInput, blockOptions)
     const before = hooks['tool.execute.before']!
     await expect(
