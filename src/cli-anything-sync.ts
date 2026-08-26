@@ -7,6 +7,7 @@
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs"
 import { dirname } from "node:path"
+import { execSync } from "node:child_process"
 import {
   fetchCliHubLatestVersion,
   getInstalledCliHubVersion,
@@ -125,7 +126,7 @@ export async function runCliAnythingSync(
   const runner = fullConfig.runner ?? ((cmd, opts) => {
     // Lazy require so the test-only DI seam is the default in production
     // (this block only runs when no runner is injected)
-    const { execSync } = require("node:child_process") as typeof import("node:child_process")
+      // execSync now imported at module top level
     return execSync(cmd, {
       timeout: opts?.timeoutMs ?? 10_000,
       encoding: "utf8",

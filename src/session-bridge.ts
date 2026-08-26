@@ -99,16 +99,17 @@ export function setSessionClient(client: OpencodeClientLike | null): void {
     const now = Date.now();
     if (now - _lastInitLog > 1000) {
       _lastInitLog = now;
-      // Lazy require to avoid circular dep at module load
-      try {
-        const { logToFile } = require("./file-logger");
-        logToFile(
-          "info",
-          "SessionBridge: OpenCode client hydrated — session.prompt() available",
-        );
-      } catch {
-        // best-effort
-      }
+      // Lazy dynamic import to avoid circular dep at module load
+      void import("./file-logger")
+        .then(({ logToFile }) => {
+          logToFile(
+            "info",
+            "SessionBridge: OpenCode client hydrated — session.prompt() available",
+          )
+        })
+        .catch(() => {
+          // best-effort
+        })
     }
   }
   // Legacy: also write to a module-level fallback so promptAgent can find
