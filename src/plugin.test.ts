@@ -515,7 +515,7 @@ describe("skill-priming enforceMode='block' (v0.34.0)", () => {
     await expect(
       before(
         { tool: "write", sessionID: "block-test-1", callID: "c1" },
-        { args: { filePath: "/tmp/x.ts", content: "x" } },
+        { args: { filePath: "/app/src/core/widget.ts", content: Array.from({ length: 60 }, (_, i) => `line ${i}`).join("\n") } },
       ),
     ).rejects.toThrow(/skill-priming required|omo_skill_find/)
   })

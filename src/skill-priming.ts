@@ -101,3 +101,78 @@ export function shouldInjectSkillPriming(opts: {
   if (opts.implementationToolSeen) return true
   return opts.recentToolCalls.some((t) => IMPLEMENTATION_TOOLS.includes(t))
 }
+
+/**
+ * v0.35.2: detect "trivial" implementation-tool writes that should bypass
+ * the skill-priming gate. The gate is meant to nudge agents toward picking
+ * skills before non-trivial implementation; it is over-restrictive for
+ * throwaway scripts, scratch files, and small test edits.
+ *
+ * Bypass conditions (any one is sufficient):
+ *   1. Path matches a known trivial pattern (test/, tmp/, scratch/, .scratch/).
+ *   2. Tool is "write" and the new content is under TRIVIAL_MAX_LINES (50).
+ *   3. Tool is an "edit" variant (edit_block / multi_edit / desktop-commander_edit_block):
+ *      any in-place edit is considered low-stakes.
+ *
+ * Bash redirects to files (>, tee, etc.) are NOT bypassed here; they are
+ * caught upstream by bashHasFileWrite and the gate fires before this
+ * helper is consulted.
+ */
+export const TRIVIAL_PATH_PATTERNS: readonly RegExp[] = [
+  /[\\/](\.tmp|\.scratch|scratch|tmp|trash|throwaway)[\\/]/i,
+  /[\\/]tests?[\\/]|^tests?[\\/]/,
+  /[\\/]__tests__[\\/]/,
+  /[\\/]fixtures?[\\/]/,
+  /[\\/]examples?[\\/]/,
+  /\.test\.[a-z]+$/,
+  /\.spec\.[a-z]+$/,
+]
+export const TRIVIAL_MAX_LINES = 50
+
+export function isTrivialWrite(tool: string, args: unknown): boolean {
+  if (tool === "edit" || tool === "edit_block" || tool === "multi_edit"
+      || tool === "apply_patch" || tool === "ast_grep_replace" || tool === "refactor"
+      || tool === "desktop-commander_edit_block") {
+    return true
+  }
+  if (tool !== "write" && tool !== "desktop-commander_write_file") return false
+  const a = args as Record<string, unknown> | undefined
+  const filePath = typeof a?.["filePath"] === "string"
+    ? (a["filePath"] as string)
+    : typeof a?.["path"] === "string"
+      ? (a["path"] as string)
+      : ""
+  if (filePath && TRIVIAL_PATH_PATTERNS.some((re) => re.test(filePath))) {
+    return true
+  }
+  const content = a?.["content"]
+  if (typeof content === "string" && content.split("\n").length <= TRIVIAL_MAX_LINES) {
+    return true
+  }
+  return false
+}
+
+/**
+ * v0.35.2: build a query suggestion for omo_skill_find based on the
+ * tool + file path the agent is trying to use. This makes the error
+ * message actionable instead of "call omo_skill_find first".
+ */
+export function suggestSkillFindQuery(tool: string, args: unknown): string {
+  const a = args as Record<string, unknown> | undefined
+  const filePath = typeof a?.["filePath"] === "string"
+    ? (a["filePath"] as string)
+    : typeof a?.["path"] === "string"
+      ? (a["path"] as string)
+      : ""
+  const extMatch = /\.([a-z]+)$/i.exec(filePath)
+  const ext = extMatch ? extMatch[1].toLowerCase() : ""
+  const lang = {
+    ts: "typescript", tsx: "typescript-react", js: "javascript",
+    py: "python", rb: "ruby", go: "go", rs: "rust", java: "java",
+    cs: "csharp", cpp: "cpp", c: "c", sh: "bash", bash: "bash",
+    md: "markdown", json: "json", yaml: "yaml", yml: "yaml",
+    toml: "config", sql: "sql", html: "html", css: "css",
+    scss: "css", vue: "vue", svelte: "svelte",
+  }[ext] ?? "code"
+  return `omo_skill_find "${lang} ${tool}" --limit 5`
+}
