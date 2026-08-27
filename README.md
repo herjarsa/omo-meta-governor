@@ -86,6 +86,22 @@ process boundaries, lifecycle, and the opencode event hooks
 
 ---
 
+## Workflow guide (v0.35.4)
+
+The plugin itself does not force a workflow — it gives the agent a guard against unprimed `write` calls, and the rest is judgement. For your agent to use the catalogued skills in the right order, classify the task into one of three tiers and follow the corresponding chain.
+
+| Tier | Trigger | Required skills (in order) |
+|---|---|---|
+| **0 Trivial** | config tweak, doc edit, single-line fix | none — edit → typecheck → done |
+| **1 Standard** (default) | new feature or fix in 1-2 files, no schema/security/CI touch | `brainstorming` → `find-skills` → `test-driven-development` → `verification-before-completion` |
+| **2 Critical** | 3+ files, core plugin logic, schema, CI, security, refactor | ALL of Tier 1, plus `writing-plans` → `subagent-driven-development` → `requesting-code-review` → `finishing-a-development-branch` |
+
+Full reference: see [`AGENTS.md`](AGENTS.md) (Skill Workflow section).
+
+**When in doubt, go up one tier.** Cost of over-ceremony is ~5 minutes; cost of skipping is a broken commit + a 2-hour revert.
+
+---
+
 ## 12 Custom Tools
 
 The plugin registers 12 tools the LLM can invoke. All are available

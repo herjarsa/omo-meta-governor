@@ -90,6 +90,63 @@ After every release, verify and update as needed:
 
 ---
 
+## Skill Workflow — Pick the Level that Matches the Risk
+
+Before touching code, classify the work into one of three tiers. The plugin does not enforce this — it is a guide you (the agent) follow. Apply judgement.
+
+### Tier 0 — Trivial (skip the workflow)
+
+**Trigger**: config tweak, doc edit, log message, single-line fix, comment change, dependency bump with no behavior delta.
+
+**Required steps**: edit → `bun run typecheck` → done.
+
+**Forbidden**: do NOT call `brainstorming`, `writing-plans`, `dispatching-parallel-agents`, or `momus`. Skip ceremony.
+
+### Tier 1 — Standard (default)
+
+**Trigger**: any new feature or fix that changes behavior in >= 1 file but does NOT touch 3+ files, core plugin logic, the config schema, CI/publish, or anything security-sensitive.
+
+**Required steps**, in order:
+
+1. **`/mo-skill:brainstorming`** — clarify intent, requirements, design. Skip if the user has already specified the implementation concretely.
+2. **`/mo-skill:find-skills`** — search the catalog for relevant techniques (Python, TDD, debugging, etc.). The `omo_skill_find` tool also unlocks the skill-priming gate (v0.35.3 also recognises `omo_skill_add` / `omo_skill_get`).
+3. **`/mo-skill:test-driven-development`** — write the failing test FIRST, watch it RED, then implement to GREEN. Capture the RED output as evidence.
+4. **`/mo-skill:verification-before-completion`** — before claiming done, run the verification commands and paste output. No "should work" assertions.
+5. **`/mo-skill:dispatching-parallel-agents`** — if >= 2 independent surfaces, fan out to parallel agents. Otherwise skip.
+6. Commit, push, wait for CI green. See Non-Negotiable Shipping Protocol below.
+
+### Tier 2 — Critical (full ceremony)
+
+**Trigger**: ANY of:
+- Touches 3+ files
+- Changes core plugin logic (scoring, governance, audit, intervention)
+- Adds or removes an `omo_*` tool
+- Modifies the config schema
+- Affects CI or publish
+- Security-sensitive change
+- Refactor of > 1 module
+
+**Required steps**: ALL of Tier 1, **plus**:
+
+7. **`/mo-skill:writing-plans`** — write a decision-complete plan to `.omo/plans/*.md` before touching code.
+8. **`/mo-skill:subagent-driven-development`** — execute the plan via parallel subagents (not by hand).
+9. **`/mo-skill:requesting-code-review`** — after implementation, fire a reviewer agent. Address every **criterion-cited blocker**.
+11. **`/mo-skill:finishing-a-development-branch`** — once CI is green and review passes, decide merge strategy.
+
+**Forbidden**: do NOT skip TDD or verification. Do NOT commit without a failing test preceding the implementation in your notepad.
+
+### Cheat sheet
+
+| Tier | Skills invoked (in order) | Cost |
+|---|---|---|
+| 0 Trivial | none | 30s |
+| 1 Standard | brainstorming -> find-skills -> TDD -> verification-before-completion | ~5 min |
+| 2 Critical | + writing-plans -> subagent-driven-development -> requesting-code-review -> finishing-a-development-branch | ~30+ min |
+
+When in doubt, go up one tier. The cost of over-ceremony is 5 minutes; the cost of skipping it is a broken commit + a 2-hour revert.
+
+---
+
 ## Quick Reference
 
 ```
