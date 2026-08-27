@@ -37,10 +37,15 @@ interface BareCatch {
  */
 function findCatchHandlers(src: string, file: string): BareCatch[] {
   const hits: BareCatch[] = []
-  const re = /\.catch\s*\(/g
+  // v0.36.2: require a non-identifier char (or start of string) before `.catch`.
+  // This excludes `} catch (...) {` blocks (try/catch) where `catch` is a keyword,
+  // not a Promise method. Use a lookbehind via a non-capturing group: the previous
+  // char must NOT be part of an identifier or be a closing brace `}`.
+  const re = /(^|[^.\w$])(\.catch\s*\()/g
   let match: RegExpExecArray | null
   while ((match = re.exec(src)) !== null) {
-    const startIdx = match.index + match[0].length
+    const dotStart = match.index + match[1].length
+    const startIdx = dotStart + match[2].length
     let depth = 1
     let i = startIdx
     while (i < src.length && depth > 0) {
@@ -51,7 +56,7 @@ function findCatchHandlers(src: string, file: string): BareCatch[] {
     }
     if (depth !== 0) continue
     const handlerSrc = src.slice(startIdx, i - 1).trim()
-    const before = src.slice(0, match.index)
+    const before = src.slice(0, dotStart)
     const startLine = (before.match(/\n/g) ?? []).length + 1
     const endLine = startLine + (handlerSrc.match(/\n/g) ?? []).length
     hits.push({ file, startLine, endLine, body: handlerSrc })
@@ -60,7 +65,6 @@ function findCatchHandlers(src: string, file: string): BareCatch[] {
 }
 
 /**
- * Body is "bare" if it has no observable side-effect: no logToFile/console,
  * no throw, no process.exit, no rethrow pattern. Allows comments and the
  * error argument to be unused.
  */
