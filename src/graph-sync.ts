@@ -943,18 +943,11 @@ export async function triggerCodegraphSync(
 // file-logger. The previous stub silently dropped sync-failure messages
 // (H4 in the audit). Now the proxy re-imports logToFile on first call
 // to avoid a hard dependency cycle at module load.
-import type { LogLevel } from "./file-logger"
-let _logToFile: ((level: LogLevel, msg: string) => void) | null = null
-async function getLogToFile(): Promise<(level: LogLevel, msg: string) => void> {
-  if (_logToFile) return _logToFile
-  const mod = await import("./file-logger")
-  _logToFile = (level, msg) => mod.logToFile(level, msg)
-  return _logToFile
-}
-export async function logToFile(level: LogLevel, msg: string): Promise<void> {
-  const fn = await getLogToFile()
-  fn(level, msg)
-}
+// v0.35.0 (audit fix F9): eager static import. file-logger.ts has no
+// back-reference to graph-sync, so no cycle exists. Removes the
+// `await import("./file-logger")` microtask from every log call.
+import { logToFile as _logToFile } from "./file-logger"
+export const logToFile = _logToFile
 
 // ─── v0.12.0: auto-upgrade helpers ─────────────────────────────
 

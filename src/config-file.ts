@@ -104,11 +104,19 @@ export function stripJsoncComments(jsonc: string): string {
  * Parse a JSONC string into a JavaScript object.
  * Returns undefined on parse failure.
  */
-export function parseJsonc<T = Record<string, unknown>>(jsonc: string): T | undefined {
+export function parseJsonc<T = Record<string, unknown>>(
+  jsonc: string,
+  filePath?: string,
+): T | undefined {
   try {
     const cleaned = stripJsoncComments(jsonc)
     return JSON.parse(cleaned) as T
-  } catch {
+  } catch (err) {
+    // v0.35.0 (audit fix F6): log parse failures so users see why their
+    // config was dropped, instead of silent fallback to defaults.
+    void import("./file-logger").then(({ logToFile }) =>
+      logToFile("warn", `JSONC parse failed for ${filePath ?? "<inline>"}: ${err instanceof Error ? err.message : String(err)}`),
+    )
     return undefined
   }
 }
@@ -153,7 +161,7 @@ export async function loadJsoncFile<T = Record<string, unknown>>(
   if (!(await fileExists(filePath))) return undefined
   try {
     const content = await readFile(filePath, "utf-8")
-    return parseJsonc<T>(content)
+    return parseJsonc<T>(content, filePath)
   } catch {
     return undefined
   }
