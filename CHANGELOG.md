@@ -1,3 +1,25 @@
+## [0.35.9] - 2026-08-27
+
+### Added
+
+- **omo_skill_create**: last-resort scaffold. Creates <project>/.agents/skills/<slug>/SKILL.md with valid frontmatter (name + description). Used when omo_skill_find and omo_skill_semantic_find both miss. Immediately discoverable by the resolver and the semantic index on the next search.
+- **buildGraphPrimingMessage**: once-per-session nudge injected into the system prompt, telling the agent to use omo_search/omo_find/omo_impact/omo_path/omo_explain/omo_recall before raw grep/glob. Per-session tracking of core discovery primitives ensures the nudge only fires when none have been called.
+
+### Changed
+
+- **CI pinning**: actions/checkout v4 -> v5 (Node 20 deprecation); bun-version pinned to 1.3.14 (1.4.0 segfaults in `bun build ./src/index.ts ./src/lib.ts` on Linux CI).
+- **omo_skill_semantic_find**: when best hit < 0.4 (or zero hits), output now explicitly suggests omo_skill_create as the last-resort fallback.
+- Gate unlock now also recognises omo_skill_create as a priming action.
+
+### Fixed
+
+- **Bug D follow-up**: agents that don't know a skill exists would spam omo_skill_add and fail. v0.35.9 closes the loop by letting the agent scaffold a local skill.
+- **Bug E (core priming regression)**: sessions that bypass graph discovery now get an explicit nudge in their system prompt.
+
+### Tests
+
+- 973 pass, 0 fail (added 7).
+
 ## [0.35.8] - 2026-08-27
 
 ### Added
