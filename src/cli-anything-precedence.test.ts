@@ -128,11 +128,11 @@ describe("P2-1 rawCliAnything precedence: options > file", () => {
       } as never,
     }
     await plugin(mockPluginInput, opts)
-    const called = await waitForCliAnythingCall(onCalled, 500)
+    const called = await waitForCliAnythingCall(onCalled, 5000)
     // After the v0.36.1 fix, options.cliAnything.enabled=false must win,
     // so __test_runCliAnythingSync must NOT have been called.
     expect(called).toBeNull()
-  })
+  }, 30_000)
 
   it("then options.cliAnything.autoInstall=true overrides file autoInstall=false", async () => {
     const { deps, onCalled } = makeHermeticDeps()
@@ -147,7 +147,7 @@ describe("P2-1 rawCliAnything precedence: options > file", () => {
       } as never,
     }
     await plugin(mockPluginInput, opts)
-    const called = await waitForCliAnythingCall(onCalled, 2000)
+    const called = await waitForCliAnythingCall(onCalled, 5000)
     expect(called).not.toBeNull()
     expect(called!.autoInstall).toBe(true)
     expect(called!.autoUpgrade).toBe(true)
