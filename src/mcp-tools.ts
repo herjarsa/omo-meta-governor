@@ -217,4 +217,7 @@ export const MCP_TOOL_NAMES = [
   "omo_skill_find",
   "omo_skill_get",
   "omo_skill_add",
+  "omo_skill_local_link",
+  "omo_skill_semantic_find",
+  "omo_skill_create",
 ] as const
