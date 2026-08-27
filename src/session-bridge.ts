@@ -107,9 +107,7 @@ export function setSessionClient(client: OpencodeClientLike | null): void {
             "SessionBridge: OpenCode client hydrated — session.prompt() available",
           )
         })
-        .catch(() => {
-          // best-effort
-        })
+        .catch((err) => { void import("./file-logger").then(({ logToFile }) => logToFile("warn", `session-bridge setSessionClient log init failed: ${String(err)}`)); })
     }
   }
   // Legacy: also write to a module-level fallback so promptAgent can find

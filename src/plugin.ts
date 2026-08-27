@@ -1214,9 +1214,7 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
                   );
                 }
               })
-              .catch(() => {
-                // Best-effort: silently swallow errors
-              });
+              .catch((err) => { logToFile("warn", `graphRetrieval.invoke failed for session ${toolInput.sessionID}: ${String(err)}`); });
           }
         }
       },
