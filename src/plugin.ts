@@ -566,7 +566,7 @@ const graphSyncReadyProjects = new Set<string>();
             ?.cliAnything ??
           (fileConfigSource.config as MetaGovernorPluginConfig | undefined)
             ?.cliAnything;
-        const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
+const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
         runCliSyncImpl({
           enabled: true,
           autoInstall: rawCliAnything?.autoInstall ?? true,
