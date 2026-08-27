@@ -72,8 +72,8 @@ describe("generateSchema", () => {
       const sc = props.scoring.properties!
       expect(sc.continueThreshold.default).toBe(0.3)
       expect(sc.warnThreshold.default).toBe(0.3)
-      expect(sc.escalateThreshold.default).toBe(0.6)
-      expect(sc.stopThreshold.default).toBe(0.8)
+      expect(sc.escalateThreshold.default).toBe(0.45)
+      expect(sc.stopThreshold.default).toBe(0.55)
     })
 
 it("then has intervention with enum constraints", () => {
@@ -216,6 +216,20 @@ const expectedKeys = [
       for (const key of expectedKeys) {
         expect(schema.properties[key]).toBeDefined()
       }
+    })
+  })
+
+  // v0.36.1: contract test — scoring schema defaults must mirror the
+  // runtime scoring engine defaults. Single source of truth = src/scoring-engine.ts.
+  describe("#given schema-runtime contract", () => {
+    it("then scoring schema defaults equal defaultScoringConfig()", async () => {
+      const { defaultScoringConfig } = await import("./scoring-engine")
+      const rt = defaultScoringConfig()
+      const sc = schema.properties.scoring.properties!
+      expect(sc.continueThreshold.default).toBe(rt.continueThreshold)
+      expect(sc.warnThreshold.default).toBe(rt.warnThreshold)
+      expect(sc.escalateThreshold.default).toBe(rt.escalateThreshold)
+      expect(sc.stopThreshold.default).toBe(rt.stopThreshold)
     })
   })
 })
