@@ -33,6 +33,8 @@ import { materializeSkill } from "./skills-materialize.js"
 import { shouldSendReminder, formatReminder, type Tier3ReminderState } from "./skills-tier3-reminder.js"
 // v0.35.7: detect files actually cloned under .agents/skills/
 import { existsSync, readdirSync } from "node:fs"
+// v0.35.8: probe the chore global catalog at ~/.agents/skills/
+import { resolveGlobalSkillsRoot as globalSkillsRoot } from "./skills-catalog.js"
 
 
 
@@ -627,22 +629,24 @@ export function buildOmoSkillAddTool(deps: OmoSkillAddDeps) {
         }
 
         // --- Step 1: Run npx skills add with proc-guard ---
-        // Use the guarded spawn to ensure the process tree dies on Windows.
-        // v0.35.3 (Bug A): pass cwd=<projectDir> so the skill lands in the project's
-        // canonical .agents/skills/ directory, not wherever opencode was launched from.
+        // v0.35.8 (Bug D real fix): use `-g` (global) so npx writes to the chore
+        // global catalog at ~/.agents/skills/<slug>/. One download serves every
+        // project. To make the skill visible in THIS project, the plugin then
+        // symlinks (with copy fallback) from global -> project via
+        // ensureProjectLocalLink. The cwd=<projectDir> option is no longer needed
+        // for the install step itself - only for the post-install symlink.
         const guardedOpts: { timeoutMs: number; cwd?: string } = {
           timeoutMs: 60_000,
-          cwd: deps.cwd,
         }
 
         let result: { stdout: string; stderr: string; code: number | null; timedOut: boolean }
 
         if (deps.runner) {
-          result = await deps.runner("npx", ["skills", "add", id], guardedOpts)
+          result = await deps.runner("npx", ["skills", "add", id, "-g", "-y"], guardedOpts)
         } else {
           const { runGuarded } = await import("./proc-guard")
           try {
-            result = await runGuarded("npx", ["skills", "add", id], guardedOpts)
+            result = await runGuarded("npx", ["skills", "add", id, "-g", "-y"], guardedOpts)
           } catch {
             result = { stdout: "", stderr: "npx skills add failed", code: 1, timedOut: false }
           }
@@ -677,20 +681,33 @@ export function buildOmoSkillAddTool(deps: OmoSkillAddDeps) {
         // agent already attempted the canonical install, return `installed-partial`
         // so the gate unlocks. The agent has honoured the protocol; failing again
         // would loop it forever.
+        //
+        // v0.35.8 (Bug D real fix + global model): with `-g` (global), npx
+        // writes to ~/.agents/skills/<slug>/. We probe the GLOBAL root, not the
+        // project-local one. After install, we symlink global -> project so the
+        // skill is visible to this project's resolver.
         const noSkillsMaterialized =
           /No\s+(valid\s+)?skills?\s+found/i.test(stdout) ||
           /requires?\s+a\s+SKILL\.md/i.test(stdout)
 
-        // Probe .agents/skills/ under deps.cwd for any materialised files.
-        const skillsDir = join(deps.cwd, ".agents", "skills")
-        let materialisedEntries: string[] = []
-        let materialisedHasSkillMd = false
-        if (existsSync(skillsDir)) {
+        // Probe ~/.agents/skills/<slug>/ for materialised files.
+        const slug = id.replace(/\/+$/, "").split("/").pop() || id
+        const globalSkillsDir = globalSkillsRoot()
+        const globalEntry = join(globalSkillsDir, slug)
+        let globalHasEntry = false
+        let globalHasSkillMd = false
+        if (existsSync(globalEntry)) {
+          globalHasEntry = true
+          globalHasSkillMd = existsSync(join(globalEntry, "SKILL.md"))
+        }
+
+        // After global install, link global -> project so the skill is visible
+        // to this project's resolver. Best-effort: failure here is non-fatal.
+        let linkResult: { ok: boolean; mechanism: string; reason?: string } | null = null
+        if (globalHasEntry) {
           try {
-            materialisedEntries = readdirSync(skillsDir)
-            materialisedHasSkillMd = materialisedEntries.some((e) =>
-              existsSync(join(skillsDir, e, "SKILL.md")),
-            )
+            const { ensureProjectLocalLink } = await import("./skills-catalog.js")
+            linkResult = ensureProjectLocalLink(id, deps.cwd)
           } catch {
             // best effort
           }
@@ -699,12 +716,12 @@ export function buildOmoSkillAddTool(deps: OmoSkillAddDeps) {
         // --- Step 4: Return installation result ---
         let output = "Skill installation result:\n"
         let kind: "installed" | "installed-partial" | "no-skills-materialized" | "install-failed"
-        if (noSkillsMaterialized && materialisedEntries.length === 0) {
-          // Pure failure: npx exit 0, nothing on disk, no SKILL.md anywhere.
+        if (noSkillsMaterialized && !globalHasEntry) {
+          // Pure failure: npx exit 0, nothing in global cache.
           kind = "no-skills-materialized"
           output += `The skill id "${id}" cloned the repository successfully but the repo\n`
-          output += `contained NO valid SKILL.md files. npx skills add exited 0 but\n`
-          output += `no skill material was written to .agents/skills/.\n\n`
+          output += `contained NO valid SKILL.md files. npx skills add -g exited 0 but\n`
+          output += `no skill material was written to ${globalSkillsDir}.\n\n`
           output += `stdout: ${stdout}\n\n`
           output += `Diagnostic: this happens when the id is a path into a repo that\n`
           output += `has no skill manifests, OR the id points to a sub-directory that\n`
@@ -715,27 +732,32 @@ export function buildOmoSkillAddTool(deps: OmoSkillAddDeps) {
           output += `"anthropics/skills", "modelcontextprotocol/registry".`
         } else if (
           noSkillsMaterialized &&
-          materialisedEntries.length > 0 &&
-          !materialisedHasSkillMd
+          globalHasEntry &&
+          !globalHasSkillMd
         ) {
-          // Partial: repo cloned, files on disk, but no canonical SKILL.md.
-          // Treat as success so the gate unlocks — the agent tried the right path.
+          // Partial: global entry exists but no canonical SKILL.md.
+          // Treat as success so the gate unlocks.
           kind = "installed-partial"
-          output += `Repository was cloned into .agents/skills/ but no canonical SKILL.md\n`
-          output += `was found in any entry. The skill protocol has been honoured — the\n`
-          output += `files are on disk and the gate will unlock so you can continue.\n\n`
-          output += `Materialised entries (${materialisedEntries.length}):\n`
-          for (const entry of materialisedEntries) {
-            output += `  - ${entry}\n`
-          }
-          output += `\nstdout: ${stdout}\n\n`
+          output += `Repository was cloned into the GLOBAL cache (${globalEntry})\n`
+          output += `but no canonical SKILL.md was found. The skill protocol has been\n`
+          output += `honoured — files are on disk and the gate will unlock so you can\n`
+          output += `continue. Project-local link: ${linkResult?.mechanism ?? "skipped"}.\n\n`
+          if (linkResult?.reason) output += `Note: ${linkResult.reason}\n\n`
+          output += `stdout: ${stdout}\n\n`
           output += `If the skill you wanted is not here, try a parent-level id\n`
           output += `(e.g. "owner/repo" instead of "owner/repo/sub/path"), or run\n`
           output += `omo_skill_find to browse the canonical catalog.`
-        } else if (code === 0) {
+        } else if (code === 0 && globalHasEntry) {
           kind = "installed"
-          output += `stdout: ${stdout}\n`
-          output += `Skill "${id}" installed successfully and added to local catalog.`
+          output += `stdout: ${stdout}\n\n`
+          output += `Skill "${id}" installed into global cache at:\n  ${globalEntry}\n\n`
+          if (linkResult) {
+            output += `Linked to this project via: ${linkResult.mechanism}\n`
+            if (linkResult.reason) output += `  ${linkResult.reason}\n`
+            output += `  -> ${join(deps.cwd, ".agents", "skills", slug)}\n\n`
+          }
+          output += `Future projects using the same skill will reuse the global cache\n`
+          output += `(no re-download). Use omo_skill_local_link to re-link if missing.`
         } else {
           kind = "install-failed"
           output += `stderr: ${stderr}\n`

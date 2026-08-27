@@ -8,7 +8,7 @@
  * before the execute() function is called, so we test execute() with
  * pre-validated args (the runtime path is verified by integration).
  */
-import { describe, expect, it, beforeEach } from "bun:test"
+import { describe, expect, it, beforeEach, afterEach } from "bun:test"
 import {
   buildOmoSkillFindTool,
   buildOmoSkillGetTool,
@@ -29,6 +29,38 @@ function setMockedRunGuarded(fn: typeof runGuarded) {
 function getMockedRunGuarded(): typeof runGuarded | null {
   return mockedRunGuarded
 }
+
+// v0.35.8 test helpers: shared fake sqlite + tmp home for the global catalog.
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { setGlobalSkillsRootOverride } from "./skills-catalog"
+
+function makeFakeSqlite(): SqliteBackend {
+  return {
+    db: {
+      prepare: () => ({ all: () => [], get: () => null, run: () => ({ lastChanges: 0, changes: {} }) }),
+      exec: () => {},
+    } as any,
+    close: () => {},
+  } as unknown as SqliteBackend
+}
+
+const _tmpHomes: string[] = []
+function tmpFakeHome(): string {
+  const p = mkdtempSync(join(tmpdir(), "omo-skill-test-"))
+  _tmpHomes.push(p)
+  return p
+}
+
+// Cleanup tmp homes after the suite
+afterEach(() => {
+  setGlobalSkillsRootOverride(null)
+  while (_tmpHomes.length > 0) {
+    const p = _tmpHomes.pop()!
+    try { rmSync(p, { recursive: true, force: true }) } catch {}
+  }
+})
 
 describe("v0.32.0 F3 — omo_skill_find", () => {
   it("then returns empty array when no results found (FTS-only)", async () => {
@@ -243,28 +275,25 @@ describe("v0.32.0 F3 — omo_skill_add", () => {
     expect(result.output).toContain("installed")
   })
 })
-describe("v0.35.3 Bug A - omo_skill_add passes cwd to npx (project .agents/skills/)", () => {
-  it("then the runner is invoked with cwd=deps.cwd so the skill lands in the project", async () => {
+describe("v0.35.8 Bug A rewrite - omo_skill_add uses -g flag, symlinks to project", () => {
+  it("then the runner is invoked with -g -y and NO cwd (global install)", async () => {
+    const fakeHome = tmpFakeHome()
+    setGlobalSkillsRootOverride(fakeHome)
+    mkdirSync(join(fakeHome, ".agents", "skills", "python-websocket"), { recursive: true })
+    writeFileSync(join(fakeHome, ".agents", "skills", "python-websocket", "SKILL.md"), "---\nname: ws\n---\n")
+
     let capturedOpts: any = null
     const capturingRunner = async (
       _cmd: string,
-      _args: string[],
+      args: string[],
       opts: { timeoutMs: number; cwd?: string },
     ) => {
-      capturedOpts = opts
+      capturedOpts = { args, opts }
       return { stdout: "installed", stderr: "", code: 0, timedOut: false }
     }
 
-    const fakeSqlite: SqliteBackend = {
-      db: {
-        prepare: () => ({ all: () => [], get: () => null, run: () => ({ lastChanges: 0, changes: {} }) }),
-        exec: () => {},
-      } as any,
-      close: () => {},
-    } as unknown as SqliteBackend
-
     const t = buildOmoSkillAddTool({
-      sqlite: fakeSqlite,
+      sqlite: makeFakeSqlite(),
       cwd: "D:\\GITHUB\\small_caps_monitor",
       runner: capturingRunner,
     })
@@ -273,8 +302,11 @@ describe("v0.35.3 Bug A - omo_skill_add passes cwd to npx (project .agents/skill
       { sessionID: "s1" },
     )
     expect(capturedOpts).not.toBeNull()
-    expect(capturedOpts.cwd).toBe("D:\\GITHUB\\small_caps_monitor")
+    expect(capturedOpts.opts.cwd).toBeUndefined()
+    expect(capturedOpts.args).toEqual(["skills", "add", "anthropic/skills/python-websocket", "-g", "-y"])
     expect(result.metadata.tool).toBe("omo_skill_add")
+    expect(result.metadata.kind).toBe("installed")
+    expect(result.output).toContain("Linked to this project")
   })
 
   it("then runner is invoked with the canonical project .agents/skills/ path layout in args", async () => {
@@ -306,7 +338,7 @@ describe("v0.35.3 Bug A - omo_skill_add passes cwd to npx (project .agents/skill
       { sessionID: "s2" },
     )
     // The skill id flows into args; combined with cwd it scopes the install.
-    expect(capturedArgs).toEqual(["skills", "add", "anthropic/skills/python-websocket"])
+    expect(capturedArgs).toEqual(["skills", "add", "anthropic/skills/python-websocket", "-g", "-y"])
   })
 })
 
@@ -360,6 +392,11 @@ describe("v0.35.5 Bug C - omo_skill_add must detect 'No skills found' in stdout"
   })
 
   it("then still returns kind=installed when stdout has actual SKILL.md hits", async () => {
+    const fakeHome = tmpFakeHome()
+    setGlobalSkillsRootOverride(fakeHome)
+    mkdirSync(join(fakeHome, ".agents", "skills", "python-websocket"), { recursive: true })
+    writeFileSync(join(fakeHome, ".agents", "skills", "python-websocket", "SKILL.md"), "---\nname: ws\n---\n")
+
     const mockRunner = async (
       _cmd: string,
       _args: string[],
@@ -377,14 +414,7 @@ describe("v0.35.5 Bug C - omo_skill_add must detect 'No skills found' in stdout"
       }
     }
 
-    const fakeSqlite: SqliteBackend = {
-      db: {
-        prepare: () => ({ all: () => [], get: () => null, run: () => ({ lastChanges: 0, changes: {} }) }),
-        exec: () => {},
-      } as any,
-      close: () => {},
-    } as unknown as SqliteBackend
-
+    const fakeSqlite = makeFakeSqlite()
     const t = buildOmoSkillAddTool({
       sqlite: fakeSqlite,
       cwd: "/app/project",
@@ -395,7 +425,7 @@ describe("v0.35.5 Bug C - omo_skill_add must detect 'No skills found' in stdout"
       { sessionID: "s-c-2" },
     )
     expect(result.metadata.kind).toBe("installed")
-    expect(result.output).toContain("installed successfully")
+    expect(result.output).toMatch(/installed (successfully|into global cache)/)
   })
 
   it("then the agent sees the diagnostic but the gate STILL unlocks (no false block)", async () => {
@@ -535,20 +565,29 @@ describe("v0.35.3 Bug B - skill-find gate unlocks on omo_skill_add and omo_skill
 })
 })
 
-describe("v0.35.6 - cwd contract for omo_skill_add (deterministic, no network)", () => {
-  // Pin the contract that motivated v0.35.3 + v0.35.5: when omo_skill_add is invoked,
-  // the runner MUST receive cwd=deps.cwd so that npx skills add clones into the
-  // project's canonical .agents/skills/ directory. This is the unit-level guarantee;
-  // the E2E shell-out to real npx is covered by the probe-compare runs in CI logs.
+describe("v0.35.8 - global catalog contract for omo_skill_add (deterministic, no network)", () => {
+  // Pin the contract introduced in v0.35.8: when omo_skill_add is invoked,
+  // the runner MUST receive args including `-g -y` (global install). The cwd
+  // option is intentionally NOT passed to the runner because npx -g writes
+  // to ~/.agents/skills/<slug>/ regardless of cwd. The post-install step
+  // (ensureProjectLocalLink) uses deps.cwd to symlink into the project.
+  //
+  // Tests pre-create the expected global entry under a fake HOME so the
+  // "installed" kind branch fires deterministically.
 
-  it("then runner receives cwd=<projectDir> when deps.cwd is set (Windows path with spaces)", async () => {
+  it("then runner receives args including -g -y (no cwd)", async () => {
+    const fakeHome = tmpFakeHome()
+    setGlobalSkillsRootOverride(fakeHome)
+    // Pre-create the global entry so the install probes succeed
+    mkdirSync(join(fakeHome, ".agents", "skills", "agent-skills"), { recursive: true })
+
     let capturedOpts: any = null
     const capturingRunner = async (
       _cmd: string,
-      _args: string[],
+      args: string[],
       opts: { timeoutMs: number; cwd?: string },
     ) => {
-      capturedOpts = opts
+      capturedOpts = { args, opts }
       return {
         stdout: "Cloning repository... Repository cloned\nInstalled 1 skill\n",
         stderr: "",
@@ -557,39 +596,37 @@ describe("v0.35.6 - cwd contract for omo_skill_add (deterministic, no network)",
       }
     }
 
-    const fakeSqlite: SqliteBackend = {
-      db: {
-        prepare: () => ({ all: () => [], get: () => null, run: () => ({ lastChanges: 0, changes: {} }) }),
-        exec: () => {},
-      } as any,
-      close: () => {},
-    } as unknown as SqliteBackend
-
+    const fakeSqlite = makeFakeSqlite()
     const projectCwd = "D:\\Users\\me\\My Project\\app"
-    const t = buildOmoSkillAddTool({
-      sqlite: fakeSqlite,
-      cwd: projectCwd,
-      runner: capturingRunner,
-    })
+    const t = buildOmoSkillAddTool({ sqlite: fakeSqlite, cwd: projectCwd, runner: capturingRunner })
     const result = await (t.execute as any)(
       { id: "vercel-labs/agent-skills", confirm: true },
-      { sessionID: "v0356-cwd-spaces" },
+      { sessionID: "v0358-global-spaces" },
     )
 
-    // cwd contract: the runner MUST receive the exact project cwd
     expect(capturedOpts).not.toBeNull()
-    expect(capturedOpts.cwd).toBe(projectCwd)
+    // Runner must NOT receive cwd (npx -g ignores it anyway; saves confusion)
+    expect(capturedOpts.opts.cwd).toBeUndefined()
+    // Runner MUST receive -g -y
+    expect(capturedOpts.args).toEqual(["skills", "add", "vercel-labs/agent-skills", "-g", "-y"])
+    // Pre-created global entry + exit 0 -> installed
     expect(result.metadata.kind).toBe("installed")
+    setGlobalSkillsRootOverride(null)
   })
 
-  it("then two independent calls with different cwds each get their own cwd (no cross-contamination)", async () => {
-    const capturedCwds: string[] = []
+  it("then two independent calls each get their own args including -g -y (no cross-contamination)", async () => {
+    const fakeHome = tmpFakeHome()
+    setGlobalSkillsRootOverride(fakeHome)
+    mkdirSync(join(fakeHome, ".agents", "skills", "agent-skills"), { recursive: true })
+    mkdirSync(join(fakeHome, ".agents", "skills", "pdf"), { recursive: true })
+
+    const capturedArgs: string[][] = []
     const capturingRunner = async (
       _cmd: string,
-      _args: string[],
-      opts: { timeoutMs: number; cwd?: string },
+      args: string[],
+      _opts: { timeoutMs: number; cwd?: string },
     ) => {
-      capturedCwds.push(opts.cwd ?? "")
+      capturedArgs.push(args)
       return {
         stdout: "Cloning repository... Repository cloned\nInstalled 1 skill\n",
         stderr: "",
@@ -598,30 +635,18 @@ describe("v0.35.6 - cwd contract for omo_skill_add (deterministic, no network)",
       }
     }
 
-    const fakeSqlite: SqliteBackend = {
-      db: {
-        prepare: () => ({ all: () => [], get: () => null, run: () => ({ lastChanges: 0, changes: {} }) }),
-        exec: () => {},
-      } as any,
-      close: () => {},
-    } as unknown as SqliteBackend
+    const fakeSqlite = makeFakeSqlite()
+    const tA = buildOmoSkillAddTool({ sqlite: fakeSqlite, cwd: "D:\\GITHUB\\project-A", runner: capturingRunner })
+    const tB = buildOmoSkillAddTool({ sqlite: fakeSqlite, cwd: "D:\\GITHUB\\project-B", runner: capturingRunner })
 
-    const cwdA = "D:\\GITHUB\\project-A"
-    const cwdB = "D:\\GITHUB\\project-B"
+    await (tA.execute as any)({ id: "vercel-labs/agent-skills", confirm: true }, { sessionID: "v0358-A" })
+    await (tB.execute as any)({ id: "anthropics/skills/pdf", confirm: true }, { sessionID: "v0358-B" })
 
-    const tA = buildOmoSkillAddTool({ sqlite: fakeSqlite, cwd: cwdA, runner: capturingRunner })
-    const tB = buildOmoSkillAddTool({ sqlite: fakeSqlite, cwd: cwdB, runner: capturingRunner })
-
-    await (tA.execute as any)(
-      { id: "vercel-labs/agent-skills", confirm: true },
-      { sessionID: "v0356-A" },
-    )
-    await (tB.execute as any)(
-      { id: "anthropics/skills/pdf", confirm: true },
-      { sessionID: "v0356-B" },
-    )
-
-    expect(capturedCwds).toEqual([cwdA, cwdB])
+    expect(capturedArgs).toEqual([
+      ["skills", "add", "vercel-labs/agent-skills", "-g", "-y"],
+      ["skills", "add", "anthropics/skills/pdf", "-g", "-y"],
+    ])
+    setGlobalSkillsRootOverride(null)
   })
 
   it("then the runner is invoked with timeoutMs >= 30s (proc-guard guard band)", async () => {

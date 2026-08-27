@@ -48,6 +48,8 @@ import {
   buildOmoSkillGetTool,
   buildOmoSkillAddTool,
 } from "./skill-hub-tools"
+import { buildOmoSkillLocalLinkTool } from "./skills-local-link-tool"
+import { buildOmoSkillSemanticFindTool } from "./skills-semantic-find-tool"
 
 let PLUGIN_VERSION = "0.0.0"
 try {
@@ -176,6 +178,11 @@ function buildAdapters(): readonly McpAdapter[] {
     adapt(buildOmoSkillFindTool as PluginToolBuilder, "omo_skill_find", { sqlite, cwd }),
     adapt(buildOmoSkillGetTool as PluginToolBuilder, "omo_skill_get", { sqlite, cwd, metrics, autoMaterialize: true }),
     adapt(buildOmoSkillAddTool as PluginToolBuilder, "omo_skill_add", { sqlite, cwd }),
+    adapt(buildOmoSkillLocalLinkTool as PluginToolBuilder, "omo_skill_local_link", { cwd }),
+    adapt(buildOmoSkillSemanticFindTool as PluginToolBuilder, "omo_skill_semantic_find", {
+      baseUrl: "http://127.0.0.1:3114/v1",
+      model: "bge-m3",
+    }),
   ]
 }
 

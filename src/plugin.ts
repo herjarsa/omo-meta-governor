@@ -1232,11 +1232,18 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
         // v0.35.3 (Bug B): also unlock on omo_skill_add and omo_skill_get. Agents
         // that follow the protocol via add/get (not just find) were stuck in a
         // loop because the gate only recognised find as the priming action.
+        //
+        // v0.35.8 (Bug D): also unlock on omo_skill_local_link and
+        // omo_skill_semantic_find, the global-catalog primitives. Agents that
+        // link an already-installed skill (no install needed) or that search
+        // semantically should also satisfy the priming contract.
         if (
           toolInput.sessionID &&
           (toolInput.tool === "omo_skill_find" ||
             toolInput.tool === "omo_skill_add" ||
-            toolInput.tool === "omo_skill_get")
+            toolInput.tool === "omo_skill_get" ||
+            toolInput.tool === "omo_skill_local_link" ||
+            toolInput.tool === "omo_skill_semantic_find")
         ) {
           skillFindCalled.add(toolInput.sessionID);
         }
