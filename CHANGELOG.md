@@ -1,3 +1,24 @@
+## [0.35.8] - 2026-08-27
+
+### Added
+
+- **omo_skill_local_link**: link a skill from the global cache (~/.agents/skills/<slug>/) into the current project's .agents/skills/. Symlink (junction on Windows) with recursive copy fallback. Idempotent.
+- **omo_skill_semantic_find**: vector search over the global skill catalog via EmbedClient against the local embed-server (pm2 @ 127.0.0.1:3114, model bge-m3). Lazy cache at ~/.cache/omo-meta-governor/skill-embeddings.json with mtime invalidation.
+- **skills-catalog module** with globalSkillsRoot(), projectSkillsRoot(), ensureProjectLocalLink(), skillSlugFromId().
+
+### Changed
+
+- **omo_skill_add now installs globally**: uses `npx skills add <id> -g -y` so skills land in ~/.agents/skills/<slug>/. After install, the plugin auto-links the global entry into the current project's .agents/skills/<slug>/. One download serves every project on the machine.
+- Gate unlock now also recognises `omo_skill_local_link` and `omo_skill_semantic_find` as priming actions.
+
+### Fixed
+
+- **Bug D real fix**: `npx skills add` was always cloning to ~/.agents/skills/ regardless of project cwd. v0.35.8 adopts the global-catalog model.
+
+### Tests
+
+- 966 pass, 0 fail (added 19).
+
 ## [0.35.7] - 2026-08-27
 
 ### Fixed
