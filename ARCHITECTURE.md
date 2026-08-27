@@ -148,6 +148,23 @@ for the full design.
 
 Violations are queued per-session with a 5-minute TTL and injected on the next `messages.transform` call.
 
+## Enforcement Resources (v0.37.0)
+
+`src/enforcement-resources.ts` — provides 4 rule builders exposed via two complementary surfaces, fixing audit v2 P0-2 (OpenChamber HTTP mode zero enforcement).
+
+| Surface | Path | Mode |
+|---------|------|------|
+| **MCP resources** | `src/mcp-server.ts:160-176` `server.resource()` loop | OpenChamber HTTP — agent reads via `resources/read` at startup |
+| **System prompt nudges** | `src/plugin.ts:2387-2395` `output.system.push` with `[SYSTEM-NUDGE]` prefix | Plugin-CLI — agent sees them natively in `system.transform` |
+
+Both surfaces use the same single source of truth: `readEnforcementResource(uri)` dispatches to `buildOracleRule()`, `buildAgentMemoryRule()`, `buildSkillPrimingRule()`, `buildProtocolRule()`. Adding a new rule = adding one builder + one URI + one push call in both surfaces.
+
+The 4 URIs are:
+- `meta-governor://rules/oracle` — INVOKE triggers verbatim from `protocol-enforcer.ts:74-76`
+- `meta-governor://rules/agentmemory` — explicit `omo_remember` workflow
+- `meta-governor://rules/skill-priming` — codegraph/graphify discovery tools
+- `meta-governor://rules/protocol` — Sisyphus hard rules
+
 ## Graph Integration
 
 ### Graph Sync (`graph-sync.ts`)

@@ -149,6 +149,8 @@ All source files live flat in `src/` — no subdirectories. Files are organized 
 
 **Build:** `build.ts` — Bun bundler script; `bun build.ts` → `dist/`
 
+**Enforcement Resources:** `src/enforcement-resources.ts` — 4 rule builders + `readEnforcementResource(uri)` URI dispatcher. Exposed via MCP resources in `src/mcp-server.ts` (OpenChamber HTTP mode) and mirrored into `output.system` via `src/plugin.ts` `experimental.chat.system.transform` (plugin-CLI mode). All rules carry `[SYSTEM-NUDGE]` prefix so the LLM can detect them explicitly. Tests: `src/enforcement-resources.test.ts` (13 tests).
+
 **Tests:** `src/*.test.ts` — Co-located with source; run via `bun test`
 
 **Persistence:** `~/.omo-meta-governor/meta-governor.db` — SQLite database (auto-created)
