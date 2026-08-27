@@ -309,7 +309,7 @@ export function createMetaGovernorPlugin(
   // (user-reported 14/08/2026, after publishing v0.21.0 with `@latest`).
   logToFile("info", `v${DEFAULT_VERSION} MetaGovernor plugin loaded`, {
     version: DEFAULT_VERSION,
-    build: "0.19.5-instr",
+    build: DEFAULT_VERSION,
     cwd,
     projectHasCodegraph: graphRetrieval.hasCodegraphDir(cwd),
     projectHasGraphify: graphRetrieval.hasGraphifyDir(cwd),
