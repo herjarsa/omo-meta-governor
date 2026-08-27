@@ -1,6 +1,6 @@
 {
   "name": "@herjarsa/omo-meta-governor",
-  "version": "0.35.9",
+  "version": "0.36.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/herjarsa/omo-meta-governor.git"
@@ -51,3 +51,4 @@
   "type": "module",
   "types": "./dist/index.d.ts"
 }
+

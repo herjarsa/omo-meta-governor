@@ -159,14 +159,14 @@ export function generateSchema(): JsonSchema {
           escalateThreshold: {
             type: "number",
             description: "Score <= -escalateThreshold -> escalate.",
-            default: 0.6,
+            default: 0.45,
             minimum: 0,
             maximum: 1,
           },
           stopThreshold: {
             type: "number",
             description: "Score <= -stopThreshold -> stop.",
-            default: 0.8,
+            default: 0.55,
             minimum: 0,
             maximum: 1,
           },
