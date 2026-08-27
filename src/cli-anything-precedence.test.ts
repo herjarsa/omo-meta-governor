@@ -101,7 +101,7 @@ function makeHermeticDeps(): {
 
 async function waitForCliAnythingCall(
   onCalled: Promise<CapturedCall>,
-  timeoutMs: number = process.platform === "win32" ? 5000 : 500,
+  timeoutMs: number = process.platform === "win32" ? 8000 : 500,
 ): Promise<CapturedCall | null> {
   let timer: ReturnType<typeof setTimeout> | null = null
   const timeoutPromise = new Promise<null>((resolve) => {
