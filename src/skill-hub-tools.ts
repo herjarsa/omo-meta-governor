@@ -625,8 +625,13 @@ export function buildOmoSkillAddTool(deps: OmoSkillAddDeps) {
         }
 
         // --- Step 1: Run npx skills add with proc-guard ---
-        // Use the guarded spawn to ensure the process tree dies on Windows
-        const guardedOpts: { timeoutMs: number } = { timeoutMs: 60_000 }
+        // Use the guarded spawn to ensure the process tree dies on Windows.
+        // v0.35.3 (Bug A): pass cwd=<projectDir> so the skill lands in the project's
+        // canonical .agents/skills/ directory, not wherever opencode was launched from.
+        const guardedOpts: { timeoutMs: number; cwd?: string } = {
+          timeoutMs: 60_000,
+          cwd: deps.cwd,
+        }
 
         let result: { stdout: string; stderr: string; code: number | null; timedOut: boolean }
 

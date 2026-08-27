@@ -1229,7 +1229,15 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
         // v0.34.0: per-session skill-find tracking. Used by tool.execute.before
         // gate when enforceMode='block' to permit implementation tools only
         // after the agent has actually queried the skill-hub catalog.
-        if (toolInput.tool === "omo_skill_find" && toolInput.sessionID) {
+        // v0.35.3 (Bug B): also unlock on omo_skill_add and omo_skill_get. Agents
+        // that follow the protocol via add/get (not just find) were stuck in a
+        // loop because the gate only recognised find as the priming action.
+        if (
+          toolInput.sessionID &&
+          (toolInput.tool === "omo_skill_find" ||
+            toolInput.tool === "omo_skill_add" ||
+            toolInput.tool === "omo_skill_get")
+        ) {
           skillFindCalled.add(toolInput.sessionID);
         }
 

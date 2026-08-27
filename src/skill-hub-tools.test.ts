@@ -243,3 +243,166 @@ describe("v0.32.0 F3 — omo_skill_add", () => {
     expect(result.output).toContain("installed")
   })
 })
+describe("v0.35.3 Bug A - omo_skill_add passes cwd to npx (project .agents/skills/)", () => {
+  it("then the runner is invoked with cwd=deps.cwd so the skill lands in the project", async () => {
+    let capturedOpts: any = null
+    const capturingRunner = async (
+      _cmd: string,
+      _args: string[],
+      opts: { timeoutMs: number; cwd?: string },
+    ) => {
+      capturedOpts = opts
+      return { stdout: "installed", stderr: "", code: 0, timedOut: false }
+    }
+
+    const fakeSqlite: SqliteBackend = {
+      db: {
+        prepare: () => ({ all: () => [], get: () => null, run: () => ({ lastChanges: 0, changes: {} }) }),
+        exec: () => {},
+      } as any,
+      close: () => {},
+    } as unknown as SqliteBackend
+
+    const t = buildOmoSkillAddTool({
+      sqlite: fakeSqlite,
+      cwd: "D:\\GITHUB\\small_caps_monitor",
+      runner: capturingRunner,
+    })
+    const result = await (t.execute as any)(
+      { id: "anthropic/skills/python-websocket", confirm: true },
+      { sessionID: "s1" },
+    )
+    expect(capturedOpts).not.toBeNull()
+    expect(capturedOpts.cwd).toBe("D:\\GITHUB\\small_caps_monitor")
+    expect(result.metadata.tool).toBe("omo_skill_add")
+  })
+
+  it("then runner is invoked with the canonical project .agents/skills/ path layout in args", async () => {
+    let capturedArgs: string[] | null = null
+    const capturingRunner = async (
+      _cmd: string,
+      args: string[],
+      _opts: { timeoutMs: number; cwd?: string },
+    ) => {
+      capturedArgs = args
+      return { stdout: "installed", stderr: "", code: 0, timedOut: false }
+    }
+
+    const fakeSqlite: SqliteBackend = {
+      db: {
+        prepare: () => ({ all: () => [], get: () => null, run: () => ({ lastChanges: 0, changes: {} }) }),
+        exec: () => {},
+      } as any,
+      close: () => {},
+    } as unknown as SqliteBackend
+
+    const t = buildOmoSkillAddTool({
+      sqlite: fakeSqlite,
+      cwd: "/app/project",
+      runner: capturingRunner,
+    })
+    await (t.execute as any)(
+      { id: "anthropic/skills/python-websocket", confirm: true },
+      { sessionID: "s2" },
+    )
+    // The skill id flows into args; combined with cwd it scopes the install.
+    expect(capturedArgs).toEqual(["skills", "add", "anthropic/skills/python-websocket"])
+  })
+})
+
+describe("v0.35.3 Bug B - skill-find gate unlocks on omo_skill_add and omo_skill_get", () => {
+  it("then tool.execute.after on omo_skill_add adds sessionID to skillFindCalled", async () => {
+    // We test the gate by going through plugin.test.ts helpers since the gate lives in plugin.ts.
+    // Importing plugin.ts indirectly via the existing plugin.test.ts mockInput pattern.
+    const { createHermeticPlugin } = await import("./__test-helpers__/hermetic-plugin")
+    const { clearAll } = await import("./decision-store")
+    clearAll()
+    const plugin = createHermeticPlugin()
+    const blockOptions = {
+      meta_governor: {
+        enabled: true,
+        protocolEnforcement: { enabled: true, auditToolCalls: false },
+        skillPriming: { enabled: true, trigger: "sessionStart", router: "registry", enforceMode: "block" },
+      },
+    }
+    const mockInput = {
+      client: null as any,
+      project: null as any,
+      directory: "",
+      worktree: "",
+      experimental_workspace: { register: () => {} },
+      serverUrl: new URL("http://localhost"),
+      $: null as any,
+    }
+    const hooks = await plugin(mockInput, blockOptions)
+    const after = hooks["tool.execute.after"]!
+    const before = hooks["tool.execute.before"]!
+
+    // First simulate omo_skill_add (which used to NOT unlock the gate)
+    const bigContent = Array.from({ length: 60 }, (_, i) => `line ${i}`).join("\n")
+    await expect(
+      before(
+        { tool: "write", sessionID: "bug-b-s-1", callID: "c0" },
+        { args: { filePath: "/app/src/core.ts", content: bigContent } },
+      ),
+    ).rejects.toThrow(/skill-priming required|omo_skill_find/)
+
+    // Now invoke omo_skill_add via tool.execute.after
+    await after(
+      { tool: "omo_skill_add", sessionID: "bug-b-s-1", callID: "c1" },
+      { title: "installed", output: "ok", metadata: {} },
+    )
+
+    // The write should now be allowed
+    await before(
+      { tool: "write", sessionID: "bug-b-s-1", callID: "c2" },
+      { args: { filePath: "/app/src/core.ts", content: bigContent } },
+    )
+    // No throw means gate is unlocked
+  })
+
+  it("then tool.execute.after on omo_skill_get also unlocks the gate", async () => {
+    const { createHermeticPlugin } = await import("./__test-helpers__/hermetic-plugin")
+    const { clearAll } = await import("./decision-store")
+    clearAll()
+    const plugin = createHermeticPlugin()
+    const blockOptions = {
+      meta_governor: {
+        enabled: true,
+        protocolEnforcement: { enabled: true, auditToolCalls: false },
+        skillPriming: { enabled: true, trigger: "sessionStart", router: "registry", enforceMode: "block" },
+      },
+    }
+    const mockInput = {
+      client: null as any,
+      project: null as any,
+      directory: "",
+      worktree: "",
+      experimental_workspace: { register: () => {} },
+      serverUrl: new URL("http://localhost"),
+      $: null as any,
+    }
+    const hooks = await plugin(mockInput, blockOptions)
+    const after = hooks["tool.execute.after"]!
+    const before = hooks["tool.execute.before"]!
+
+    const bigContent = Array.from({ length: 60 }, (_, i) => `line ${i}`).join("\n")
+    await expect(
+      before(
+        { tool: "write", sessionID: "bug-b-s-2", callID: "c0" },
+        { args: { filePath: "/app/src/core.ts", content: bigContent } },
+      ),
+    ).rejects.toThrow(/skill-priming required|omo_skill_find/)
+
+    await after(
+      { tool: "omo_skill_get", sessionID: "bug-b-s-2", callID: "c1" },
+      { title: "fetched", output: "skill content", metadata: {} },
+    )
+
+    await before(
+      { tool: "write", sessionID: "bug-b-s-2", callID: "c2" },
+      { args: { filePath: "/app/src/core.ts", content: bigContent } },
+    )
+    // No throw means gate is unlocked
+  })
+})
