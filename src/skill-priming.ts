@@ -36,6 +36,23 @@ export const IMPLEMENTATION_TOOLS: readonly string[] = [
   "desktop-commander_edit_block",
 ]
 
+/**
+ * v0.35.9: nudge the agent to use the project's own knowledge graph before
+ * touching code. graphify (conceptual) and codegraph (symbol-level) are the
+ * plugin's primary discovery primitives — agents that skip them end up doing
+ * raw grep and reinventing what the project already knows.
+ */
+export function buildGraphPrimingMessage(): string {
+  return [
+    "[GRAPH PRIMING] Before grep/regex/glob/raw read, query the project's own indexes:",
+    "1. Architecture / concepts / cross-module relationships -> omo_search (auto-routes between codegraph + graphify).",
+    "2. Symbol-level lookup, call graph, impact analysis -> omo_find / omo_impact / omo_path.",
+    "3. Past lessons, decisions, prior solutions -> omo_recall (local SQLite FTS5).",
+    "4. Project status (codegraph health, recent decisions) -> omo_health / omo_status.",
+    "Use raw grep ONLY when the indexed queries above cannot answer the question (e.g. literal byte patterns, throwaway strings).",
+  ].join("\n")
+}
+
 /** Superpowers skills relevant to implementation-type work. */
 const SUPERPOWERS_SKILLS: readonly string[] = [
   "brainstorming",

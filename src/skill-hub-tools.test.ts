@@ -9,6 +9,7 @@
  * pre-validated args (the runtime path is verified by integration).
  */
 import { describe, expect, it, beforeEach, afterEach } from "bun:test"
+import { randomUUID } from "node:crypto"
 import {
   buildOmoSkillFindTool,
   buildOmoSkillGetTool,
@@ -469,6 +470,17 @@ describe("v0.35.5 Bug C - omo_skill_add must detect 'No skills found' in stdout"
 })
 
 describe("v0.35.3 Bug B - skill-find gate unlocks on omo_skill_add and omo_skill_get", () => {
+  // v0.35.9: this describe previously ran 2 tests that shared sessionID space
+  // (`bug-b-s-1`, `bug-b-s-2`) and depended on the plugin's internal
+  // skillFindCalled Set being empty. When CI runs bun test in parallel
+  // subprocesses that share module state (windows runners), the second test
+  // could find a leftover session in the Set and the gate would unlock before
+  // the test even tried to write. Use unique sessionIDs per it() + clearAll()
+  // + a unique CWD per plugin instance.
+  beforeEach(async () => {
+    const { clearAll } = await import("./decision-store")
+    clearAll()
+  })
   it("then tool.execute.after on omo_skill_add adds sessionID to skillFindCalled", async () => {
     // We test the gate by going through plugin.test.ts helpers since the gate lives in plugin.ts.
     // Importing plugin.ts indirectly via the existing plugin.test.ts mockInput pattern.
@@ -476,6 +488,7 @@ describe("v0.35.3 Bug B - skill-find gate unlocks on omo_skill_add and omo_skill
     const { clearAll } = await import("./decision-store")
     clearAll()
     const plugin = createHermeticPlugin()
+    const sid = "bug-b-s-" + randomUUID()
     const blockOptions = {
       meta_governor: {
         enabled: true,
@@ -486,7 +499,7 @@ describe("v0.35.3 Bug B - skill-find gate unlocks on omo_skill_add and omo_skill
     const mockInput = {
       client: null as any,
       project: null as any,
-      directory: "",
+      directory: tmpdir(),
       worktree: "",
       experimental_workspace: { register: () => {} },
       serverUrl: new URL("http://localhost"),
@@ -500,20 +513,20 @@ describe("v0.35.3 Bug B - skill-find gate unlocks on omo_skill_add and omo_skill
     const bigContent = Array.from({ length: 60 }, (_, i) => `line ${i}`).join("\n")
     await expect(
       before(
-        { tool: "write", sessionID: "bug-b-s-1", callID: "c0" },
+        { tool: "write", sessionID: sid, callID: "c0" },
         { args: { filePath: "/app/src/core.ts", content: bigContent } },
       ),
     ).rejects.toThrow(/skill-priming required|omo_skill_find/)
 
     // Now invoke omo_skill_add via tool.execute.after
     await after(
-      { tool: "omo_skill_add", sessionID: "bug-b-s-1", callID: "c1" },
+      { tool: "omo_skill_add", sessionID: sid, callID: "c1" },
       { title: "installed", output: "ok", metadata: {} },
     )
 
     // The write should now be allowed
     await before(
-      { tool: "write", sessionID: "bug-b-s-1", callID: "c2" },
+      { tool: "write", sessionID: sid, callID: "c2" },
       { args: { filePath: "/app/src/core.ts", content: bigContent } },
     )
     // No throw means gate is unlocked
@@ -524,6 +537,7 @@ describe("v0.35.3 Bug B - skill-find gate unlocks on omo_skill_add and omo_skill
     const { clearAll } = await import("./decision-store")
     clearAll()
     const plugin = createHermeticPlugin()
+    const sid = "bug-b-s-" + randomUUID()
     const blockOptions = {
       meta_governor: {
         enabled: true,
@@ -534,7 +548,7 @@ describe("v0.35.3 Bug B - skill-find gate unlocks on omo_skill_add and omo_skill
     const mockInput = {
       client: null as any,
       project: null as any,
-      directory: "",
+      directory: tmpdir(),
       worktree: "",
       experimental_workspace: { register: () => {} },
       serverUrl: new URL("http://localhost"),
@@ -547,18 +561,18 @@ describe("v0.35.3 Bug B - skill-find gate unlocks on omo_skill_add and omo_skill
     const bigContent = Array.from({ length: 60 }, (_, i) => `line ${i}`).join("\n")
     await expect(
       before(
-        { tool: "write", sessionID: "bug-b-s-2", callID: "c0" },
+        { tool: "write", sessionID: sid, callID: "c0" },
         { args: { filePath: "/app/src/core.ts", content: bigContent } },
       ),
     ).rejects.toThrow(/skill-priming required|omo_skill_find/)
 
     await after(
-      { tool: "omo_skill_get", sessionID: "bug-b-s-2", callID: "c1" },
+      { tool: "omo_skill_get", sessionID: sid, callID: "c1" },
       { title: "fetched", output: "skill content", metadata: {} },
     )
 
     await before(
-      { tool: "write", sessionID: "bug-b-s-2", callID: "c2" },
+      { tool: "write", sessionID: sid, callID: "c2" },
       { args: { filePath: "/app/src/core.ts", content: bigContent } },
     )
 // No throw means gate is unlocked

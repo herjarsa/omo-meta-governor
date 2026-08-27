@@ -36,13 +36,25 @@ export function buildOmoSkillSemanticFindTool(deps: OmoSkillSemanticFindDeps) {
     async execute(args, _ctx): Promise<ToolResult> {
       try {
         const hits = await semanticSearch(deps, args.query, args.limit)
-        if (hits.length === 0) {
+        if (hits.length === 0 || hits[0].score < 0.4) {
           return {
-            title: `omo_skill_semantic_find: 0 hits for "${args.query}"`,
+            title: `omo_skill_semantic_find: no usable hits for "${args.query}"`,
             output:
-              `No skills in the global cache match "${args.query}".\n` +
-              `Install one with omo_skill_add <owner/repo> and retry.`,
-            metadata: { tool: "omo_skill_semantic_find", query: args.query, count: 0 },
+              `No skills in the global cache match "${args.query}" strongly enough.\n\n` +
+              `Best-effort hit (if any): ${hits[0]?.slug ?? "none"} score=${hits[0]?.score.toFixed(3) ?? "n/a"}\n\n` +
+              `Last-resort options:\n` +
+              `1. Browse the catalog: omo_skill_find "${args.query}" (FTS5 keyword match).\n` +
+              `2. Install a new one: omo_skill_add <owner/repo>.\n` +
+              `3. Scaffold a local one: omo_skill_create id=<slug> description="..." body="..."\n` +
+              `   -> writes <cwd>/.agents/skills/<slug>/SKILL.md with valid frontmatter.\n` +
+              `   -> immediately discoverable by semantic search on the next call.`,
+            metadata: {
+              tool: "omo_skill_semantic_find",
+              query: args.query,
+              count: hits.length,
+              bestScore: hits[0]?.score ?? null,
+              fallbackSuggested: "omo_skill_create",
+            },
           }
         }
         const lines = hits.map(

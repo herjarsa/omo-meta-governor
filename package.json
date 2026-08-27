@@ -1,53 +1,53 @@
 {
-    "name": "@herjarsa/omo-meta-governor",
-    "version": "0.35.8",
-    "repository": {
-        "type": "git",
-        "url": "https://github.com/herjarsa/omo-meta-governor.git"
+  "name": "@herjarsa/omo-meta-governor",
+  "version": "0.35.9",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/herjarsa/omo-meta-governor.git"
+  },
+  "main": "./dist/index.js",
+  "dependencies": {
+    "chokidar": "^4.0.1"
+  },
+  "devDependencies": {
+    "@colbymchenry/codegraph": "^1.5.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@opencode-ai/plugin": "^1.17.4",
+    "@types/node": "^25.9.3",
+    "typescript": "^7.0.2"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.0.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     },
-    "main": "./dist/index.js",
-    "dependencies": {
-        "chokidar": "^4.0.1"
-    },
-    "devDependencies": {
-        "@colbymchenry/codegraph": "^1.5.0",
-        "@modelcontextprotocol/sdk": "^1.30.0",
-        "@opencode-ai/plugin": "^1.17.4",
-        "@types/node": "^25.9.3",
-        "typescript": "^7.0.2"
-    },
-    "peerDependencies": {
-        "@opencode-ai/plugin": ">=1.0.0"
-    },
-    "exports": {
-        ".": {
-            "types": "./dist/index.d.ts",
-            "import": "./dist/index.js"
-        },
-        "./lib": {
-            "types": "./dist/lib.d.ts",
-            "import": "./dist/lib.js"
-        }
-    },
-    "bin": {
-        "omo-meta-governor-mcp": "./dist/mcp-server.js"
-    },
-    "description": "Self-judging agent orchestration layer for OpenCode. Reads memory, scores sessions, dispatches decisions.",
-    "files": [
-        "dist",
-        "README.md"
-    ],
-    "license": "MIT",
-    "publishConfig": {
-        "access": "public",
-        "registry": "https://registry.npmjs.org/"
-    },
-    "scripts": {
-        "build": "bun build.ts",
-        "build:skills": "bun run build.ts skills",
-        "typecheck": "tsc --noEmit",
-        "test": "bun test"
-    },
-    "type": "module",
-    "types": "./dist/index.d.ts"
+    "./lib": {
+      "types": "./dist/lib.d.ts",
+      "import": "./dist/lib.js"
+    }
+  },
+  "bin": {
+    "omo-meta-governor-mcp": "./dist/mcp-server.js"
+  },
+  "description": "Self-judging agent orchestration layer for OpenCode. Reads memory, scores sessions, dispatches decisions.",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "bun build.ts",
+    "build:skills": "bun run build.ts skills",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "type": "module",
+  "types": "./dist/index.d.ts"
 }

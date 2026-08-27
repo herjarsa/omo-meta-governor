@@ -110,6 +110,7 @@ import {
 import { startSkillsFsWatcher } from "./skills-fs-watcher";
 import {
   buildSkillPrimingMessage,
+  buildGraphPrimingMessage,
   shouldInjectSkillPriming,
   isTrivialWrite,
   suggestSkillFindQuery,
@@ -877,6 +878,12 @@ const graphSyncReadyProjects = new Set<string>();
     // v0.34.0: per-session tracking for omo_skill_find invocations.
     // Used by tool.execute.before gate when enforceMode='block'.
     const skillFindCalled = new Set<string>();
+    // v0.35.9: per-session tracking for omo_search (graphify/codegraph) calls.
+    const omoSearchCalled = new Set<string>();
+    // v0.35.9: per-session tracking for omo_recall (agentmemory + SQLite FTS5).
+    const omoRecallCalled = new Set<string>();
+    // v0.35.9: per-session guard so the graph-priming injection fires at most once.
+    const graphPrimingSent = new Set<string>();
 
     const implementationToolsSeen = new Set<string>();
     // v0.21.0 (post-wave W6): per-session post-wave gate state, tracked
@@ -1243,9 +1250,30 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
             toolInput.tool === "omo_skill_add" ||
             toolInput.tool === "omo_skill_get" ||
             toolInput.tool === "omo_skill_local_link" ||
-            toolInput.tool === "omo_skill_semantic_find")
+            toolInput.tool === "omo_skill_semantic_find" ||
+            toolInput.tool === "omo_skill_create")
         ) {
           skillFindCalled.add(toolInput.sessionID);
+        }
+
+        // v0.35.9: track the core discovery primitives so the graph-priming
+        // nudge can fire on the *next* system transform for sessions that
+        // never touched them. This is what re-establishes the original plugin
+        // contract: every session starts with codegraph/graphify/agentmemory.
+        if (toolInput.sessionID) {
+          const sid = toolInput.sessionID;
+          if (
+            toolInput.tool === "omo_search" ||
+            toolInput.tool === "omo_find" ||
+            toolInput.tool === "omo_impact" ||
+            toolInput.tool === "omo_path" ||
+            toolInput.tool === "omo_explain"
+          ) {
+            omoSearchCalled.add(sid);
+          }
+          if (toolInput.tool === "omo_recall" || toolInput.tool === "omo_recall_mcp") {
+            omoRecallCalled.add(sid);
+          }
         }
 
         // v0.31.3: throttled live health snapshot (writer defined above).
@@ -2394,6 +2422,26 @@ if (isTestRun && !suppressViolations && violEntry && violEntry.expiresAtMs > Dat
           mergedConfig.intervention.mode !== "silent" &&
           transformInput.sessionID
         ) {
+          // v0.35.9: inject graph-priming once per session to nudge agents
+          // toward omo_search/omo_find/omo_recall instead of raw grep/glob.
+          // Only fires when the session has not yet called any of those.
+          const sid = transformInput.sessionID;
+          if (
+            sid &&
+            mergedConfig.skillPriming.enabled &&
+            !graphPrimingSent.has(sid) &&
+            !omoSearchCalled.has(sid) &&
+            !omoRecallCalled.has(sid)
+          ) {
+            graphPrimingSent.add(sid);
+            const graphText = buildGraphPrimingMessage();
+            output.system.push(
+              "\n### Graph Priming (MetaGovernor v0.35.9)",
+              graphText,
+              "---",
+            );
+            logToFile("info", `graph_priming_injected (system) for session ${sid}`);
+          }
           // v0.10.0: also respect per-session intervention disable here
           const state = auditSessions.get(transformInput.sessionID);
           if (state?.interventionDisabled) {

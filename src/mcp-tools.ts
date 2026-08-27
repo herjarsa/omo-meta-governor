@@ -50,6 +50,7 @@ import {
 } from "./skill-hub-tools"
 import { buildOmoSkillLocalLinkTool } from "./skills-local-link-tool"
 import { buildOmoSkillSemanticFindTool } from "./skills-semantic-find-tool"
+import { buildOmoSkillCreateTool } from "./skills-create-tool"
 
 let PLUGIN_VERSION = "0.0.0"
 try {
@@ -183,6 +184,7 @@ function buildAdapters(): readonly McpAdapter[] {
       baseUrl: "http://127.0.0.1:3114/v1",
       model: "bge-m3",
     }),
+    adapt(buildOmoSkillCreateTool as PluginToolBuilder, "omo_skill_create", { cwd }),
   ]
 }
 
