@@ -1,3 +1,56 @@
+## [0.35.6] - 2026-08-27
+
+### Added
+
+- **E2E pin: cwd contract for omo_skill_add** — 3 deterministic unit tests with runner mock in `src/skill-hub-tools.test.ts` prove the cwd passed to `buildOmoSkillAddTool` is forwarded verbatim to the `runGuarded` call. Covers Windows paths with spaces, two-cwd cross-contamination, and timeout guard band (>=30s).
+- **E2E evidence (probe-compare)**: `runGuarded` writes `.agents/skills/` under cwd — verified by running real `npx skills add vercel-labs/agent-skills -y` with `cwd=<tempdir>` and `cwd=<repo>`, both produced 9 cloned skills under `.agents/skills/`. See `.agents/skills/codebase-audit/audits/probe-compare.log`.
+
+### Fixed
+
+- No code changes in v0.35.6 — v0.35.3 (commit `762b3ad`) already passed `cwd: deps.cwd` to `runGuarded`. v0.35.6 adds the regression test that locks that contract so any future refactor cannot silently break it.
+
+### Changed
+
+- None.
+
+### Tests
+
+- 950/950 pass (947 prior + 3 cwd-contract regression tests).
+
+## [0.35.5] - 2026-08-27
+
+### Fixed
+
+- **Bug C — `omo_skill_add` silent failure on `No skills found`**: `npx skills add <owner/repo>` exits 0 with stdout containing `No skills found.` or `requires a SKILL.md`, but no skill materialises. The plugin was returning `kind=installed` (false positive) and unlocking the gate, so the agent believed the skill was installed and never retried. The stdout is now parsed; when the regex matches, the response sets `kind=no-skills-materialized` with the captured stdout and stderr so the agent sees the failure.
+
+## [0.35.4] - 2026-08-27
+
+### Added
+
+- **Tiered skill workflow** documented in `AGENTS.md` and `README.md`: Tier 0 (trivial, no ceremony), Tier 1 (standard: brainstorming -> find-skills -> TDD -> verification -> dispatch -> ship), Tier 2 (critical: + writing-plans -> subagent-driven-development -> requesting-code-review -> finishing-a-development-branch). The 3-tier chain scales with risk; when in doubt, escalate to the next tier.
+
+## [0.35.3] - 2026-08-27
+
+### Fixed
+
+- **Bug A — `omo_skill_add` cwd not propagated to `runGuarded`**: when the user invoked `omo_skill_add` from a project directory other than the opencode cwd, `npx skills add` cloned into the wrong `.agents/skills/` (opencode cwd, not project). Fixed by passing `cwd: deps.cwd` to `guardedOpts` in `src/skill-hub-tools.ts:633` so the spawn respects the project directory.
+- **Bug B — Gate not unlocked on `omo_skill_add`/`omo_skill_get`**: the skill-priming guard in `src/plugin.ts:1031` only unlocked on `omo_skill_find`, so an agent that picked the wrong id from a `omo_skill_find` result and went straight to `omo_skill_add` would still be blocked even after a successful install. Added `omo_skill_add` and `omo_skill_get` as gate unlockers.
+
+### Tests
+
+- 944/944 pass (937 prior + 7 new tests covering cwd propagation and gate unlock on add/get).
+
+## [0.35.2] - 2026-08-26
+
+### Added
+
+- **`isTrivialWrite` bypass for skill-priming guard**: empty content / single-line edits / comment-only edits / dependency bumps no longer require a preceding `omo_skill_find`. These edits cannot be informed by skill discovery, so the gate skipped them and produced a noisy blocking message. The new `isTrivialWrite(args)` helper classifies writes into trivial vs substantial; only substantial writes still demand skill-priming.
+- **Actionable skill-not-found error**: when `omo_skill_find` returns zero results, the guard message now suggests `omo_skill_find` with a different query and links the skill-hub catalog instead of a bare "blocked" rejection.
+
+### Tests
+
+- 937/937 pass.
+
 ## [0.35.1] - 2026-08-26
 
 ### Fixed
