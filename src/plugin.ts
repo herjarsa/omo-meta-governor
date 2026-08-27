@@ -562,9 +562,9 @@ const graphSyncReadyProjects = new Set<string>();
       // avoid spawning real pip/npx under factory invocation.
       if (mergedConfig.cliAnything?.enabled !== false) {
         const rawCliAnything =
-          (fileConfigSource.config as MetaGovernorPluginConfig | undefined)
-            ?.cliAnything ??
           (options?.meta_governor as MetaGovernorPluginConfig | undefined)
+            ?.cliAnything ??
+          (fileConfigSource.config as MetaGovernorPluginConfig | undefined)
             ?.cliAnything;
         const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
         runCliSyncImpl({
