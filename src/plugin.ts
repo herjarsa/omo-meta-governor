@@ -341,22 +341,47 @@ export function createMetaGovernorPlugin(
   // v0.24.3: detect stale npm cache. When opencode caches an older version,
   // the plugin loads silently with outdated code. This async check runs
   // once at load time and warns the user if a newer version exists.
+  // v0.35.0 (audit fix F16): cache the npm registry check with a 24h TTL
+  // so opencode restart loops do not hammer the registry.
   (async () => {
+    const CACHE_PATH = resolve(homedir(), ".config", "opencode", "omo-meta-governor-self-version-cache.json")
+    const TTL_MS = 24 * 60 * 60 * 1000
+    let cached: { latest: string; checkedAtMs: number } | null = null
     try {
-      const { execSync } = await import("node:child_process");
-      const latest = execSync("npm view @herjarsa/omo-meta-governor version", {
-        timeout: 5000,
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-      }).trim();
-      if (latest && latest !== DEFAULT_VERSION) {
-        logToFile(
-          "warn",
-          `STALE_CACHE: loaded v${DEFAULT_VERSION} but npm has v${latest}. Run: npm cache clean --force && rm -rf ~/.cache/opencode/packages/@herjarsa/omo-meta-governor*`,
-        );
+      const raw = readFileSync(CACHE_PATH, "utf-8")
+      const parsed = JSON.parse(raw) as { latest?: unknown; checkedAtMs?: unknown }
+      if (typeof parsed.latest === "string" && typeof parsed.checkedAtMs === "number"
+          && Date.now() - parsed.checkedAtMs < TTL_MS) {
+        cached = { latest: parsed.latest, checkedAtMs: parsed.checkedAtMs }
       }
-    } catch {
-      // npm unreachable or not installed â€” don't block plugin load
+    } catch { /* cache miss */ }
+
+    let latest: string | null = cached?.latest ?? null
+    if (!latest) {
+      try {
+        const { execSync } = await import("node:child_process");
+        latest = execSync("npm view @herjarsa/omo-meta-governor version", {
+          timeout: 5000,
+          encoding: "utf-8",
+          stdio: ["pipe", "pipe", "pipe"],
+        }).trim() || null;
+        if (latest) {
+          try {
+            const dir = CACHE_PATH.replace(/[\\/][^\\/]+$/, "")
+            const { mkdirSync, writeFileSync } = await import("node:fs")
+            mkdirSync(dir, { recursive: true })
+            writeFileSync(CACHE_PATH, JSON.stringify({ latest, checkedAtMs: Date.now() }))
+          } catch { /* best-effort cache write */ }
+        }
+      } catch {
+        // npm unreachable or not installed -- do not block plugin load
+      }
+    }
+    if (latest && latest !== DEFAULT_VERSION) {
+      logToFile(
+        "warn",
+        `STALE_CACHE: loaded v${DEFAULT_VERSION} but npm has v${latest}. Run: npm cache clean --force && rm -rf ~/.cache/opencode/packages/@herjarsa/omo-meta-governor*`,
+      );
     }
   })();
 
