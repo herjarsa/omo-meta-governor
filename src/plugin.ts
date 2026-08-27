@@ -553,7 +553,7 @@ const graphSyncReadyProjects = new Set<string>();
             graphSyncReadyProjects.add(sessionProjectDir);
           }
 })
-        .catch(() => {});
+        .catch((err) => { logToFile("warn", `graphSync init failed: ${String(err)}`); });
       // v0.28.0: CLI-Anything hub auto-install + auto-upgrade (parallel to graph-sync).
       // Fire-and-forget; never blocks the factory. Mirrors graph-sync so the
       // same caching, TTL, and runner DI seams apply.
