@@ -2174,7 +2174,7 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
         const violEntry = pendingViolations.get(currentSessionID);
         const suppressViolations = Boolean(state?.backgroundTaskInFlight || state?.oracleInFlight);
         const isTestRun = Boolean(deps.__test_persistSessionMessage);
-if (isTestRun && !suppressViolations && violEntry && violEntry.expiresAtMs > Date.now()) {
+        if (!suppressViolations && violEntry && violEntry.expiresAtMs > Date.now()) {
           const violations = violEntry.items;
           if (violations.length > 0) {
             pendingViolations.delete(currentSessionID);
