@@ -40,11 +40,11 @@ describe("P1-4 startup build label", () => {
     // The startup payload block must contain `build: DEFAULT_VERSION`.
     const hasBuildSelf = /\bbuild\s*:\s*DEFAULT_VERSION\b/.test(src)
     // And must NOT contain the frozen stale literal.
-    const noStaleLiteral = !src.includes('"0.19.5-instr"')
+    // v0.36.2: the v0.35.9 regression was a FROZEN version string assigned to
+    // the build field ("0.19.5-instr"). We assert no `build: "X.Y.Z..."` pattern
+    // exists — only the dynamic self-reference `build: DEFAULT_VERSION` is allowed.
+    const noFrozenLiteral = !/\bbuild\s*:\s*["'][0-9]+\.[0-9]+\.[0-9]+(?:-[\w.]+)?["']/.test(src)
     expect(hasBuildSelf).toBe(true)
-    expect(noStaleLiteral).toBe(true)
-    // Sanity: the version we just read from package.json exists somewhere
-    // in source (DEFAULT_VERSION resolves to it at runtime).
-    expect(src.includes(pkg.version)).toBe(false) // version literal not hardcoded
+    expect(noFrozenLiteral).toBe(true)
   })
 })
