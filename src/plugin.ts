@@ -309,7 +309,7 @@ export function createMetaGovernorPlugin(
   // (user-reported 14/08/2026, after publishing v0.21.0 with `@latest`).
   logToFile("info", `v${DEFAULT_VERSION} MetaGovernor plugin loaded`, {
     version: DEFAULT_VERSION,
-    build: "0.19.5-instr",
+    build: DEFAULT_VERSION,
     cwd,
     projectHasCodegraph: graphRetrieval.hasCodegraphDir(cwd),
     projectHasGraphify: graphRetrieval.hasGraphifyDir(cwd),
@@ -553,7 +553,7 @@ const graphSyncReadyProjects = new Set<string>();
             graphSyncReadyProjects.add(sessionProjectDir);
           }
 })
-        .catch(() => {});
+        .catch((err) => { logToFile("warn", `graphSync init failed: ${String(err)}`); });
       // v0.28.0: CLI-Anything hub auto-install + auto-upgrade (parallel to graph-sync).
       // Fire-and-forget; never blocks the factory. Mirrors graph-sync so the
       // same caching, TTL, and runner DI seams apply.
@@ -562,9 +562,9 @@ const graphSyncReadyProjects = new Set<string>();
       // avoid spawning real pip/npx under factory invocation.
       if (mergedConfig.cliAnything?.enabled !== false) {
         const rawCliAnything =
-          (fileConfigSource.config as MetaGovernorPluginConfig | undefined)
-            ?.cliAnything ??
           (options?.meta_governor as MetaGovernorPluginConfig | undefined)
+            ?.cliAnything ??
+          (fileConfigSource.config as MetaGovernorPluginConfig | undefined)
             ?.cliAnything;
         const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
         runCliSyncImpl({
@@ -2174,7 +2174,7 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
         const violEntry = pendingViolations.get(currentSessionID);
         const suppressViolations = Boolean(state?.backgroundTaskInFlight || state?.oracleInFlight);
         const isTestRun = Boolean(deps.__test_persistSessionMessage);
-if (isTestRun && !suppressViolations && violEntry && violEntry.expiresAtMs > Date.now()) {
+        if (!suppressViolations && violEntry && violEntry.expiresAtMs > Date.now()) {
           const violations = violEntry.items;
           if (violations.length > 0) {
             pendingViolations.delete(currentSessionID);
