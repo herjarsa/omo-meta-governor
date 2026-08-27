@@ -1,3 +1,18 @@
+## [0.35.7] - 2026-08-27
+
+### Fixed
+
+- **Dead link in `omo_skill_get`**: `Skill not found` message suggested `omo_skill_sync` which does not exist, trapping agents in a loop. Now suggests `omo_skill_find` or `omo_skill_add <owner/repo>` directly.
+- **`installed-partial` for repos without `SKILL.md`**: when `npx skills add` exits 0 with `No skills found` but files were materialised under `.agents/skills/`, return `kind=installed-partial` instead of `no-skills-materialized`. This unlocks the skill-priming gate so agents that honoured the protocol can continue.
+
+### Added
+
+- New `kind=installed-partial` in `omo_skill_add` — probe checks `.agents/skills/` under `deps.cwd` for entries and for `SKILL.md`.
+
+### Tests
+
+- 947/947 pass.
+
 ## [0.35.6] - 2026-08-27
 
 ### Added
