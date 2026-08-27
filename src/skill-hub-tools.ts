@@ -665,12 +665,36 @@ export function buildOmoSkillAddTool(deps: OmoSkillAddDeps) {
           // Best-effort — if upsert fails, the install still succeeded
         }
 
-        // --- Step 3: Return installation result ---
+        // --- Step 3: Detect no-skills-materialized failure mode ---
+        // v0.35.5 (Bug C): npx skills add can exit 0 even when the cloned repo
+        // has no valid SKILL.md. The stdout contains "No skills found" /
+        // "No valid skills found" in that case. We MUST surface this to the agent
+        // so it does not believe the install succeeded and loop forever.
+        const noSkillsMaterialized = /No\s+(valid\s+)?skills?\s+found/i.test(stdout) ||
+          /requires?\s+a\s+SKILL\.md/i.test(stdout)
+
+        // --- Step 4: Return installation result ---
         let output = "Skill installation result:\n"
-        if (code === 0) {
+        let kind: "installed" | "no-skills-materialized" | "install-failed"
+        if (noSkillsMaterialized) {
+          kind = "no-skills-materialized"
+          output += `The skill id "${id}" cloned the repository successfully but the repo\n`
+          output += `contained NO valid SKILL.md files. npx skills add exited 0 but\n`
+          output += `no skill material was written to .agents/skills/.\n\n`
+          output += `stdout: ${stdout}\n\n`
+          output += `Diagnostic: this happens when the id is a path into a repo that\n`
+          output += `has no skill manifests, OR the id points to a sub-directory that\n`
+          output += `the skills CLI does not recognise as a skill. Try a parent-level\n`
+          output += `id (e.g. "owner/repo" instead of "owner/repo/some/deep/path"), or\n`
+          output += `search the catalog with omo_skill_find first to find the canonical\n`
+          output += `slug. Skill ids that worked: "vercel-labs/agent-skills",\n`
+          output += `"anthropics/skills", "modelcontextprotocol/registry".`
+        } else if (code === 0) {
+          kind = "installed"
           output += `stdout: ${stdout}\n`
           output += `Skill "${id}" installed successfully and added to local catalog.`
         } else {
+          kind = "install-failed"
           output += `stderr: ${stderr}\n`
           output += `Skill install exited with code ${code}. ` +
             `stdout: ${stdout}. ` +
@@ -678,12 +702,17 @@ export function buildOmoSkillAddTool(deps: OmoSkillAddDeps) {
         }
 
         return {
-          title: `omo_skill_add: ${id} installed`,
+          title:
+            kind === "installed"
+              ? `omo_skill_add: ${id} installed`
+              : kind === "no-skills-materialized"
+                ? `omo_skill_add: ${id} - no skills materialized`
+                : `omo_skill_add: ${id} install failed`,
           output,
           metadata: {
             tool: "omo_skill_add",
             id,
-            kind: "installed",
+            kind,
             timedOut: result.timedOut ?? false,
             durationMs: Date.now() - start,
             sessionID: ctx.sessionID,

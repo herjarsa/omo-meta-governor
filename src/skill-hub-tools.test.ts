@@ -310,6 +310,134 @@ describe("v0.35.3 Bug A - omo_skill_add passes cwd to npx (project .agents/skill
   })
 })
 
+
+describe("v0.35.5 Bug C - omo_skill_add must detect 'No skills found' in stdout", () => {
+  it("then returns kind=no-skills-materialized when npx cloned the repo but found 0 SKILL.md", async () => {
+    // Real npx skills add output when a repo has no valid SKILL.md:
+    //   exit code 0, stdout contains "No skills found" and "No valid skills found"
+    const mockRunner = async (
+      _cmd: string,
+      _args: string[],
+      _opts: { timeoutMs: number; cwd?: string },
+    ): Promise<{ stdout: string; stderr: string; code: number | null; timedOut: boolean }> => {
+      return {
+        stdout:
+          "Cloning repository...\n" +
+          "Repository cloned\n" +
+          "No skills found\n" +
+          "No valid skills found. Skills require a SKILL.md with name and description.\n",
+        stderr: "",
+        code: 0,
+        timedOut: false,
+      }
+    }
+
+    const fakeSqlite: SqliteBackend = {
+      db: {
+        prepare: () => ({ all: () => [], get: () => null, run: () => ({ lastChanges: 0, changes: {} }) }),
+        exec: () => {},
+      } as any,
+      close: () => {},
+    } as unknown as SqliteBackend
+
+    const t = buildOmoSkillAddTool({
+      sqlite: fakeSqlite,
+      cwd: "D:\\GITHUB\\small_caps_monitor",
+      runner: mockRunner,
+    })
+    const result = await (t.execute as any)(
+      { id: "jiatastic/open-python-skills/python-backend", confirm: true },
+      { sessionID: "s-c-1" },
+    )
+    // The agent MUST see this is a failure, not a success.
+    expect(result.metadata.kind).not.toBe("installed")
+    expect(result.metadata.kind).toBe("no-skills-materialized")
+    // Output must contain actionable diagnostic
+    expect(result.output).toContain("No skills found")
+    expect(result.output.toLowerCase()).toContain("skill.md")
+    // And explicit guidance
+    expect(result.output).toMatch(/SKILL\.md|name.*description/i)
+  })
+
+  it("then still returns kind=installed when stdout has actual SKILL.md hits", async () => {
+    const mockRunner = async (
+      _cmd: string,
+      _args: string[],
+      _opts: { timeoutMs: number; cwd?: string },
+    ): Promise<{ stdout: string; stderr: string; code: number | null; timedOut: boolean }> => {
+      return {
+        stdout:
+          "Cloning repository...\n" +
+          "Repository cloned\n" +
+          "Installed 1 skill\n" +
+          "Installed: python-websocket\n",
+        stderr: "",
+        code: 0,
+        timedOut: false,
+      }
+    }
+
+    const fakeSqlite: SqliteBackend = {
+      db: {
+        prepare: () => ({ all: () => [], get: () => null, run: () => ({ lastChanges: 0, changes: {} }) }),
+        exec: () => {},
+      } as any,
+      close: () => {},
+    } as unknown as SqliteBackend
+
+    const t = buildOmoSkillAddTool({
+      sqlite: fakeSqlite,
+      cwd: "/app/project",
+      runner: mockRunner,
+    })
+    const result = await (t.execute as any)(
+      { id: "owner/repo/python-websocket", confirm: true },
+      { sessionID: "s-c-2" },
+    )
+    expect(result.metadata.kind).toBe("installed")
+    expect(result.output).toContain("installed successfully")
+  })
+
+  it("then the agent sees the diagnostic but the gate STILL unlocks (no false block)", async () => {
+    // The install failed but the agent already TRIED the canonical protocol.
+    // It would be wrong to block the next write too.
+    const mockRunner = async (
+      _cmd: string,
+      _args: string[],
+      _opts: { timeoutMs: number; cwd?: string },
+    ): Promise<{ stdout: string; stderr: string; code: number | null; timedOut: boolean }> => {
+      return {
+        stdout: "Repository cloned\nNo skills found\nNo valid skills found.\n",
+        stderr: "",
+        code: 0,
+        timedOut: false,
+      }
+    }
+
+    const fakeSqlite: SqliteBackend = {
+      db: {
+        prepare: () => ({ all: () => [], get: () => null, run: () => ({ lastChanges: 0, changes: {} }) }),
+        exec: () => {},
+      } as any,
+      close: () => {},
+    } as unknown as SqliteBackend
+
+    const t = buildOmoSkillAddTool({
+      sqlite: fakeSqlite,
+      cwd: "/app/project",
+      runner: mockRunner,
+    })
+    const result = await (t.execute as any)(
+      { id: "jiatastic/open-python-skills/python-backend", confirm: true },
+      { sessionID: "s-c-3" },
+    )
+    // Gate logic in plugin.ts uses kind !== "error" as the unlock condition.
+    // "no-skills-materialized" is not an error (npx exit 0) so the gate should still unlock.
+    expect(result.metadata.kind).toBe("no-skills-materialized")
+    expect(result.metadata.kind).not.toBe("error")
+  })
+})
+
 describe("v0.35.3 Bug B - skill-find gate unlocks on omo_skill_add and omo_skill_get", () => {
   it("then tool.execute.after on omo_skill_add adds sessionID to skillFindCalled", async () => {
     // We test the gate by going through plugin.test.ts helpers since the gate lives in plugin.ts.
