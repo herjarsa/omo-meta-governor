@@ -6,8 +6,9 @@
  * > factory). An operator disabling cliAnything inline was silently
  * re-enabled by the user-level file.
  *
- * v0.36.1: behavioral test using __test_runCliAnythingSync DI seam to
- * capture the resolved autoInstall value and assert options wins.
+ * v0.36.1: behavioral test using __test_runCliAnythingSync DI seam. The
+ * stub exposes a Promise that resolves on call, so the test can await
+ * the microtask deterministically (no setImmediate race on Windows CI).
  */
 import { describe, expect, it, beforeEach } from "bun:test"
 import type { PluginInput, PluginOptions } from "@opencode-ai/plugin"
@@ -29,8 +30,27 @@ interface CapturedCall {
   autoUpgrade: boolean
 }
 
-function makeHermeticDeps(captured: CapturedCall[]): MetaGovernorPluginDeps {
-  return {
+/**
+ * Build hermetic deps with a stub that signals when called. Returns
+ * { deps, onCalled } where onCalled is a Promise resolving once the
+ * __test_runCliAnythingSync stub is invoked. Tests that expect zero
+ * calls use a timeout on onCalled.race to fail fast.
+ */
+function makeHermeticDeps(): {
+  deps: MetaGovernorPluginDeps
+  onCalled: Promise<CapturedCall>
+  reset: () => void
+  captured: CapturedCall
+} {
+  let resolveCalled: ((c: CapturedCall) => void) | null = null
+  let capturedValue: CapturedCall | null = null
+  const capturedRef: { current: CapturedCall | null } = { current: null }
+
+  const onCalled = new Promise<CapturedCall>((resolve) => {
+    resolveCalled = resolve
+  })
+
+  const deps: MetaGovernorPluginDeps = {
     __test_runGraphSync: async () => ({
       attempted: false,
       codes: ["disabled"],
@@ -43,10 +63,13 @@ function makeHermeticDeps(captured: CapturedCall[]): MetaGovernorPluginDeps {
       alreadyInitialized: true,
     }),
     __test_runCliAnythingSync: async (opts) => {
-      captured.push({
+      const c: CapturedCall = {
         autoInstall: opts.autoInstall ?? false,
         autoUpgrade: opts.autoUpgrade ?? false,
-      })
+      }
+      capturedValue = c
+      capturedRef.current = c
+      resolveCalled?.(c)
       return {
         attempted: true,
         codes: ["mock"],
@@ -62,14 +85,38 @@ function makeHermeticDeps(captured: CapturedCall[]): MetaGovernorPluginDeps {
     }),
     __test_persistRetryDelayMs: 0,
   }
+
+  return {
+    deps,
+    onCalled,
+    reset: () => {
+      capturedValue = null
+      capturedRef.current = null
+    },
+    get captured(): CapturedCall {
+      return capturedRef.current as CapturedCall
+    },
+  }
+}
+
+async function waitForCliAnythingCall(
+  onCalled: Promise<CapturedCall>,
+  timeoutMs: number = process.platform === "win32" ? 5000 : 500,
+): Promise<CapturedCall | null> {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const timeoutPromise = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), timeoutMs)
+  })
+  const result = await Promise.race([onCalled, timeoutPromise])
+  if (timer) clearTimeout(timer)
+  return result
 }
 
 describe("P2-1 rawCliAnything precedence: options > file", () => {
   beforeEach(() => clearAll())
 
   it("then options.cliAnything.enabled=false wins over file cliAnything enabled", async () => {
-    const captured: CapturedCall[] = []
-    const deps = makeHermeticDeps(captured)
+    const { deps, onCalled } = makeHermeticDeps()
     const plugin = createMetaGovernorPlugin(
       { cliAnything: { enabled: true, autoInstall: true, autoUpgrade: true } } as never,
       deps,
@@ -81,13 +128,14 @@ describe("P2-1 rawCliAnything precedence: options > file", () => {
       } as never,
     }
     await plugin(mockPluginInput, opts)
-    await new Promise((r) => setImmediate(r))
-    expect(captured.length).toBe(0)
+    const called = await waitForCliAnythingCall(onCalled, 500)
+    // After the v0.36.1 fix, options.cliAnything.enabled=false must win,
+    // so __test_runCliAnythingSync must NOT have been called.
+    expect(called).toBeNull()
   })
 
   it("then options.cliAnything.autoInstall=true overrides file autoInstall=false", async () => {
-    const captured: CapturedCall[] = []
-    const deps = makeHermeticDeps(captured)
+    const { deps, onCalled } = makeHermeticDeps()
     const plugin = createMetaGovernorPlugin(
       { cliAnything: { enabled: true, autoInstall: false, autoUpgrade: false } } as never,
       deps,
@@ -99,9 +147,9 @@ describe("P2-1 rawCliAnything precedence: options > file", () => {
       } as never,
     }
     await plugin(mockPluginInput, opts)
-    await new Promise((r) => setImmediate(r))
-    expect(captured.length).toBe(1)
-    expect(captured[0]!.autoInstall).toBe(true)
-    expect(captured[0]!.autoUpgrade).toBe(true)
+    const called = await waitForCliAnythingCall(onCalled, 2000)
+    expect(called).not.toBeNull()
+    expect(called!.autoInstall).toBe(true)
+    expect(called!.autoUpgrade).toBe(true)
   })
 })
