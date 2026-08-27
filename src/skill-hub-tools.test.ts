@@ -531,6 +531,132 @@ describe("v0.35.3 Bug B - skill-find gate unlocks on omo_skill_add and omo_skill
       { tool: "write", sessionID: "bug-b-s-2", callID: "c2" },
       { args: { filePath: "/app/src/core.ts", content: bigContent } },
     )
-    // No throw means gate is unlocked
+// No throw means gate is unlocked
+})
+})
+
+describe("v0.35.6 - cwd contract for omo_skill_add (deterministic, no network)", () => {
+  // Pin the contract that motivated v0.35.3 + v0.35.5: when omo_skill_add is invoked,
+  // the runner MUST receive cwd=deps.cwd so that npx skills add clones into the
+  // project's canonical .agents/skills/ directory. This is the unit-level guarantee;
+  // the E2E shell-out to real npx is covered by the probe-compare runs in CI logs.
+
+  it("then runner receives cwd=<projectDir> when deps.cwd is set (Windows path with spaces)", async () => {
+    let capturedOpts: any = null
+    const capturingRunner = async (
+      _cmd: string,
+      _args: string[],
+      opts: { timeoutMs: number; cwd?: string },
+    ) => {
+      capturedOpts = opts
+      return {
+        stdout: "Cloning repository... Repository cloned\nInstalled 1 skill\n",
+        stderr: "",
+        code: 0,
+        timedOut: false,
+      }
+    }
+
+    const fakeSqlite: SqliteBackend = {
+      db: {
+        prepare: () => ({ all: () => [], get: () => null, run: () => ({ lastChanges: 0, changes: {} }) }),
+        exec: () => {},
+      } as any,
+      close: () => {},
+    } as unknown as SqliteBackend
+
+    const projectCwd = "D:\\Users\\me\\My Project\\app"
+    const t = buildOmoSkillAddTool({
+      sqlite: fakeSqlite,
+      cwd: projectCwd,
+      runner: capturingRunner,
+    })
+    const result = await (t.execute as any)(
+      { id: "vercel-labs/agent-skills", confirm: true },
+      { sessionID: "v0356-cwd-spaces" },
+    )
+
+    // cwd contract: the runner MUST receive the exact project cwd
+    expect(capturedOpts).not.toBeNull()
+    expect(capturedOpts.cwd).toBe(projectCwd)
+    expect(result.metadata.kind).toBe("installed")
+  })
+
+  it("then two independent calls with different cwds each get their own cwd (no cross-contamination)", async () => {
+    const capturedCwds: string[] = []
+    const capturingRunner = async (
+      _cmd: string,
+      _args: string[],
+      opts: { timeoutMs: number; cwd?: string },
+    ) => {
+      capturedCwds.push(opts.cwd ?? "")
+      return {
+        stdout: "Cloning repository... Repository cloned\nInstalled 1 skill\n",
+        stderr: "",
+        code: 0,
+        timedOut: false,
+      }
+    }
+
+    const fakeSqlite: SqliteBackend = {
+      db: {
+        prepare: () => ({ all: () => [], get: () => null, run: () => ({ lastChanges: 0, changes: {} }) }),
+        exec: () => {},
+      } as any,
+      close: () => {},
+    } as unknown as SqliteBackend
+
+    const cwdA = "D:\\GITHUB\\project-A"
+    const cwdB = "D:\\GITHUB\\project-B"
+
+    const tA = buildOmoSkillAddTool({ sqlite: fakeSqlite, cwd: cwdA, runner: capturingRunner })
+    const tB = buildOmoSkillAddTool({ sqlite: fakeSqlite, cwd: cwdB, runner: capturingRunner })
+
+    await (tA.execute as any)(
+      { id: "vercel-labs/agent-skills", confirm: true },
+      { sessionID: "v0356-A" },
+    )
+    await (tB.execute as any)(
+      { id: "anthropics/skills/pdf", confirm: true },
+      { sessionID: "v0356-B" },
+    )
+
+    expect(capturedCwds).toEqual([cwdA, cwdB])
+  })
+
+  it("then the runner is invoked with timeoutMs >= 30s (proc-guard guard band)", async () => {
+    let capturedOpts: any = null
+    const capturingRunner = async (
+      _cmd: string,
+      _args: string[],
+      opts: { timeoutMs: number; cwd?: string },
+    ) => {
+      capturedOpts = opts
+      return {
+        stdout: "Cloning repository... Repository cloned\nInstalled 1 skill\n",
+        stderr: "",
+        code: 0,
+        timedOut: false,
+      }
+    }
+
+    const fakeSqlite: SqliteBackend = {
+      db: {
+        prepare: () => ({ all: () => [], get: () => null, run: () => ({ lastChanges: 0, changes: {} }) }),
+        exec: () => {},
+      } as any,
+      close: () => {},
+    } as unknown as SqliteBackend
+
+    const t = buildOmoSkillAddTool({
+      sqlite: fakeSqlite,
+      cwd: "D:\\test",
+      runner: capturingRunner,
+    })
+    await (t.execute as any)(
+      { id: "vercel-labs/agent-skills", confirm: true },
+      { sessionID: "v0356-timeout" },
+    )
+    expect(capturedOpts.timeoutMs).toBeGreaterThanOrEqual(30_000)
   })
 })
