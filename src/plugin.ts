@@ -99,7 +99,7 @@ import { GraphRetrieval, getDefaultGraphRetrieval, configureDefaultGraphRetrieva
 import { AuditStateCache } from "./audit-state-cache";
 import { DEFAULT_VERSION } from "./metrics";
 import { statSync, readFileSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { execSync, execFileSync } from "node:child_process";
 import { join } from "node:path";
 import {
   loadProtocol,
@@ -1306,9 +1306,12 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
               | { subagent_type?: string; run_in_background?: boolean }
               | undefined;
             const subagentType = args?.subagent_type;
+            // v0.35.0 (audit fix F17): structured JSON parse, not substring match.
+            // String match could be tripped by echoed log lines that incidentally
+            // contain the literal "subagent_type=oracle".
             const invokedOracle =
               subagentType === "oracle" ||
-              out.includes("subagent_type=oracle");
+              /"subagent_type"\s*:\s*"oracle"/.test(out);
             if (invokedOracle) {
               sessionState.oracleInvoked = true;
               // v0.24.0: if Oracle is running in background, suppress interventions
@@ -1478,8 +1481,10 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
           // matched substring so we only count the FIRST occurrence per
           // distinct text. Recent hashes live in auditSessions via the
           // shared state (see recentPwArgsHashes).
+          // v0.35.0 (audit fix F17): structured JSON parse
           const pwOracleCall =
-            toolInput.tool === "task" && pwText.includes("subagent_type=oracle")
+            toolInput.tool === "task" &&
+            /"subagent_type"\s*:\s*"oracle"/.test(pwText)
           if (pwWaveN !== null || pwOracleCall) {
             const auditStateForPw = auditSessions.get(toolInput.sessionID);
             if (auditStateForPw) {
@@ -2634,7 +2639,6 @@ export function isGitPushCommand(command: string | undefined | null): boolean {
 /** Get current HEAD SHA (short, 8 chars) for a project dir. */
 function getCurrentSha(projectDir: string): string | null {
   try {
-    const { execFileSync } = require("node:child_process") as typeof import("node:child_process")
     const out = execFileSync("git", ["rev-parse", "HEAD"], {
       cwd: projectDir,
       encoding: "utf-8",
@@ -2651,7 +2655,6 @@ function getCurrentSha(projectDir: string): string | null {
 /** Get current branch name for a project dir. */
 function getCurrentBranch(projectDir: string): string | null {
   try {
-    const { execFileSync } = require("node:child_process") as typeof import("node:child_process")
     const out = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
       cwd: projectDir,
       encoding: "utf-8",

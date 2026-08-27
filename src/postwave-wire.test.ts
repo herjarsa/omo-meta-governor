@@ -80,7 +80,7 @@ describe("post-wave wire (tool.execute.after)", () => {
       { tool: "task", sessionID: "s-pw", callID: "c2", args: {} },
       {
         title: "oracle",
-        output: "subagent_type=oracle\nVERDICT: APPROVE",
+        output: '{"subagent_type":"oracle", "verdict":"APPROVE"}',
         metadata: {},
       },
     )
@@ -92,7 +92,7 @@ describe("post-wave wire (tool.execute.after)", () => {
     // 3. Second oracle call → NOT re-injected (once per wave).
     await after(
       { tool: "task", sessionID: "s-pw", callID: "c3", args: {} },
-      { title: "oracle", output: "subagent_type=oracle", metadata: {} },
+      { title: "oracle", output: '{"subagent_type":"oracle"}', metadata: {} },
     )
     expect(prompts.length).toBe(1)
   })
@@ -115,7 +115,7 @@ describe("post-wave wire (tool.execute.after)", () => {
     )
     await after(
       { tool: "task", sessionID: "s-pw2", callID: "c2", args: {} },
-      { title: "oracle", output: "subagent_type=oracle", metadata: {} },
+      { title: "oracle", output: '{"subagent_type":"oracle"}', metadata: {} },
     )
     expect(prompts.length).toBe(0)
   })
@@ -138,7 +138,7 @@ describe("post-wave wire (tool.execute.after)", () => {
     )
     await after(
       { tool: "task", sessionID: "s-pw3", callID: "c2", args: {} },
-      { title: "oracle", output: "subagent_type=oracle", metadata: {} },
+      { title: "oracle", output: '{"subagent_type":"oracle"}', metadata: {} },
     )
     expect(prompts.length).toBe(1)
     expect(prompts[0]!.text).toContain("THIRD-PARTY")

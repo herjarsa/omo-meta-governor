@@ -971,7 +971,7 @@ export function isNewerVersion(installed: string | null | undefined, latest: str
   const l = latest
   if (!i || i === l) return false
   // Defensive: reject non-semver strings instead of treating them as 0.0.0
-  const SEMVER_RE = /^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/
+  const SEMVER_RE = /^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/
   if (!SEMVER_RE.test(i) || !SEMVER_RE.test(l)) return false
   // Strip pre-release suffix for base comparison
   const parseBase = (v: string): [number, number, number, string] => {
