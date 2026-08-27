@@ -31,6 +31,8 @@ import {
 } from "./skills-resolver.js"
 import { materializeSkill } from "./skills-materialize.js"
 import { shouldSendReminder, formatReminder, type Tier3ReminderState } from "./skills-tier3-reminder.js"
+// v0.35.7: detect files actually cloned under .agents/skills/
+import { existsSync, readdirSync } from "node:fs"
 
 
 
@@ -445,8 +447,8 @@ export function buildOmoSkillGetTool(deps: OmoSkillGetDeps) {
               title: "omo_skill_get: skill not found",
               output:
                 `Skill "${skillId}" not found in the skill-hub catalog. ` +
-                `Try running \`omo_skill_sync\` to update the local catalog, ` +
-                `or use \`omo_skill_find\` to browse available skills.`,
+                `Use \`omo_skill_find\` to browse available skills, ` +
+                `or run \`omo_skill_add <owner/repo>\` to install directly from GitHub.`,
               metadata: {
                 tool: "omo_skill_get",
                 id: skillId,
@@ -670,13 +672,35 @@ export function buildOmoSkillAddTool(deps: OmoSkillAddDeps) {
         // has no valid SKILL.md. The stdout contains "No skills found" /
         // "No valid skills found" in that case. We MUST surface this to the agent
         // so it does not believe the install succeeded and loop forever.
-        const noSkillsMaterialized = /No\s+(valid\s+)?skills?\s+found/i.test(stdout) ||
+        //
+        // v0.35.7 (Bug D follow-up): if the cloned repo has no SKILL.md but the
+        // agent already attempted the canonical install, return `installed-partial`
+        // so the gate unlocks. The agent has honoured the protocol; failing again
+        // would loop it forever.
+        const noSkillsMaterialized =
+          /No\s+(valid\s+)?skills?\s+found/i.test(stdout) ||
           /requires?\s+a\s+SKILL\.md/i.test(stdout)
+
+        // Probe .agents/skills/ under deps.cwd for any materialised files.
+        const skillsDir = join(deps.cwd, ".agents", "skills")
+        let materialisedEntries: string[] = []
+        let materialisedHasSkillMd = false
+        if (existsSync(skillsDir)) {
+          try {
+            materialisedEntries = readdirSync(skillsDir)
+            materialisedHasSkillMd = materialisedEntries.some((e) =>
+              existsSync(join(skillsDir, e, "SKILL.md")),
+            )
+          } catch {
+            // best effort
+          }
+        }
 
         // --- Step 4: Return installation result ---
         let output = "Skill installation result:\n"
-        let kind: "installed" | "no-skills-materialized" | "install-failed"
-        if (noSkillsMaterialized) {
+        let kind: "installed" | "installed-partial" | "no-skills-materialized" | "install-failed"
+        if (noSkillsMaterialized && materialisedEntries.length === 0) {
+          // Pure failure: npx exit 0, nothing on disk, no SKILL.md anywhere.
           kind = "no-skills-materialized"
           output += `The skill id "${id}" cloned the repository successfully but the repo\n`
           output += `contained NO valid SKILL.md files. npx skills add exited 0 but\n`
@@ -689,6 +713,25 @@ export function buildOmoSkillAddTool(deps: OmoSkillAddDeps) {
           output += `search the catalog with omo_skill_find first to find the canonical\n`
           output += `slug. Skill ids that worked: "vercel-labs/agent-skills",\n`
           output += `"anthropics/skills", "modelcontextprotocol/registry".`
+        } else if (
+          noSkillsMaterialized &&
+          materialisedEntries.length > 0 &&
+          !materialisedHasSkillMd
+        ) {
+          // Partial: repo cloned, files on disk, but no canonical SKILL.md.
+          // Treat as success so the gate unlocks — the agent tried the right path.
+          kind = "installed-partial"
+          output += `Repository was cloned into .agents/skills/ but no canonical SKILL.md\n`
+          output += `was found in any entry. The skill protocol has been honoured — the\n`
+          output += `files are on disk and the gate will unlock so you can continue.\n\n`
+          output += `Materialised entries (${materialisedEntries.length}):\n`
+          for (const entry of materialisedEntries) {
+            output += `  - ${entry}\n`
+          }
+          output += `\nstdout: ${stdout}\n\n`
+          output += `If the skill you wanted is not here, try a parent-level id\n`
+          output += `(e.g. "owner/repo" instead of "owner/repo/sub/path"), or run\n`
+          output += `omo_skill_find to browse the canonical catalog.`
         } else if (code === 0) {
           kind = "installed"
           output += `stdout: ${stdout}\n`
@@ -705,9 +748,11 @@ export function buildOmoSkillAddTool(deps: OmoSkillAddDeps) {
           title:
             kind === "installed"
               ? `omo_skill_add: ${id} installed`
-              : kind === "no-skills-materialized"
-                ? `omo_skill_add: ${id} - no skills materialized`
-                : `omo_skill_add: ${id} install failed`,
+              : kind === "installed-partial"
+                ? `omo_skill_add: ${id} installed (partial - no SKILL.md)`
+                : kind === "no-skills-materialized"
+                  ? `omo_skill_add: ${id} - no skills materialized`
+                  : `omo_skill_add: ${id} install failed`,
           output,
           metadata: {
             tool: "omo_skill_add",
