@@ -39,6 +39,10 @@ import { getDefaultSqliteBackend } from "./sqlite-backend"
 import { loadOrchestratorConfig } from "./config"
 import { loadMetaGovernorConfig } from "./config-file"
 import { runSkillHubSync } from "./skill-hub-sync"
+import {
+  ENFORCEMENT_RESOURCE_URIS,
+  readEnforcementResource,
+} from "./enforcement-resources"
 const SERVER_NAME = "omo-meta-governor-mcp"
 
 /**
@@ -105,9 +109,13 @@ async function main(): Promise<void> {
     },
     {
       capabilities: {
-        // Tools only — no resources, no prompts. Match what omo-meta-governor
-        // exposes as plugin tools; nothing else.
+        // v0.37.0: expose enforcement resources so OpenChamber agents can
+        // read the same rules (Oracle gate, agentmemory, skill-priming,
+        // protocol) that plugin-CLI mode injects via system.transform.
+        // Without these resources, OpenChamber receives zero enforcement
+        // because the plugin factory never runs in HTTP/sidecar mode.
         tools: {},
+        resources: {},
       },
     },
   )
@@ -133,6 +141,35 @@ async function main(): Promise<void> {
             text: message,
             isError: true,
           })
+        }
+      },
+    )
+  }
+
+  // v0.37.0: register enforcement resources. Agent reads them at startup
+  // via resources/read to learn the Oracle gate, agentmemory, skill-priming,
+  // and protocol rules. Works identically in OpenChamber HTTP mode (resources
+  // only) and complements plugin-CLI mode (where the plugin factory also
+  // injects via output.system.push).
+  for (const uri of ENFORCEMENT_RESOURCE_URIS) {
+    const resourceName = uri.replace("meta-governor://", "")
+    server.resource(
+      resourceName,
+      uri,
+      { description: `MetaGovernor enforcement rule: ${uri}`, mimeType: "text/plain" },
+      async (resourceUri) => {
+        const content = readEnforcementResource(resourceUri.toString())
+        if (content === null) {
+          throw new Error(`Unknown enforcement resource: ${resourceUri}`)
+        }
+        return {
+          contents: [
+            {
+              uri: resourceUri.toString(),
+              mimeType: "text/plain",
+              text: content,
+            },
+          ],
         }
       },
     )

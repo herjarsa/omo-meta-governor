@@ -273,6 +273,92 @@ describe("experimental.chat.system.transform", () => {
       expect(output.system.some((s) => s.includes("Test stop message"))).toBe(true)
     })
   })
+
+  // v0.37.0 (audit P0-2): enforcement resources are mirrored into system prompt
+  // so plugin-CLI mode agents see the same rules that OpenChamber reads via
+  // resources/read. The agent must detect the [SYSTEM-NUDGE] prefix.
+  describe("#given enforcement resource mirroring (v0.37.0 audit P0-2)", () => {
+    const options: PluginOptions = {
+      meta_governor: {
+        enabled: true,
+        intervention: { mode: "silent" },
+        skillPriming: { enabled: false },
+        protocolEnforcement: { enabled: false },
+      },
+    }
+
+    it("then injects [SYSTEM-NUDGE] oracle rule into system prompt", async () => {
+      clearAll()
+      const plugin = createHermeticPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
+      const hooks = await plugin(mockPluginInput, options)
+      const transform = hooks["experimental.chat.system.transform"]!
+      const output = { system: ["existing"] as string[] }
+      await transform({ sessionID: "enforce-1" }, output)
+      const joined = output.system.join("\n")
+      expect(joined).toContain("[SYSTEM-NUDGE] Oracle Review Gate")
+      expect(joined).toContain('subagent_type="oracle"')
+    })
+
+    it("then injects [SYSTEM-NUDGE] agentmemory rule mentioning omo_remember", async () => {
+      clearAll()
+      const plugin = createHermeticPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
+      const hooks = await plugin(mockPluginInput, options)
+      const transform = hooks["experimental.chat.system.transform"]!
+      const output = { system: ["existing"] as string[] }
+      await transform({ sessionID: "enforce-2" }, output)
+      const joined = output.system.join("\n")
+      expect(joined).toContain("[SYSTEM-NUDGE] Lesson Capture")
+      expect(joined).toContain("omo_remember")
+    })
+
+    it("then injects [SYSTEM-NUDGE] skill-priming rule naming codegraph + graphify", async () => {
+      clearAll()
+      const plugin = createHermeticPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
+      const hooks = await plugin(mockPluginInput, options)
+      const transform = hooks["experimental.chat.system.transform"]!
+      const output = { system: ["existing"] as string[] }
+      await transform({ sessionID: "enforce-3" }, output)
+      const joined = output.system.join("\n")
+      expect(joined).toContain("[SYSTEM-NUDGE] Skill Priming")
+      expect(joined).toContain("codegraph")
+      expect(joined).toContain("graphify")
+    })
+
+    it("then injects [SYSTEM-NUDGE] protocol rule", async () => {
+      clearAll()
+      const plugin = createHermeticPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
+      const hooks = await plugin(mockPluginInput, options)
+      const transform = hooks["experimental.chat.system.transform"]!
+      const output = { system: ["existing"] as string[] }
+      await transform({ sessionID: "enforce-4" }, output)
+      const joined = output.system.join("\n")
+      expect(joined).toContain("[SYSTEM-NUDGE] Sisyphus Protocol Enforcement")
+    })
+
+    it("then does NOT inject when meta_governor is disabled (hook absent)", async () => {
+      clearAll()
+      const plugin = createHermeticPlugin({
+        graphSync: { enabled: false, autoInstall: false },
+      })
+      const hooks = await plugin(
+        mockPluginInput,
+        { meta_governor: { enabled: false } } as PluginOptions,
+      )
+      // When plugin is disabled, the factory early-returns and does NOT
+      // create the system.transform hook at all. This is correct enforcement:
+      // a disabled plugin cannot inject nudges. OpenChamber users who want
+      // enforcement must keep meta_governor enabled.
+      expect(hooks["experimental.chat.system.transform"]).toBeUndefined()
+    })
+  })
 })
 
 // ─── minActionForMessage Threshold Tests ──────────────────────────

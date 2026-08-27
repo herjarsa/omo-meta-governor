@@ -84,6 +84,12 @@ import type { PromptResult } from "./session-bridge";
 import { PendingDeliveryRegistry } from "./delivery-registry";
 import { setPendingDeliveryRegistry } from "./custom-tools";
 import { LOG_PATH, logToFile } from "./file-logger";
+import {
+  buildOracleRule,
+  buildAgentMemoryRule,
+  buildSkillPrimingRule,
+  buildProtocolRule as buildEnforcementProtocolRule,
+} from "./enforcement-resources";
 import { resolve } from "node:path";
 import { homedir } from "node:os";
 import { buildPluginHealth, createThrottledHealthWriter, describeLogFile, writeHealthToFile } from "./health";
@@ -2377,6 +2383,25 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
             "---",
           );
         }
+
+        // v0.37.0 (audit P0-2): mirror enforcement resources into the system
+        // prompt. Plugin-CLI mode agents see these rules natively; OpenChamber
+        // HTTP mode agents read them via resources/read from mcp-server.ts.
+        // The [SYSTEM-NUDGE] prefix (built into each builder) lets the LLM
+        // detect the nudge explicitly so it can't claim "I never saw that rule."
+        // Gated by mergedConfig.enabled (already checked at top of transform).
+        output.system.push(
+          "\n### Enforcement Rules (v0.37.0 audit P0-2 mirror)",
+          buildOracleRule(),
+          "---",
+          buildAgentMemoryRule(),
+          "---",
+          buildSkillPrimingRule(),
+          "---",
+          buildEnforcementProtocolRule(),
+          "---",
+        );
+
         // v0.33.1: inject skill-priming directive via system prompt (banner-free).
         // Fires ONCE per session on the first transform call where the trigger condition is met.
         // The agent sees this on every subsequent turn naturally — no blocking banner, no message queue.
