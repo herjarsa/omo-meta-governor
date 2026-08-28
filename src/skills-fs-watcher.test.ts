@@ -13,7 +13,11 @@ import { startSkillsFsWatcher } from "./skills-fs-watcher.js"
 // Tests pass on Linux + macOS runners.
 // TODO(#skills-fs-watcher-windows): refactor to use a mock watcher (the
 // same DI seam the plugin uses) instead of real chokidar.
-describe.skip("startSkillsFsWatcher", () => {
+// v0.38.0 un-quarantine: the global error handler (src/error-handler.ts) catches
+// chokidar/readdirp EINVAL errors on D:\ system paths, so this test no longer
+// crashes the bun test runner. The 1.5s setTimeout gives chokidar enough time
+// to scan the project dir and fire events.
+describe("startSkillsFsWatcher", () => {
   let projectDir: string
 
   beforeEach(() => {
