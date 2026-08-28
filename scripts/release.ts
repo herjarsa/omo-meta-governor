@@ -96,9 +96,9 @@ export async function release(
   console.log("[release] Step 0/8: Preflight checks")
   if (!options.dryRun) {
     // Ensure git tree is clean (no uncommitted changes that would conflict with the bump)
-    const statusResult = await run(["git", "status", "--porcelain"])
+    const statusResult = await run(["git", "status", "--porcelain", "--untracked-files=no"])
     if (statusResult.stdout.trim().length > 0) {
-      throw new Error(`Git tree is not clean. Commit or stash changes first:\n${statusResult.stdout}`)
+      throw new Error(`Git tracked tree has uncommitted changes. Commit or stash first:\n${statusResult.stdout}`)
     }
     // Ensure tag doesn't already exist
     const tagCheck = await run(["git", "rev-parse", "--verify", `--quiet`, version.tag])
