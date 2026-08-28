@@ -1,0 +1,25 @@
+name: test-windows-flaky
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  test-windows-flaky:
+    runs-on: windows-latest
+    continue-on-error: true   # Failures do NOT block the merge gate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+      - run: bun install
+      - name: Run previously-quarantined tests
+        run: bun test --test-name-pattern "skills-bootstrap|skills-fs-watcher|skills-integration|prod-violations-inject"
+      - name: Summary
+        if: failure()
+        run: |
+          echo "::warning::test-windows-flaky failed. This does NOT block the merge (continue-on-error: true)."
+          echo "::warning::If the failed test was un-quarantined, root-cause and either fix the test or move to a // TODO(v0.40.0) quarantine with a clear reason."
