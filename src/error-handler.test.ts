@@ -9,7 +9,7 @@ import { installGlobalErrorHandler } from "./error-handler"
 // The tests are kept in the file (skipped) so reviewers can see the expected
 // behavior contract and so un-skipping is a one-character change after the
 // implementation lands.
-describe.skip("installGlobalErrorHandler (RED phase - implementation pending)", () => {
+describe("installGlobalErrorHandler", () => {
   let teardown: (() => void) | undefined
   const capturedLogs: Array<{ level: string; msg: string; ctx: unknown }> = []
   const mockLogger = {
@@ -56,7 +56,13 @@ describe.skip("installGlobalErrorHandler (RED phase - implementation pending)", 
   it("teardown removes the handler", () => {
     const cleanup = installGlobalErrorHandler({ logger: mockLogger })
     cleanup()
+    // After teardown, our filter handler should be gone.
+    // Verify by emitting an error and checking the logger was NOT called.
+    const beforeCount = capturedLogs.length
     const err = Object.assign(new Error("EINVAL"), { code: "EINVAL", path: "D:\\pagefile.sys" })
-    expect(() => process.emit("uncaughtException", err)).toThrow()
+    // The error propagates to previousHandler (e.g., bun's test runner), which doesn't throw.
+    // We just want to verify our filter was removed (not invoked).
+    process.emit("uncaughtException", err)
+    expect(capturedLogs.length).toBe(beforeCount)
   })
 })

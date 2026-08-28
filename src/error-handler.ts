@@ -22,6 +22,31 @@ export interface ErrorHandlerOptions {
 }
 
 export function installGlobalErrorHandler(opts: ErrorHandlerOptions = {}): () => void {
-  // Implementation in Task 3
-  return () => {}
+  const paths = opts.paths ?? DEFAULT_PATH_PATTERNS
+  const errorCodes = opts.errorCodes ?? DEFAULT_ERROR_CODES
+  const logger = opts.logger ?? console
+  const previousHandler = process.listeners("uncaughtException").at(-1)
+  const handler = (err: Error & { code?: string;
+  path?: string }) => {
+    const isWatcherError =
+      err && typeof err === "object" && "code" in err && err.code
+        ? errorCodes.has(err.code)
+        : false
+    const isSystemPath = !!(err?.path && paths.some((p) => p.test(err.path!)))
+    if (isWatcherError && isSystemPath) {
+      logger.warn?.("watcher_scan_blocked", {
+        path: err.path,
+        code: err.code,
+        message: err.message,
+      })
+      return
+    }
+    if (previousHandler) {
+      ;(previousHandler as (e: Error) => void)(err)
+    } else {
+      throw err
+    }
+  }
+  process.on("uncaughtException", handler)
+  return () => process.off("uncaughtException", handler)
 }
