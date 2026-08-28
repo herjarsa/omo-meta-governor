@@ -32,6 +32,24 @@ Assert **every** recent run on this branch has `conclusion=success`. If any run 
 
 Once CI is green for the final commit:
 
+### 3b. Automated release (v0.38.0+)
+
+Instead of running steps 1-4 manually, use the release script:
+
+```bash
+bun run release 0.38.0              # actual release
+bun run release 0.38.0 --dry-run    # validate without executing
+```
+
+The script (`scripts/release.ts`) automates:
+- Bump version in package.json
+- Validate CHANGELOG has `### Ship protocol compliance` section with ✅ markers
+- Run tests, build, publish to npm
+- Create git tag, push tag
+- Create GitHub release with notes-file (avoids PowerShell backtick escaping)
+
+The script aborts on any step failure. Exit code 0 = success.
+
 1. Ensure `package.json` version is correct (bump if needed).
 2. `npm publish` — verify the publish succeeds.
 3. Confirm the package appears on npm: `npm view @herjarsa/omo-meta-governor version`.

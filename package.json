@@ -47,7 +47,8 @@
     "build": "bun build.ts",
     "build:skills": "bun run build.ts skills",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "release": "bun scripts/release.ts"
   },
   "type": "module",
   "types": "./dist/index.d.ts"
