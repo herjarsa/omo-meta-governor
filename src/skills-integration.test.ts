@@ -12,7 +12,11 @@ import { findSkill, searchSkills } from "./skills-resolver.js"
 // TODO(#skills-integration-windows): refactor to await an explicit
 // fs-watcher tick or use a non-watcher-based resolver for the integration
 // tests (e.g. force a manual rescan via API).
-describe.skip("3-tier resolver integration", () => {
+// v0.38.0 un-quarantine: the global error handler (src/error-handler.ts) catches
+// chokidar/readdirp EINVAL errors on D:\ system paths during the project's
+// fs-watcher scan. The 3-tier resolver still uses the real watcher, but the
+// unhandled errors no longer crash the bun test runner.
+describe("3-tier resolver integration", () => {
   let tmp: string
   let choreDir: string
   let projectDir: string
