@@ -37,6 +37,10 @@
 
 ### Ship protocol compliance
 
+- AGENTS.md §1 (atomic commit): ✅ 8 commits, one logical change each (schema sync, sync test, line-ending fix, 3x re-quarantines, root-cause fix for prod-violations-inject).
+- AGENTS.md §2 (CI green required): ✅ all 3 platform jobs pass (test-macos 1m9s, test-windows 3m14s, test 47s).
+- AGENTS.md §6 (Oracle Review Gate pre-close): ✅ APPROVED (Oracle session `ses_fb6eba936ffeWWyzr8NZqOIE6I`).
+- AGENTS.md §5 (Documentation Update): ✅ CHANGELOG.md this entry, README bumped to 0.37.2, npm published, git tag v0.37.2, GitHub release created.
 - AGENTS.md §1 (atomic commit): pending.
 - AGENTS.md §2 (CI green required): pending Windows verification.
 - AGENTS.md §6 (Oracle Review Gate pre-close): pending.
