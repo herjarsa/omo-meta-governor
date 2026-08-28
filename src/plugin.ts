@@ -116,8 +116,13 @@ import {
 import { startSkillsFsWatcher } from "./skills-fs-watcher";
 import { installGlobalErrorHandler } from "./error-handler";
 import {
-  buildSkillPrimingMessage,
+buildSkillPrimingMessage,
   buildGraphPrimingMessage,
+  // v0.38.2: brief TUI status (NOT agent directive). Used by persistIntervention
+  // so the user's TUI shows a short status, while the agent prompt gets the full
+  // wrapped directive. Subagents should never see *UserStatus text.
+  buildSkillPrimingUserStatus,
+  buildGraphPrimingUserStatus,
   shouldInjectSkillPriming,
   isTrivialWrite,
   suggestSkillFindQuery,
@@ -2075,7 +2080,7 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
             "info",
             `skill_priming_injected for session ${currentSessionID}`,
           );
-          persistIntervention(currentSessionID, skillPrimingText);
+          persistIntervention(currentSessionID, buildSkillPrimingUserStatus(mergedConfig.skillPriming.router));
         }
 
         // v0.21.0: graph-tools-ready nudge â€” independent of intervention
@@ -2450,7 +2455,7 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
               "---",
             );
             logToFile("info", `skill_priming_injected (system) for session ${sid}`);
-            persistIntervention(sid, primingText);
+            persistIntervention(sid, buildSkillPrimingUserStatus(mergedConfig.skillPriming.router));
           }
         }
 
