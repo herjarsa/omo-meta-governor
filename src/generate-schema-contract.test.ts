@@ -88,3 +88,25 @@ describe("generate-schema contract (inverse drift)", () => {
     }
   })
 })
+
+
+describe("generate-schema contract (@default values)", () => {
+  it("every @default JSDoc tag in config.ts appears in the generated schema", () => {
+    const { readFileSync } = require("node:fs") as typeof import("node:fs")
+    const { resolve, dirname } = require("node:path") as typeof import("node:path")
+    const { fileURLToPath } = require("node:url") as typeof import("node:url")
+    const __filename = fileURLToPath(import.meta.url)
+    const __dirname = dirname(__filename)
+    const configPath = resolve(__dirname, "config.ts")
+    const source = readFileSync(configPath, "utf-8")
+    const defaultRegex = /@default\s+([^\n*]+)/g
+    const matches = [...source.matchAll(defaultRegex)]
+    expect(matches.length).toBeGreaterThan(0)
+    const schema = generateSchema()
+    const schemaStr = JSON.stringify(schema)
+    for (const match of matches) {
+      const value = match[1].trim()
+      expect(schemaStr).toContain(value)
+    }
+  })
+})
