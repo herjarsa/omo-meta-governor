@@ -81,17 +81,33 @@ export interface MetaGovernorPluginConfig {
 
   /** Intervention config for visible decision injection. */
   intervention?: {
+    /** @default "silent" */
     mode?: "silent" | "message" | "system"
+    /** @default true */
     includeDecisionHistory?: boolean
+    /** @default 5 */
     maxHistoryMessages?: number
+    /** @default "stop" */
     minActionForMessage?: "warn" | "escalate" | "stop"
-    /** v0.10.0: rate-limit interventions to break instruction loops. */
+    /**
+     * v0.10.0: rate-limit interventions to break instruction loops.
+     * @default 3
+     */
     maxInterventionsPerSession?: number
-    /** v0.10.0: stop injecting after <promise>DONE</promise> + Oracle verified. */
+    /**
+     * v0.10.0: stop injecting after <promise>DONE</promise> + Oracle verified.
+     * @default true
+     */
     respectDoneSignal?: boolean
-    /** v0.15.0: split per-phase hint from terminal signal. See types.ts. */
+    /**
+     * v0.15.0: split per-phase hint from terminal signal. See types.ts.
+     * @default false
+     */
     phaseAwareDoneSignal?: boolean
-    /** v0.19.0: persist intervention messages to the session (TUI-visible). */
+    /**
+     * v0.19.0: persist intervention messages to the session (TUI-visible).
+     * @default true
+     */
     persistToSession?: boolean
     /**
      * v0.31.1: overflow compaction loop guard. Defends against opencode
@@ -104,7 +120,9 @@ export interface MetaGovernorPluginConfig {
      * explicitly if they relied on the previous OFF default.
      */
     compactionLoopGuard?: {
+      /** @default true */
       enabled?: boolean
+      /** @default 1 */
       maxOverflowRecoveries?: number
     }
   }
@@ -119,29 +137,44 @@ export interface MetaGovernorPluginConfig {
 
   /** Graph sync config for auto-initializing codegraph/graphify. */
   graphSync?: {
+    /** @default true */
     enabled?: boolean
+    /** @default false */
     watch?: boolean
+    /** @default true */
     autoInstall?: boolean
+    /** @default 120000 */
     installTimeoutMs?: number
     /** v0.22.0: when true, graph-sync init sweeps orphaned graphify/codegraph
+     * @default true
      * processes left by previous crashed runs. Default true. */
     killOrphanedOnInit?: boolean
-    /** v0.25.1: on plugin load, fetch origin and reindex if local HEAD is behind. Default true. */
+    /**
+     * v0.25.1: on plugin load, fetch origin and reindex if local HEAD is behind.
+     * @default true
+     */
     reindexOnFetch?: boolean
-    /** v0.25.1: branch to fetch + compare against. Default "main". */
+    /**
+     * v0.25.1: branch to fetch + compare against.
+     * @default "main"
+     */
     fetchBranch?: string
     /** v0.26.0: auto-upgrade installed codegraph and graphify binaries on graph-sync init.
+     * @default true
      * Default true. Tiered probe + pip --upgrade flag fixes 6 silent-failure bugs from v0.24.x. */
     autoUpgrade?: boolean
     /** v0.26.0: filesystem path for the upgrade cache file (tracks latest-known
+     * @default "~/.omo-meta-governor/upgrade-cache.json"
      * codegraph/graphify versions to avoid re-fetching the npm/PyPI registry on every load). */
     upgradeCachePath?: string
     /** v0.26.0: when true, run 'graphify check-update' after upgrade and emit a
      * 'graphify-reextract-triggered' diagnostic code if the schema changed.
+     * @default true
      * Default true. */
     checkGraphifyNeedsUpdate?: boolean
     /** v0.27.0: when true, register the project graph in the global graphify
      * registry after initial install (so 'graphify global list' surfaces it).
+     * @default false
      * Default false (opt-in — multi-project users want explicit control). */
     addToGlobalGraph?: boolean
   }
@@ -149,26 +182,37 @@ export interface MetaGovernorPluginConfig {
    *  When enabled, the plugin ensures `cli-anything-hub` (pip) and
    *  `cli-hub-meta-skill` (npx skills) are installed and current. */
   cliAnything?: {
+    /** @default false */
     enabled?: boolean
+    /** @default true */
     autoInstall?: boolean
+    /** @default true */
     autoUpgrade?: boolean
     cachePath?: string
+    /** @default 86400000 */
     upgradeCheckTtlMs?: number
     cliHubBin?: string
     skillsBin?: string
+    /** @default "global" */
     installScope?: "global" | "project"
   }
   /** Skill priming config (v0.20.0): proactive skill-selection nudge. */
 skillPriming?: {
+    /** @default false */
 enabled?: boolean
+    /** @default "firstImplement" */
 trigger?: SkillPrimingTrigger
+    /** @default "both" */
     router?: SkillPrimingRouter
     /** v0.34.0: enforcement mode for the skill-priming directive. */
+    /** @default "directive" */
     enforceMode?: "directive" | "block"
 }
   /** Skill hub config (v0.32.0): registry-backed catalog + hybrid search. */
   skillHub?: {
+    /** @default true */
     enabled?: boolean
+    /** @default 3600000 */
     syncIntervalMs?: number
     bootstrapUrl?: string
     searchFallbackUrl?: string
@@ -179,7 +223,10 @@ trigger?: SkillPrimingTrigger
     filterDuplicates?: boolean
     depsCheck?: boolean
     choreDir?: string
-    /** v0.35.0: write fetched hub skills to <cwd>/.agents/skills/<slug>/SKILL.md. */
+    /**
+     * v0.35.0: write fetched hub skills to <cwd>/.agents/skills/<slug>/SKILL.md.
+     * @default true
+     */
     autoMaterialize?: boolean
   }
 
@@ -190,12 +237,15 @@ trigger?: SkillPrimingTrigger
    * "auto" (default) | "codegraph" | "graphify" | "alternate".
    */
   graphRetrieval?: {
+    /** @default "auto" */
     preferredTool?: "auto" | "codegraph" | "graphify" | "alternate"
     /** v0.27.0: when true, prefer the locally-installed codegraph binary
+     * @default false
      * (node_modules/.bin/codegraph) over the npx-resolved one. Default false. */
     preferLocalCodegraph?: boolean
     /** v0.27.0: route omo_search queries to codegraph `context` instead of
      * `explore`. Default false. context returns a focused code window; explore
+     * @default false
      * returns a conceptual explanation. */
     contextRouting?: boolean
   }
