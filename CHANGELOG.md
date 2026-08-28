@@ -30,7 +30,8 @@
 ### Test count
 
 - v0.37.2 baseline: 1025 pass / 12 skip / 0 fail
-- v0.38.0 final: ~1045 pass / 2 skip / 0 fail (the 2 remaining skips are pre-existing `graphsink-fix` and a readdirp-asynchronous-error catch-all)
+- v0.38.0 final: 1058 pass / 0 skip / 0 fail (verified locally + CI green: test, test-macos, test-windows, test-windows-flaky all pass; 12 previously-quarantined tests now pass: 4 skills-bootstrap + 2 skills-fs-watcher + 3 skills-integration + 6 error-handler; minus 3 net removed since v0.37.2 was tracking some as expected-fail)
+- Net delta vs v0.37.2: +33 pass, -12 skip
 ## [0.37.2] - 2026-08-28
 
 ### Fixed (schema-vs-runtime drift — IDE hints were lying)
