@@ -1,7 +1,7 @@
 /**
  * Schema sync contract tests — pin generate-schema.ts to the live runtime config.
  *
- * given/when/then style. Two contracts:
+ * Two contracts:
  * 1. The committed assets/omo-meta-governor.schema.json MUST equal what
  *    generateSchema() returns (byte-for-byte after stable serialization).
  *    Drift between the two has caused silent IDE hints to lie (P0 drift fixed
@@ -17,16 +17,28 @@ import { generateSchema, type JsonSchema } from "./generate-schema"
 
 const SCHEMA_PATH = join(import.meta.dir, "..", "assets", "omo-meta-governor.schema.json")
 
+/**
+ * Normalize line endings to LF.
+ *
+ * Git on Windows checks out text files with CRLF by default (core.autocrlf=true).
+ * `JSON.stringify` always emits LF. We compare string equality, so we must
+ * normalize BOTH sides to the same line ending before comparing, otherwise
+ * the byte-for-byte contract test spuriously fails on Windows runners.
+ */
+function normalizeLineEndings(s: string): string {
+  return s.replace(/\r\n/g, "\n")
+}
+
 async function loadCommittedSchema(): Promise<JsonSchema> {
   const text = await readFile(SCHEMA_PATH, "utf-8")
   return JSON.parse(text) as JsonSchema
 }
 
 describe("generateSchema — committed-asset sync contract", () => {
-  it("then generateSchema() output equals assets/omo-meta-governor.schema.json byte-for-byte", async () => {
+  it("then generateSchema() output equals assets/omo-meta-governor.schema.json byte-for-byte (LF-normalized)", async () => {
     const generated = JSON.stringify(generateSchema(), null, 2) + "\n"
-    const committed = await readFile(SCHEMA_PATH, "utf-8")
-    expect(generated).toBe(committed)
+    const committed = normalizeLineEndings(await readFile(SCHEMA_PATH, "utf-8"))
+    expect(normalizeLineEndings(generated)).toBe(committed)
   })
 
   it("then committed JSON parses and re-serializes to the same shape", async () => {
