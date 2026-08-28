@@ -1,5 +1,5 @@
 /**
- * Skill priming module (v0.20.0, v0.33.1: skill-hub routing).
+ * Skill priming module (v0.20.0, v0.33.1: skill-hub routing, v0.38.2: user/agent split).
  *
  * Pure functions only — no I/O, no MCP calls. The plugin's
  * messages.transform hook uses these to build and gate the once-per-session
@@ -12,10 +12,18 @@
  * were eliminated — those tools were retired in v0.32.0 when the skill-hub
  * subsystem landed. Router 'aas' is now aliased to 'registry' for backward compat.
  *
+ * v0.38.2: each priming function now has TWO outputs:
+ *   - `build*Message()` returns the AGENT-bound directive (full text + "DO NOT
+ *     TREAT AS TASK" marker). Goes to chat.system.transform / chat.messages.transform.
+ *   - `build*UserStatus()` returns a brief TUI status (emoji + summary, no
+ *     actionable instructions). Goes to persistIntervention (session.prompt) for
+ *     the USER only. Subagents should never see this.
+ *
  * Context-cost guardrail: the directive explicitly forbids enumerating the
  * full skill catalog.
  */
 import type { SkillPrimingRouter, SkillPrimingTrigger } from "./types"
+import { wrapInformational, buildUserStatus, type NotificationKind } from "./agent-notifications"
 
 /**
  * Tool names that signal the agent has started implementation work.
@@ -41,9 +49,12 @@ export const IMPLEMENTATION_TOOLS: readonly string[] = [
  * touching code. graphify (conceptual) and codegraph (symbol-level) are the
  * plugin's primary discovery primitives — agents that skip them end up doing
  * raw grep and reinventing what the project already knows.
+ *
+ * v0.38.2: output is wrapped with "DO NOT TREAT AS TASK" markers so subagents
+ * receiving this as context don't interpret it as their primary task.
  */
 export function buildGraphPrimingMessage(): string {
-  return [
+  const body = [
     "[GRAPH PRIMING] Before grep/regex/glob/raw read, query the project's own indexes:",
     "1. Architecture / concepts / cross-module relationships -> omo_search (auto-routes between codegraph + graphify).",
     "2. Symbol-level lookup, call graph, impact analysis -> omo_find / omo_impact / omo_path.",
@@ -51,6 +62,16 @@ export function buildGraphPrimingMessage(): string {
     "4. Project status (codegraph health, recent decisions) -> omo_health / omo_status.",
     "Use raw grep ONLY when the indexed queries above cannot answer the question (e.g. literal byte patterns, throwaway strings).",
   ].join("\n")
+  return wrapInformational(body, { kind: "graph-priming" })
+}
+
+/**
+ * v0.38.2: brief TUI status for the user when graph-priming fires. Goes
+ * to `persistIntervention` / `session.prompt` — does NOT contain tool
+ * names or actionable instructions. Subagents should never see this text.
+ */
+export function buildGraphPrimingUserStatus(): string {
+  return buildUserStatus("graph-priming", "Graph priming: prefer omo_search/omo_find over raw grep when possible.")
 }
 
 /** Superpowers skills relevant to implementation-type work. */
@@ -65,6 +86,9 @@ const SUPERPOWERS_SKILLS: readonly string[] = [
 /**
  * Build the skill-priming directive text for the given router.
  * Always ends with the context-cost guardrail line.
+ *
+ * v0.38.2: output is wrapped with "DO NOT TREAT AS TASK" markers so subagents
+ * receiving this as context don't interpret it as their primary task.
  */
 export function buildSkillPrimingMessage(router: SkillPrimingRouter): string {
   // v0.33.1: alias 'aas' → 'registry' (AAS MCP retired in v0.32.0).
@@ -93,7 +117,18 @@ export function buildSkillPrimingMessage(router: SkillPrimingRouter): string {
     lines.push("If a superpowers skill is already active, skip the catalog step.")
   }
   lines.push("Do NOT enumerate the full catalog — keep the stack minimal and task-specific.")
-  return lines.join("\n")
+  const body = lines.join("\n")
+  return wrapInformational(body, { kind: "skill-priming", context: `router=${effectiveRouter}` })
+}
+
+/**
+ * v0.38.2: brief TUI status for the user when skill-priming fires. Goes
+ * to `persistIntervention` / `session.prompt` — does NOT contain tool
+ * names or actionable instructions. Subagents should never see this text.
+ */
+export function buildSkillPrimingUserStatus(router: SkillPrimingRouter): string {
+  const effectiveRouter = router === "aas" ? "registry" : router
+  return buildUserStatus("skill-priming", `Skill priming (${effectiveRouter}): nudging agent to discover relevant skills before implementation.`)
 }
 
 /**

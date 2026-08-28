@@ -16,7 +16,14 @@ import { describe, expect, it, beforeEach } from "bun:test"
 import type { PluginInput, PluginOptions } from "@opencode-ai/plugin"
 import type { MetaGovernorPluginConfig } from "./config"
 import { createHermeticPlugin } from "./__test-helpers__/hermetic-plugin"
-import { buildSkillPrimingMessage, shouldInjectSkillPriming } from "./skill-priming"
+import {
+  buildSkillPrimingMessage,
+  buildGraphPrimingMessage,
+  shouldInjectSkillPriming,
+  // v0.38.2: user-display (TUI) vs agent-directive (system prompt) separation
+  buildSkillPrimingUserStatus,
+  buildGraphPrimingUserStatus,
+} from "./skill-priming"
 import { clearAll } from "./decision-store"
 
 // ─── Mocks ─────────────────────────────────────────────────────────
@@ -237,3 +244,69 @@ describe("experimental.chat.messages.transform — skill priming", () => {
 
 })
 
+
+
+// ─── v0.38.2: user-display vs agent-directive separation ────────────────────
+
+describe("v0.38.2 user-display vs agent-directive separation", () => {
+  it("buildGraphPrimingMessage output is wrapped with 'DO NOT TREAT AS TASK'", () => {
+    const msg = buildGraphPrimingMessage()
+    expect(msg).toContain("DO NOT TREAT AS TASK")
+    expect(msg).toContain("META-GOVERNOR INFORMATIONAL")
+    expect(msg).toContain("omo_search")  // agent still gets the actionable content
+  })
+
+  it("buildSkillPrimingMessage output is wrapped with marker (all routers)", () => {
+    for (const router of ["registry", "superpowers", "both", "aas"] as const) {
+      const msg = buildSkillPrimingMessage(router)
+      expect(msg).toContain("DO NOT TREAT AS TASK")
+      expect(msg).toContain("META-GOVERNOR INFORMATIONAL")
+    }
+  })
+
+  it("buildGraphPrimingUserStatus is brief and has NO agent marker", () => {
+    const status = buildGraphPrimingUserStatus()
+    expect(status).not.toContain("DO NOT TREAT AS TASK")
+    expect(status).not.toContain("META-GOVERNOR INFORMATIONAL")
+    // User status CAN mention tool names (informational); it just must not have
+    // the agent marker or imperative instructions.
+    expect(status.length).toBeLessThan(200)
+  })
+
+  it("buildSkillPrimingUserStatus is brief and has NO agent marker (all routers)", () => {
+    for (const router of ["registry", "superpowers", "both", "aas"] as const) {
+      const status = buildSkillPrimingUserStatus(router)
+      expect(status).not.toContain("DO NOT TREAT AS TASK")
+      expect(status).not.toContain("META-GOVERNOR INFORMATIONAL")
+      expect(status).not.toContain("omo_skill_find")
+      expect(status.length).toBeLessThan(200)
+    }
+  })
+
+  it("agent and user outputs are visually distinct for the same kind", () => {
+    const agent = buildGraphPrimingMessage()
+    const user = buildGraphPrimingUserStatus()
+    // Agent has marker
+    expect(agent).toContain("META-GOVERNOR INFORMATIONAL")
+    // User doesn't
+    expect(user).not.toContain("META-GOVERNOR INFORMATIONAL")
+    // Both can have the same action ("prefer indexed queries")
+    expect(agent).toContain("omo_search")
+    expect(user).toContain("prefer")  // user status says "prefer omo_search"
+  })
+
+  it("user status for skill-priming does not enumerate tool names", () => {
+    const userStatus = buildSkillPrimingUserStatus("registry")
+    // User shouldn't see specific tool names — just a brief status
+    expect(userStatus).not.toContain("omo_skill_find")
+    expect(userStatus).not.toContain("omo_skill_get")
+    expect(userStatus).not.toContain("npx skills add")
+  })
+
+  it("agent output for skill-priming DOES contain tool names (actionable)", () => {
+    const agentMsg = buildSkillPrimingMessage("registry")
+    // Agent needs the actionable instructions
+    expect(agentMsg).toContain("omo_skill_find")
+    expect(agentMsg).toContain("omo_skill_get")
+  })
+})
