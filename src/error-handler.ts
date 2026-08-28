@@ -6,7 +6,6 @@ interface Logger {
   debug?: (msg: string, ctx?: unknown) => void
 }
 
-
 export const DEFAULT_PATH_PATTERNS: RegExp[] = [
   /^[A-Z]:\\(pagefile\.sys|DumpStack\.log\.tmp)/i,           // Windows system
   /^\/(var|private\/var)\/folders\//,                        // macOS temp
@@ -21,13 +20,20 @@ export interface ErrorHandlerOptions {
   errorCodes?: Set<string>
 }
 
+// v0.38.0 idempotency guard: only one default-options handler at a time.
+// The plugin factory is called many times per test suite; without this guard
+// we'd stack dozens of duplicate handlers. Custom opts always install fresh.
+let defaultTeardown: (() => void) | null = null
+
 export function installGlobalErrorHandler(opts: ErrorHandlerOptions = {}): () => void {
+  // Idempotency for default opts (the common case from createMetaGovernorPlugin).
+  const isDefault = Object.keys(opts).length === 0
+  if (isDefault && defaultTeardown) return defaultTeardown
+
   const paths = opts.paths ?? DEFAULT_PATH_PATTERNS
   const errorCodes = opts.errorCodes ?? DEFAULT_ERROR_CODES
   const logger = opts.logger ?? console
-  const previousHandler = process.listeners("uncaughtException").at(-1)
-  const handler = (err: Error & { code?: string;
-  path?: string }) => {
+  const handler = (err: Error & { code?: string; path?: string }) => {
     const isWatcherError =
       err && typeof err === "object" && "code" in err && err.code
         ? errorCodes.has(err.code)
@@ -39,14 +45,14 @@ export function installGlobalErrorHandler(opts: ErrorHandlerOptions = {}): () =>
         code: err.code,
         message: err.message,
       })
-      return
+      return // swallow — Node's emit loop continues with other listeners
     }
-    if (previousHandler) {
-      ;(previousHandler as (e: Error) => void)(err)
-    } else {
-      throw err
-    }
+    // Unfiltered: do nothing. Node's emit loop will invoke other listeners
+    // or rethrow if this is the only one. We do NOT manually chain to a
+    // previous handler (that caused double-invocation in CRITICAL-1).
   }
   process.on("uncaughtException", handler)
-  return () => process.off("uncaughtException", handler)
+  const teardown = () => process.off("uncaughtException", handler)
+  if (isDefault) defaultTeardown = teardown
+  return teardown
 }

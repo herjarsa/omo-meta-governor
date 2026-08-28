@@ -30,27 +30,40 @@ describe("validateChangelog", () => {
   beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "release-")) })
   afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
 
-  it("passes for a valid CHANGELOG with ✅ markers", () => {
+  describe("validateChangelog", () => {
+  let dir: string
+  const version = { major: 0, minor: 38, patch: 0, tag: "v0.38.0" }
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "release-")) })
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
+
+  it("passes for a valid CHANGELOG with version-specific entry + ✅ markers", () => {
     const path = join(dir, "CHANGELOG.md")
     writeFileSync(path, "## [0.38.0]\n### Ship protocol compliance\n✅\n")
-    expect(() => validateChangelog(path)).not.toThrow()
+    expect(() => validateChangelog(path, version)).not.toThrow()
+  })
+
+  it("throws when CHANGELOG is missing the version-specific entry", () => {
+    const path = join(dir, "CHANGELOG.md")
+    writeFileSync(path, "## [0.37.0]\n### Ship protocol compliance\n✅\n")
+    expect(() => validateChangelog(path, version)).toThrow(/missing entry for ## \[0\.38\.0\]/)
   })
 
   it("throws when Ship protocol section is missing", () => {
     const path = join(dir, "CHANGELOG.md")
     writeFileSync(path, "## [0.38.0]\n### Fixed\nstuff\n")
-    expect(() => validateChangelog(path)).toThrow(/Ship protocol/)
+    expect(() => validateChangelog(path, version)).toThrow(/Ship protocol/)
   })
 
   it("throws when no ✅ marker is present", () => {
     const path = join(dir, "CHANGELOG.md")
     writeFileSync(path, "## [0.38.0]\n### Ship protocol compliance\npending\n")
-    expect(() => validateChangelog(path)).toThrow(/✅/)
+    expect(() => validateChangelog(path, version)).toThrow(/✅/)
   })
 
   it("throws when file does not exist", () => {
-    expect(() => validateChangelog(join(dir, "nonexistent.md"))).toThrow(/not found/)
+    expect(() => validateChangelog(join(dir, "nonexistent.md"), version)).toThrow(/not found/)
   })
+})
 })
 
 describe("runCommand", () => {

@@ -1,8 +1,10 @@
 // scripts/release.ts
-// Automates the AGENTS.md ship protocol: bump version, validate CHANGELOG,
-// run tests, build, publish, tag, release. Aborts on any step failure.
+// Automates the AGENTS.md ship protocol: bump version, commit bump,
+// validate CHANGELOG, run tests, build, publish, tag, release.
+// Aborts on any step failure.
 //
 // Usage: bun run release 0.38.0
+//        bun run release 0.38.0 --dry-run
 //
 // v0.38.0 NOTE: This is a fresh implementation. Earlier shell-based flows
 // suffered from PowerShell backtick escaping issues (gh release create
@@ -33,11 +35,14 @@ export function parseVersion(input: string): ParsedVersion {
   }
 }
 
-export function validateChangelog(changelogPath: string): void {
+export function validateChangelog(changelogPath: string, version: ParsedVersion): void {
   if (!existsSync(changelogPath)) {
     throw new Error(`CHANGELOG not found: ${changelogPath}`)
   }
   const content = readFileSync(changelogPath, "utf-8")
+  if (!content.includes(`## [${version.major}.${version.minor}.${version.patch}]`)) {
+    throw new Error(`CHANGELOG missing entry for ## [${version.major}.${version.minor}.${version.patch}]`)
+  }
   if (!content.includes("### Ship protocol compliance")) {
     throw new Error("CHANGELOG missing '### Ship protocol compliance' section")
   }
@@ -87,8 +92,23 @@ export async function release(
 
   console.log(`\n[release] Starting release for ${version.tag}\n`)
 
+  // Step 0 (NEW): Preflight checks — fail fast on bad state.
+  console.log("[release] Step 0/8: Preflight checks")
+  if (!options.dryRun) {
+    // Ensure git tree is clean (no uncommitted changes that would conflict with the bump)
+    const statusResult = await run(["git", "status", "--porcelain"])
+    if (statusResult.stdout.trim().length > 0) {
+      throw new Error(`Git tree is not clean. Commit or stash changes first:\n${statusResult.stdout}`)
+    }
+    // Ensure tag doesn't already exist
+    const tagCheck = await run(["git", "rev-parse", "--verify", `--quiet`, version.tag])
+    if (tagCheck.exitCode === 0) {
+      throw new Error(`Tag ${version.tag} already exists. Delete it first or use a different version.`)
+    }
+  }
+
   // Step 1: Bump version in package.json
-  console.log("[release] Step 1/7: Bumping version in package.json")
+  console.log("[release] Step 1/8: Bumping version in package.json")
   const pkgPath = resolve(cwd, "package.json")
   const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"))
   pkg.version = `${version.major}.${version.minor}.${version.patch}`
@@ -96,37 +116,49 @@ export async function release(
     writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n")
   }
 
-  // Step 2: Validate CHANGELOG
-  console.log("[release] Step 2/7: Validating CHANGELOG")
-  validateChangelog(resolve(cwd, "CHANGELOG.md"))
-
-// Step 3: Run tests
-  console.log("[release] Step 3/7: Running tests")
+  // Step 1b (NEW): Commit the version bump
+  console.log("[release] Step 1b/8: Committing version bump")
   if (!options.dryRun) {
-let result = await run(["bun", "test"])
-if (result.exitCode !== 0) {
-throw new Error(`Tests failed (exit ${result.exitCode}):\n${result.stdout}\n${result.stderr}`)
+    const addResult = await run(["git", "add", "package.json"])
+    if (addResult.exitCode !== 0) {
+      throw new Error(`git add package.json failed: ${addResult.stderr}`)
+    }
+    const commitResult = await run(["git", "commit", "-m", `chore(release): bump version to ${version.tag}`])
+    if (commitResult.exitCode !== 0) {
+      throw new Error(`git commit failed: ${commitResult.stderr}`)
+    }
   }
+
+  // Step 2: Validate CHANGELOG (now with version-specific check)
+  console.log("[release] Step 2/8: Validating CHANGELOG")
+  validateChangelog(resolve(cwd, "CHANGELOG.md"), version)
+
+  // Step 3: Run tests
+  console.log("[release] Step 3/8: Running tests")
+  if (!options.dryRun) {
+    const result = await run(["bun", "test"])
+    if (result.exitCode !== 0) {
+      throw new Error(`Tests failed (exit ${result.exitCode}):\n${result.stdout}\n${result.stderr}`)
+    }
   } else {
     console.log("[release] (dry-run: skipped tests)")
   }
 
-// Step 4: Build
-  console.log("[release] Step 4/7: Building")
+  // Step 4: Build
+  console.log("[release] Step 4/8: Building")
   if (!options.dryRun) {
-    let
-result = await run(["bun", "run", "build"])
-if (result.exitCode !== 0) {
-throw new Error(`Build failed (exit ${result.exitCode}):\n${result.stdout}\n${result.stderr}`)
-  }
+    const result = await run(["bun", "run", "build"])
+    if (result.exitCode !== 0) {
+      throw new Error(`Build failed (exit ${result.exitCode}):\n${result.stdout}\n${result.stderr}`)
+    }
   } else {
     console.log("[release] (dry-run: skipped build)")
   }
 
   // Step 5: npm publish
-  console.log("[release] Step 5/7: Publishing to npm")
+  console.log("[release] Step 5/8: Publishing to npm")
   if (!options.dryRun) {
-    result = await run(["npm", "publish"])
+    const result = await run(["npm", "publish"])
     if (result.exitCode !== 0) {
       throw new Error(`npm publish failed (exit ${result.exitCode}):\n${result.stdout}\n${result.stderr}`)
     }
@@ -134,10 +166,10 @@ throw new Error(`Build failed (exit ${result.exitCode}):\n${result.stdout}\n${re
     console.log("[release] (dry-run: skipped npm publish)")
   }
 
-  // Step 6: git tag
-  console.log("[release] Step 6/7: Creating git tag")
+  // Step 6: git tag + push
+  console.log("[release] Step 6/8: Creating git tag")
   if (!options.dryRun) {
-    result = await run(["git", "tag", version.tag])
+    let result = await run(["git", "tag", version.tag])
     if (result.exitCode !== 0) {
       throw new Error(`git tag failed (exit ${result.exitCode}):\n${result.stdout}\n${result.stderr}`)
     }
@@ -149,17 +181,17 @@ throw new Error(`Build failed (exit ${result.exitCode}):\n${result.stdout}\n${re
     console.log("[release] (dry-run: skipped git tag + push)")
   }
 
-  // Step 7: GitHub release
-  console.log("[release] Step 7/7: Creating GitHub release")
+  // Step 7: GitHub release — extract the version-specific CHANGELOG section
+  console.log("[release] Step 7/8: Creating GitHub release")
   const notesFile = resolve(cwd, `.release-notes-${version.tag}.md`)
   const changelog = readFileSync(resolve(cwd, "CHANGELOG.md"), "utf-8")
-  // Extract the most recent version section
-  const versionSectionText = changelog.split(`## [`)[1]?.split("##")[0] ?? ""
-  const fullSection = `## [${versionSectionText}`
+  const versionStr = `${version.major}.${version.minor}.${version.patch}`
+  const versionSection = changelog.split(`## [${versionStr}]`)[1]?.split("## [")[0] ?? ""
+  const fullSection = `## [${versionStr}]${versionSection}`
   if (!options.dryRun) {
     writeFileSync(notesFile, fullSection)
     try {
-      result = await run([
+      const result = await run([
         "gh", "release", "create", version.tag,
         "--repo", "herjarsa/omo-meta-governor",
         "--title", `${version.tag} — automated release`,
@@ -169,24 +201,36 @@ throw new Error(`Build failed (exit ${result.exitCode}):\n${result.stdout}\n${re
         throw new Error(`gh release create failed (exit ${result.exitCode}):\n${result.stdout}\n${result.stderr}`)
       }
     } finally {
-      // Cleanup notes file
       if (existsSync(notesFile)) unlinkSync(notesFile)
     }
   } else {
     console.log("[release] (dry-run: skipped gh release create)")
   }
 
+  // Step 8 (NEW): Verification — confirm the publish + tag actually happened
+  console.log("[release] Step 8/8: Verifying release")
+  if (!options.dryRun) {
+    const npmCheck = await run(["npm", "view", `@herjarsa/omo-meta-governor`, "version"])
+    if (!npmCheck.stdout.includes(versionStr)) {
+      throw new Error(`npm view verification failed — expected ${versionStr}, got: ${npmCheck.stdout.trim()}`)
+    }
+  }
+
   console.log(`\n[release] ✅ Release ${version.tag} complete\n`)
 }
 
 if (import.meta.main) {
-  const versionArg = process.argv[2]
+  // Parse CLI args: positional = version, --dry-run = flag
+  const args = process.argv.slice(2)
+  const dryRun = args.includes("--dry-run")
+  const versionArg = args.find((a) => !a.startsWith("--"))
   if (!versionArg) {
-    console.error("Usage: bun run release <version>")
+    console.error("Usage: bun run release <version> [--dry-run]")
     console.error("Example: bun run release 0.38.0")
+    console.error("Example: bun run release 0.38.0 --dry-run")
     process.exit(1)
   }
-  release(versionArg).catch((err) => {
+  release(versionArg, { dryRun }).catch((err) => {
     console.error(`\n[release] ❌ ${err.message}\n`)
     process.exit(1)
   })

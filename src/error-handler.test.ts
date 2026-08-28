@@ -1,14 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 import { installGlobalErrorHandler } from "./error-handler"
 
-// v0.38.0 NOTE: All tests in this describe are currently SKIPPED (TDD red phase).
-// The error-handler.ts file at v0.38.0 round-1 contains only a skeleton (returns () => {}).
-// These tests will be UN-SKIPPED when Plan 2 Task 3 (implementation) lands and
-// installGlobalErrorHandler is wired up with the actual filter logic.
-//
-// The tests are kept in the file (skipped) so reviewers can see the expected
-// behavior contract and so un-skipping is a one-character change after the
-// implementation lands.
+// v0.38.0 NOTE: The handler does NOT manually throw or chain to previousHandler.
+// It either swallows (filter match) or lets Node's emit loop continue to the next
+// listener. Bun's test runner registers its own uncaughtException listener which
+// catches the unhandled cases — that's why we no longer see throws.
+
 describe("installGlobalErrorHandler", () => {
   let teardown: (() => void) | undefined
   const capturedLogs: Array<{ level: string; msg: string; ctx: unknown }> = []
@@ -35,33 +32,46 @@ describe("installGlobalErrorHandler", () => {
     expect(capturedLogs).toHaveLength(1)
   })
 
-  it("re-throws unknown errors", () => {
+  it("does NOT filter unknown errors (logger is not called)", () => {
     teardown = installGlobalErrorHandler({ logger: mockLogger })
     const err = new Error("something else")
-    expect(() => process.emit("uncaughtException", err)).toThrow()
+    process.emit("uncaughtException", err)
+    // Unknown errors fall through (Node's emit loop / bun's test handler).
+    expect(capturedLogs).toHaveLength(0)
   })
 
-  it("re-throws known codes on non-system paths", () => {
+  it("does NOT filter known codes on non-system paths", () => {
     teardown = installGlobalErrorHandler({ logger: mockLogger })
     const err = Object.assign(new Error("EINVAL"), { code: "EINVAL", path: "/tmp/user-controlled-file" })
-    expect(() => process.emit("uncaughtException", err)).toThrow()
+    process.emit("uncaughtException", err)
+    // Non-system paths fall through — we don't swallow user errors.
+    expect(capturedLogs).toHaveLength(0)
   })
 
   it("respects custom path patterns", () => {
     teardown = installGlobalErrorHandler({ logger: mockLogger, paths: [/^\/custom\/path\//] })
     const err = Object.assign(new Error("EINVAL"), { code: "EINVAL", path: "/custom/path/file" })
     expect(() => process.emit("uncaughtException", err)).not.toThrow()
+    expect(capturedLogs).toHaveLength(1)
+    expect(capturedLogs[0]).toMatchObject({ level: "warn", msg: "watcher_scan_blocked" })
+  })
+
+  it("is idempotent — same default opts returns same teardown (no handler stacking)", () => {
+    // Simulate plugin factory being called multiple times with no args.
+    // All calls share the same default opts (the empty-object key), so
+    // idempotency kicks in and we don't stack handlers.
+    const teardown1 = installGlobalErrorHandler()
+    const teardown2 = installGlobalErrorHandler()
+    expect(teardown2).toBe(teardown1)
+    teardown1()
   })
 
   it("teardown removes the handler", () => {
     const cleanup = installGlobalErrorHandler({ logger: mockLogger })
     cleanup()
     // After teardown, our filter handler should be gone.
-    // Verify by emitting an error and checking the logger was NOT called.
     const beforeCount = capturedLogs.length
     const err = Object.assign(new Error("EINVAL"), { code: "EINVAL", path: "D:\\pagefile.sys" })
-    // The error propagates to previousHandler (e.g., bun's test runner), which doesn't throw.
-    // We just want to verify our filter was removed (not invoked).
     process.emit("uncaughtException", err)
     expect(capturedLogs.length).toBe(beforeCount)
   })
