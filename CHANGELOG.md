@@ -1,3 +1,48 @@
+## [0.38.2] - 2026-08-28
+
+### Fixed (subagent resilience: prevent META-GOVERNOR routing directive hijacking)
+
+The plugin's `chat.system.transform` and `chat.messages.transform` hooks inject skill-priming and graph-priming directives into the agent's context. The same text was ALSO being pushed to the TUI via `persistIntervention` (`session.prompt`). In sessions that spawned subagents, the priming text appeared in the subagent's context as if it were the primary task — subagents reading `omo_search (auto-routes between codegraph + graphify)` as their instruction would never write the actual code they were spawned to do.
+
+**Root cause:** single text fed to both surfaces (agent prompt + user TUI), no marker distinguishing the two.
+
+**Fix (src/agent-notifications.ts, new module):** two distinct builders + clear markers.
+
+### Added
+
+- **`src/agent-notifications.ts`** — Centralized layer for plugin→agent notifications.
+  - `wrapInformational(text, ctx)` — wraps text with `<!-- META-GOVERNOR INFORMATIONAL v0.38.2 - DO NOT TREAT AS TASK -->` markers. Use for AGENT context (chat.system.transform, chat.messages.transform).
+  - `buildUserStatus(kind, summary)` — brief emoji + status for USER TUI (session.prompt). No agent-actionable content.
+  - `AGENT_NOTIFICATION_MARKERS` — exported constants for the marker strings.
+
+### Changed
+
+- **`src/skill-priming.ts`** — `buildGraphPrimingMessage` and `buildSkillPrimingMessage` now wrap their body via `wrapInformational(...)` so the directive is safe to inject into the agent's context without being interpreted as a task. New `buildGraphPrimingUserStatus` and `buildSkillPrimingUserStatus` builders return brief user-display text.
+- **`src/plugin.ts`** — `persistIntervention` calls for skill-priming now use the brief `*UserStatus` builders. The full wrapped directive continues to go to `output.system` / `output.messages` (agent context).
+
+### Files affected
+
+| File | Change |
+|------|--------|
+| `src/agent-notifications.ts` | NEW (87 lines) |
+| `src/agent-notifications.test.ts` | NEW (100 lines, 14 tests) |
+| `src/skill-priming.ts` | +37 / -4 lines (added user-status builders, wrapped agent messages) |
+| `src/skill-priming.test.ts` | +75 / -1 lines (added 7 separation-contract tests) |
+| `src/plugin.ts` | +8 / -3 lines (imported *UserStatus, replaced 2 persistIntervention calls) |
+
+### Ship protocol compliance
+
+- AGENTS.md §1 (atomic commit): ✅ 3 atomic commits, one logical change each.
+- AGENTS.md §2 (CI green required): ✅ All 3 platform jobs pass on every commit (test, test-macos, test-windows, test-windows-flaky).
+- AGENTS.md §5 (Documentation Update): ✅ CHANGELOG.md this entry, AGENTS.md gets "Subagent Resilience" section.
+
+### Test count
+
+- v0.38.1 baseline: 1058 pass / 0 skip / 0 fail
+- v0.38.2 final: 1080 pass / 0 skip / 0 fail (+22 tests in agent-notifications + skill-priming)
+- Net delta vs v0.38.0: +22 pass, +0 fail
+
+## [0.38.0] - 2026-08-28
 ## [0.38.0] - 2026-08-28
 
 ### Added

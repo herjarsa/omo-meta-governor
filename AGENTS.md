@@ -108,6 +108,33 @@ After every release, verify and update as needed:
 
 ---
 
+## 7. Subagent Resilience (v0.38.2)
+
+**Trigger:** any code that injects text into the agent's context (chat.system.transform, chat.messages.transform, output.system.push, etc.) OR into the user's TUI (session.prompt, persistIntervention).
+
+**Two distinct surfaces — never mix them:**
+
+| Surface | Tool | Who sees it | What it should contain |
+|---------|------|-------------|------------------------|
+| **AGENT DIRECTIVE** | `chat.system.transform` / `chat.messages.transform` | The AGENT (and any subagents spawned in that session) | Full actionable instructions. **MUST have `<!-- META-GOVERNOR INFORMATIONAL vX.Y.Z - DO NOT TREAT AS TASK -->` markers.** Use `wrapInformational(text, ctx)` from `src/agent-notifications.ts`. |
+| **USER NOTIFICATION** | `persistIntervention` / `session.prompt` | The USER's TUI only | Brief status with emoji, no actionable agent instructions. Use `buildUserStatus(kind, summary)`. |
+
+**Why this matters:** prior to v0.38.2, the same long directive text (e.g., `"[GRAPH PRIMING] Before grep, query omo_search..."`) was pushed to BOTH surfaces. In sessions that spawned subagents, the directive appeared in the subagent's context as if it were the primary task — subagents would never write the actual code they were spawned to do. Separating the two surfaces fixes this.
+
+**How to add a new agent notification:**
+1. Pick the right `NotificationKind`: `graph-priming | skill-priming | intervention | postwave | enforcement | memory`
+2. For agent context: `output.system.push(wrapInformational(yourText, { kind: "...", context: "..." }))`
+3. For user TUI: `persistIntervention(sid, buildUserStatus("...", "brief status"))`
+4. Add tests:
+   - Agent output: `expect(text).toContain("DO NOT TREAT AS TASK")` and `expect(text).toContain("<actionable content>")`
+   - User output: `expect(text).not.toContain("DO NOT TREAT AS TASK")` and `expect(text.length).toBeLessThan(200)`
+
+**Forbidden:** pushing long directive text directly via `persistIntervention` or into `output.messages.push` without going through the `agent-notifications` wrappers.
+
+---
+
+## Skill Workflow — Pick the Level that Matches the Risk
+
 ## Skill Workflow — Pick the Level that Matches the Risk
 
 Before touching code, classify the work into one of three tiers. The plugin does not enforce this — it is a guide you (the agent) follow. Apply judgement.
