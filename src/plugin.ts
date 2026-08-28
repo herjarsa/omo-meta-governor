@@ -114,6 +114,7 @@ import {
   DEFAULT_PROTOCOL_PATH,
 } from "./protocol-enforcer";
 import { startSkillsFsWatcher } from "./skills-fs-watcher";
+import { installGlobalErrorHandler } from "./error-handler";
 import {
   buildSkillPrimingMessage,
   buildGraphPrimingMessage,
@@ -259,6 +260,10 @@ export function createMetaGovernorPlugin(
     >[0],
   );
   const cwd = process.cwd();
+  // v0.38.0: install global error handler to filter chokidar/readdirp scan errors
+  // from system-protected paths (D:\pagefile.sys, etc.) — must be installed BEFORE
+  // any chokidar instance is created.
+  installGlobalErrorHandler();
 
   // v0.13.1: initialize custom tools for the LLM to call.
   const sqlite = getDefaultSqliteBackend();
