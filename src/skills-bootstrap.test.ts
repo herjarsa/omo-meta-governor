@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync, realpathSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createHash } from "node:crypto"
@@ -12,8 +12,11 @@ async function makeChoreTarball(tarballDir: string, slug: string, body: string):
   const staged = join(tarballDir, "_stage", slug)
   mkdirSync(staged, { recursive: true })
   writeFileSync(join(staged, "SKILL.md"), body)
-  const tarPath = join(tarballDir, "chore.tar.gz")
-  execSync(`tar -czf "${tarPath}" -C "${join(tarballDir, "_stage")}" "${slug}"`)
+
+  const tarballDirReal = realpathSync(tarballDir)
+  const tarPath = join(tarballDirReal, "chore.tar.gz")
+  const stagedReal = realpathSync(join(tarballDir, "_stage"))
+  execSync(`tar -czf "${tarPath}" -C "${stagedReal}" "${slug}"`)
   rmSync(join(tarballDir, "_stage"), { recursive: true, force: true })
 }
 
@@ -24,7 +27,7 @@ async function makeChoreTarball(tarballDir: string, slug: string, body: string):
 // but did not fix the tar root cause.
 // TODO(#skills-bootstrap-windows): investigate realpathSync or
 // alternative extraction to handle 8.3 short-name paths.
-describe.skip("bootstrapChoreSkills", () => {
+describe("bootstrapChoreSkills", () => {
   let tmpRoot: string
   let globalDir: string
   let tarballDir: string
