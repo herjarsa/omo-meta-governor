@@ -49,6 +49,14 @@ export function createHermeticPlugin(
       durationMs: 0,
     }),
     __test_persistRetryDelayMs: 0,
+    // v0.37.1: hermetic stub for startSkillsFsWatcher. Without this, chokidar
+    // scans projectDir with usePolling and on Windows CI raises EINVAL lstat on
+    // D:\\DumpStack.log.tmp / D:\\pagefile.sys when mockPluginInput.directory is "".
+    // Fixes the v0.37.0 readdirp flake (6 quarantines in f8caf18/e5fc0b6/31e0a21/
+    // ff2ecaf/6180525/c4bc7ee).
+    __test_startSkillsFsWatcher: async () => ({
+      stop: async () => {},
+    }),
     ...extraDeps,
   };
   return createMetaGovernorPlugin(

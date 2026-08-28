@@ -5,7 +5,7 @@
 > **12 custom tools** the agent can invoke across CodeGraph, Graphify,
 > AgentMemory, and SQLite — for cheaper, more accurate code understanding.
 
-**Current version:** `0.37.0` · **License:** MIT · **Status:** stable
+**Current version:** `0.37.1` · **License:** MIT · **Status:** stable
 
 ---
 

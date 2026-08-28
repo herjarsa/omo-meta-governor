@@ -4,11 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { startSkillsFsWatcher } from "./skills-fs-watcher.js"
 
-// v0.37.0 quarantine: 5th pre-existing Windows CI flake (readdirp EINVAL scanning
-// D:\\DumpStack.log.tmp from chokidar via startSkillsFsWatcher). Same root
-// cause as f8caf18 / e5fc0b6 / 31e0a21 / ff2ecaf. Passes locally in isolation.
-// TODO(#audit-v2-flakes): hermetize startSkillsFsWatcher.
-describe.skip("startSkillsFsWatcher", () => {
+describe("startSkillsFsWatcher", () => {
   let projectDir: string
 
   beforeEach(() => {

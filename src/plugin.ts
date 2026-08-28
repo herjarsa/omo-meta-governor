@@ -153,8 +153,17 @@ __test_runCliAnythingSync?: typeof import("./cli-anything-sync").runCliAnythingS
   /** v0.31.3: test-only DI seam — replaces persistSessionMessage so retry tests
    * never touch a real OpenCode server. */
 __test_persistSessionMessage?: typeof import("./session-bridge").persistSessionMessage;
+  /**
+   * v0.37.1: test-only DI seam — replaces startSkillsFsWatcher so hermetic
+   * tests never spawn a chokidar watcher (which scans projectDir with polling
+   * and on Windows CI raises EINVAL lstat on D:\\DumpStack.log.tmp /
+   * D:\\pagefile.sys when mockPluginInput.directory is ""). Fixes the v0.37.0
+   * readdirp Windows flake that required 6 quarantines (f8caf18, e5fc0b6,
+   * 31e0a21, ff2ecaf, 6180525, c4bc7ee).
+   */
+  __test_startSkillsFsWatcher?: typeof import("./skills-fs-watcher").startSkillsFsWatcher;
   /** v0.31.3: test-only DI seam — persist-retry backoff override (ms). */
-__test_persistRetryDelayMs?: number;
+  __test_persistRetryDelayMs?: number;
 }
 
 // - Helpers
@@ -992,7 +1001,9 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
 
     try {
       const projectSkillsDir = join(sessionProjectDir, ".agents", "skills");
-      skillsFsWatcher = await startSkillsFsWatcher({
+      const startSkillsFsWatcherImpl =
+        deps.__test_startSkillsFsWatcher ?? startSkillsFsWatcher;
+      skillsFsWatcher = await startSkillsFsWatcherImpl({
         projectDir: projectSkillsDir,
         onChange: async (p, event) => {
           // Spec: only count creates, not edits. The resolver re-scans on

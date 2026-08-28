@@ -155,11 +155,7 @@ describe("shouldInjectSkillPriming", () => {
 
 // ─── Plugin-level: messages.transform injection ────────────────────
 
-// v0.37.0 quarantine: describe block is flaky on Windows CI (4 tests fail with
-// identical assertions that pass locally in 5.3s). Pre-existing flake — not
-// regression of enforcement batch. Likely readdirp/chokidar cross-test contamination
-// from skills-fs-watcher. Passes locally in isolation.
-describe.skip("experimental.chat.messages.transform — skill priming", () => {
+describe("experimental.chat.messages.transform — skill priming", () => {
   beforeEach(() => {
     clearAll()
   })
