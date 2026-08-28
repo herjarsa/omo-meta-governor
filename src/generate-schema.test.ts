@@ -82,7 +82,7 @@ it("then has intervention with enum constraints", () => {
       expect(iv.mode.enum).toEqual(["silent", "message", "system"])
       expect(iv.mode.default).toBe("silent")
       expect(iv.minActionForMessage.enum).toEqual(["warn", "escalate", "stop"])
-      expect(iv.minActionForMessage.default).toBe("warn")
+      expect(iv.minActionForMessage.default).toBe("stop")
       expect(iv.includeDecisionHistory.default).toBe(true)
       expect(iv.maxHistoryMessages.default).toBe(5)
     })
@@ -233,5 +233,3 @@ const expectedKeys = [
     })
   })
 })
-
-

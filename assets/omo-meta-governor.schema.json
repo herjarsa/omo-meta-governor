@@ -31,6 +31,18 @@
           "description": "How many consecutive stops before forcing continue.",
           "default": 3,
           "minimum": 1
+        },
+        "warnMessageTemplate": {
+          "type": "string",
+          "description": "v0.18.0: custom warning message template. Supports {{action}}, {{score}}, {{sessionID}} placeholders."
+        },
+        "escalateMessageTemplate": {
+          "type": "string",
+          "description": "v0.18.0: custom escalation message template. Supports {{action}}, {{score}}, {{sessionID}} placeholders."
+        },
+        "stopMessageTemplate": {
+          "type": "string",
+          "description": "v0.18.0: custom stop message template. Supports {{action}}, {{score}}, {{sessionID}} placeholders."
         }
       }
     },
@@ -42,6 +54,12 @@
         "agentmemoryTimeoutMs": {
           "type": "integer",
           "description": "Timeout for agentmemory queries in milliseconds.",
+          "default": 2000,
+          "minimum": 100
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "description": "v0.18.0: preferred name for agentmemoryTimeoutMs. Aliased for back-compat.",
           "default": 2000,
           "minimum": 100
         },
@@ -123,6 +141,22 @@
           "default": 0.55,
           "minimum": 0,
           "maximum": 1
+        },
+        "paralysisThreshold": {
+          "type": "number",
+          "description": "v0.18.0: when progress-detector sees no movement for N turns, score drops by paralysisThreshold.",
+          "default": 0.2,
+          "minimum": 0,
+          "maximum": 1
+        },
+        "defaultEscalationTarget": {
+          "type": "string",
+          "description": "v0.18.0: which agent receives escalation messages.",
+          "enum": [
+            "oracle",
+            "user"
+          ],
+          "default": "user"
         }
       }
     },
@@ -131,6 +165,27 @@
       "description": "Closed-loop learning configuration.",
       "additionalProperties": false,
       "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Master switch for the closed-loop learning pipeline. v0.18.0: was silently dropped by loadOrchestratorConfig; now projected.",
+          "default": true
+        },
+        "minSeverityToLearn": {
+          "type": "string",
+          "description": "v0.18.0: minimum decision severity that triggers lesson save.",
+          "enum": [
+            "leve",
+            "media",
+            "grave"
+          ],
+          "default": "media"
+        },
+        "maxLessonsPerSession": {
+          "type": "integer",
+          "description": "v0.18.0: hard cap on lessons per session. Was silently dropped pre-v0.18.0.",
+          "default": 20,
+          "minimum": 0
+        },
         "saveDecisions": {
           "type": "boolean",
           "description": "Whether to save decision records.",
@@ -232,7 +287,7 @@
             "escalate",
             "stop"
           ],
-          "default": "warn"
+          "default": "stop"
         },
         "persistToSession": {
           "type": "boolean",
@@ -358,19 +413,23 @@
         },
         "bootstrapUrl": {
           "type": "string",
-          "description": "Bulk bootstrap snapshot URL."
+          "description": "Bulk bootstrap snapshot URL.",
+          "default": "https://skills-library.com/api/skills.json"
         },
         "searchFallbackUrl": {
           "type": "string",
-          "description": "Live search fallback endpoint."
+          "description": "Live search fallback endpoint.",
+          "default": "https://skills.sh/api/search"
         },
         "downloadBaseUrl": {
           "type": "string",
-          "description": "Skill content download base."
+          "description": "Skill content download base.",
+          "default": "https://skills.sh/api/download"
         },
         "embedBaseUrl": {
           "type": "string",
-          "description": "Local embeddings endpoint base."
+          "description": "Local embeddings endpoint base.",
+          "default": "http://127.0.0.1:3114/v1"
         },
         "embedModel": {
           "type": "string",
@@ -419,10 +478,31 @@
           "description": "Enable watch mode (re-index on file changes).",
           "default": false
         },
+        "autoInstall": {
+          "type": "boolean",
+          "description": "When true, install codegraph + graphify if missing. Default true.",
+          "default": true
+        },
+        "installTimeoutMs": {
+          "type": "integer",
+          "description": "Max ms to wait for graphify/codegraph install before failing graph-sync init.",
+          "default": 120000,
+          "minimum": 1000
+        },
         "killOrphanedOnInit": {
           "type": "boolean",
           "description": "When true, sweep orphaned graphify/codegraph processes left by previous crashed runs on graph-sync init.",
           "default": true
+        },
+        "reindexOnFetch": {
+          "type": "boolean",
+          "description": "v0.25.1: when true, fetch origin and reindex if local HEAD is behind. Default true.",
+          "default": true
+        },
+        "fetchBranch": {
+          "type": "string",
+          "description": "v0.25.1: branch to fetch + compare against. Default 'main'.",
+          "default": "main"
         },
         "autoUpgrade": {
           "type": "boolean",
@@ -577,6 +657,40 @@
           ],
           "description": "v0.28.0: scope for the cli-hub-meta-skill install. 'global' (default) installs to ~/.claude/skills/, 'project' to ./.claude/skills/.",
           "default": "global"
+        }
+      }
+    },
+    "ciMonitor": {
+      "type": "object",
+      "description": "v0.25.0: CI monitor configuration. When enabled, the plugin polls GitHub Actions after `git push` and injects failure context into the agent session.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Master switch. When true, the plugin auto-triggers CI monitoring on git push.",
+          "default": false
+        },
+        "workflow": {
+          "type": "string",
+          "description": "GitHub Actions workflow file name (e.g. 'ci.yml'). Used to filter runs.",
+          "default": "ci.yml"
+        },
+        "pollIntervalMs": {
+          "type": "integer",
+          "description": "Initial poll interval in ms; subsequent polls use exponential backoff.",
+          "default": 5000,
+          "minimum": 1000
+        },
+        "maxWaitMs": {
+          "type": "integer",
+          "description": "Hard cap on total poll duration before giving up.",
+          "default": 600000,
+          "minimum": 5000
+        },
+        "failOnly": {
+          "type": "boolean",
+          "description": "When true, inject only failed-job context (logs); skip success messages.",
+          "default": true
         }
       }
     }

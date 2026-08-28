@@ -1,4 +1,48 @@
-## [0.37.1] - 2026-08-27
+## [0.37.2] - 2026-08-28
+
+### Fixed (schema-vs-runtime drift — IDE hints were lying)
+
+`assets/omo-meta-governor.schema.json` and its generator `src/generate-schema.ts` had fallen behind `src/config.ts` (`MetaGovernorPluginConfig` + `loadOrchestratorConfig`). Users editing `opencode.jsonc` got autocomplete suggesting non-existent fields (or hiding real ones) and the wrong default for `minActionForMessage`.
+
+**Missing top-level block:**
+- `ciMonitor` — entire block absent despite `CIMonitorConfig` in `src/ci-monitor.ts:33` and `README.md` documenting `meta_governor.ciMonitor`. Added with all 5 sub-fields (`enabled`, `workflow`, `pollIntervalMs`, `maxWaitMs`, `failOnly`).
+
+**Missing fields (declared in interface, projected at runtime, missing from schema):**
+- `decision.warnMessageTemplate` / `escalateMessageTemplate` / `stopMessageTemplate` (v0.18.0)
+- `memory.timeoutMs` (v0.18.0 alias for `agentmemoryTimeoutMs`)
+- `scoring.paralysisThreshold` / `defaultEscalationTarget` (v0.18.0)
+- `closedLoop.enabled` / `minSeverityToLearn` / `maxLessonsPerSession` (v0.18.0)
+- `graphSync.autoInstall` / `installTimeoutMs` (v0.22.0+)
+- `graphSync.reindexOnFetch` / `fetchBranch` (v0.25.1)
+
+**Wrong default:**
+- `intervention.minActionForMessage` — schema asserted `"warn"`, `loadOrchestratorConfig` applies `"stop"` (config.ts:318, since v0.10.0). Fixed: schema now mirrors runtime. The previous test in `generate-schema.test.ts:85` codified the wrong default — also corrected.
+
+**Cleanups:**
+- `skillHub` block: replaced 12 inline `{ type: ..., "default": ... }` lines with proper object syntax; added defaults for `bootstrapUrl`, `searchFallbackUrl`, `downloadBaseUrl`, `embedBaseUrl` (URLs were applied at runtime but missing from schema hints).
+
+**Test pinned:**
+- New `src/generate-schema-sync.test.ts` — byte-for-byte sync test asserting `JSON.stringify(generateSchema())` equals the committed `assets/omo-meta-governor.schema.json`. Future drift fails CI immediately. Covers: ciMonitor block, all v0.18.0 fields, v0.25.1 graphSync fields, default drift.
+
+### Changed
+
+- `src/generate-schema.ts` — full rewrite for clarity; single source of truth that mirrors `src/config.ts` projection rules.
+- `src/generate-schema.test.ts` — corrected `minActionForMessage.default` assertion (`"warn"` → `"stop"`).
+
+### Tests
+
+- New file: `src/generate-schema-sync.test.ts` (9 tests, 9 pass): covers committed-asset sync, ciMonitor block, v0.18.0 fields, v0.25.1/v0.26.0 graphSync fields, and the corrected default.
+- Full suite: **1035 pass / 2 skip / 0 fail** (1037 tests across 88 files). The 2 skipped are pre-existing quarantined tests (readdirp Windows flake + graphsink-fix) documented in v0.37.1.
+- typecheck PASS (exit 0).
+
+### Ship protocol compliance
+
+- AGENTS.md §1 (atomic commit): pending.
+- AGENTS.md §2 (CI green required): pending Windows verification.
+- AGENTS.md §6 (Oracle Review Gate pre-close): pending.
+- AGENTS.md §5 (Documentation Update): ✅ CHANGELOG.md this entry.
+
+
 
 ### Fixed (audit v2 P2 — root-cause fix for readdirp Windows CI flake)
 
