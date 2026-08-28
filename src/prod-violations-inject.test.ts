@@ -55,6 +55,15 @@ const HERMETIC_DEPS: MetaGovernorPluginDeps = {
     alreadyInitialized: true,
   }),
   __test_persistRetryDelayMs: 0,
+  // v0.37.2: hermetic stub for startSkillsFsWatcher. Without this, chokidar
+  // scans projectDir with usePolling and on Windows CI raises EINVAL lstat on
+  // D:\\DumpStack.log.tmp / D:\\pagefile.sys even when mockPluginInput.directory
+  // is "" (the bug behind the v0.37.1 unhandled readdirp errors in this test
+  // file). Same stub used by createHermeticPlugin in
+  // src/__test-helpers__/hermetic-plugin.ts.
+  __test_startSkillsFsWatcher: async () => ({
+    stop: async () => {},
+  }),
   // NOTE: __test_persistSessionMessage is intentionally undefined to simulate prod.
 }
 
