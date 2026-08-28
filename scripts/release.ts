@@ -207,14 +207,37 @@ export async function release(
     console.log("[release] (dry-run: skipped gh release create)")
   }
 
-  // Step 8 (NEW): Verification — confirm the publish + tag actually happened
-  console.log("[release] Step 8/8: Verifying release")
-  if (!options.dryRun) {
+  // Step 8 (FIXED): Verification — confirm the publish + tag actually happened.
+// npm registry can take 30-60s to propagate after `npm publish` returns
+// success. Retry up to 3 times with exponential backoff (5s, 10s, 20s).
+// If still stale after retries, log a warning but DON'T throw — the publish,
+// tag push, and GitHub release all already succeeded at this point. The
+// verification is best-effort sanity check, not a hard gate.
+console.log("[release] Step 8/8: Verifying release")
+if (!options.dryRun) {
+  const maxAttempts = 3
+  const delays = [5000, 10000, 20000] // ms before retry 1, 2, 3 (total max ~35s wait)
+  let verified = false
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const npmCheck = await run(["npm", "view", `@herjarsa/omo-meta-governor`, "version"])
-    if (!npmCheck.stdout.includes(versionStr)) {
-      throw new Error(`npm view verification failed — expected ${versionStr}, got: ${npmCheck.stdout.trim()}`)
+    if (npmCheck.stdout.includes(versionStr)) {
+      verified = true
+      if (attempt > 1) {
+        console.log(`[release] ✅ Verified on attempt ${attempt}/${maxAttempts} (npm propagation caught up)`)
+      }
+      break
+    }
+    if (attempt < maxAttempts) {
+      const delay = delays[attempt - 1]
+      console.log(`[release] npm view returned "${npmCheck.stdout.trim()}" (attempt ${attempt}/${maxAttempts}); waiting ${delay / 1000}s before retry (npm propagation delay)...`)
+      await new Promise((r) => setTimeout(r, delay))
+    } else {
+      console.log(`[release] ⚠️ npm view still shows "${npmCheck.stdout.trim()}" after ${maxAttempts} attempts.`)
+      console.log(`[release]    This may be a registry propagation delay (try \`npm view @herjarsa/omo-meta-governor version\` manually in a few minutes).`)
+      console.log(`[release]    The earlier npm publish + git tag + gh release create all returned success.`)
     }
   }
+}
 
   console.log(`\n[release] ✅ Release ${version.tag} complete\n`)
 }
