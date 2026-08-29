@@ -53,17 +53,42 @@ Add as a plugin in your OpenCode config (`~/.config/opencode/opencode.jsonc`):
 }
 ```
 
-The 12 custom tools register automatically on every load. To also enable
-the governance pipeline (scoring, intervention, protocol enforcement):
+### Plugin configuration (`omo-meta-governor.jsonc`)
+
+The plugin reads its detailed configuration from `omo-meta-governor.jsonc`
+(separate file from `opencode.jsonc`). Three locations, closest wins:
+
+1. **CLI inline** (highest priority — `omo-meta-governor --config '{...}'`)
+2. **Project config**: `<projectDir>/.opencode/omo-meta-governor.jsonc`
+3. **User config**: `~/.config/opencode/omo-meta-governor.jsonc` (lowest priority — defaults)
+
+Minimal config to enable the governance pipeline:
 
 ```jsonc
 {
-  "meta_governor": {
-    "enabled": true,
-    "intervention": { "mode": "message", "minActionForMessage": "warn" }
+  "enabled": true,
+  "intervention": { "mode": "message", "minActionForMessage": "warn" }
+}
+```
+
+### Oracle frequency (v0.38.4+, Option D)
+
+Controls when the plugin invokes Oracle for verification:
+
+```jsonc
+{
+  "oracle": {
+    // "per-stop" (default): Oracle invoked ONLY at the final-gate AND when
+    // scoring reaches stop band (action === "stop"). warn/escalate log only.
+    // "final-only": Oracle invoked ONLY at the final-gate. Zero mid-work.
+    // "off": Oracle never invoked automatically. Set oracleVerified manually.
+    "frequency": "per-stop"
   }
 }
 ```
+
+The `<promise>DONE</promise>` / `<promise>PLAN-COMPLETE</promise>` final-gate
+ALWAYS invokes Oracle regardless of `oracle.frequency`.
 
 ---
 
