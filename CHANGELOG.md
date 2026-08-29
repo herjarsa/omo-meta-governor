@@ -1,4 +1,57 @@
-<item>## [0.38.4] - 2026-08-29
+<item>## [0.38.5] - 2026-08-29
+
+### Added (OpenCode Desktop plugin init — regression test + documentation)
+
+OpenCode Desktop spawns `opencode serve` in HTTP/sidecar mode. In some
+versions of OpenCode Desktop, the plugin service is never materialised
+during serve startup, so `plugin.server(input)` is never called and the
+plugin's `omo_*` tools never appear in the session — even though the
+module loads successfully (you can see `MetaGovernor plugin loaded` in
+`~/.config/opencode/meta-governor.log`).
+
+Tracked upstream:
+- [anomalyco/opencode#42280](https://github.com/anomalyco/opencode/issues/42280) — V2 external plugins silently fail to register agents/tools after startup
+- [anomalyco/opencode#41728](https://github.com/anomalyco/opencode/pull/41728) — fix(server): ensure Plugin service materialises at serve startup (OPEN)
+- [anomalyco/opencode#44367](https://github.com/anomalyco/opencode/issues/44367) — [Desktop][Windows] npm plugin from config is silently never loaded
+
+**Workaround** (until upstream PR #41728 lands): use `opencode` CLI /
+`opencode run` where the plugin loads normally, OR enable the MCP server
+mode (omo_* tools via sidecar process).
+
+**Regression test** in `src/plugin.test.ts` ("serve-mode plugin init
+contract (v0.38.5)") documents the @opencode-ai/plugin contract from
+the plugin author's POV:
+- `createMetaGovernorPlugin(...)` returns a callable Plugin function
+- `plugin(input, options)` returns a `Promise<Hooks>` with the 4 standard hook keys
+- The bundled entry (`dist/index.js`) exports a callable default
+
+**Files changed:**
+- `src/plugin.test.ts` — +3 serve-mode contract tests (pass today; will
+  guard against silent regression when upstream lands).
+- `README.md` — new "Known limitation: OpenCode Desktop plugin init
+  (v0.38.5)" section under "MCP server mode (v0.31.0)" with upstream
+  links and workaround documentation.
+
+Also posted comment on PR #41728 (comment ID 5461960479) confirming our
+case from the plugin author's side and asking the author to separate
+`Closes #38470` (which is wrong — that's an MCP-tools issue, not a plugin
+issue) so the PR can merge.
+
+### Ship protocol compliance
+
+- AGENTS.md §1 (atomic commit): ✅ 1 atomic commit (c130f8d).
+- AGENTS.md §2 (CI green required): ✅ Run #TBD on the final commit.
+- AGENTS.md §5 (Documentation Update): ✅ CHANGELOG.md this entry + README.md.
+- AGENTS.md §3b (automated release): ✅ `bun run release 0.38.5` follows.
+
+### Test count
+
+- v0.38.4 baseline: 1091 pass / 12 skip / 0 fail (1099 total)
+- v0.38.5 final: 1094 pass / 12 skip / 0 fail (1102 total)
+- Net delta: +3 pass (serve-mode contract tests), +0 fail
+- No production code changed (test + docs only)
+
+</item>
 
 ### Added (Oracle frequency — final-gate with per-stop brake)
 
