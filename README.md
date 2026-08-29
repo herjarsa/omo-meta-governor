@@ -376,6 +376,34 @@ an independent MCP server process — the same delivery mechanism that powers
 
 Both modes can be active simultaneously without conflict.
 
+### Known limitation: OpenCode Desktop plugin init (v0.38.5)
+
+OpenCode Desktop spawns `opencode serve` in HTTP/sidecar mode. In some
+versions of OpenCode Desktop, the plugin service is never materialised
+during serve startup, so `plugin.server(input)` is never called and
+the plugin's `omo_*` tools never appear in the session — **even though
+the plugin module loads successfully** (you can see `MetaGovernor plugin
+loaded` in `~/.config/opencode/meta-governor.log`).
+
+This is tracked upstream:
+- [anomalyco/opencode#42280](https://github.com/anomalyco/opencode/issues/42280)
+  — V2 external plugins silently fail to register agents/tools after startup
+- [anomalyco/opencode#41728](https://github.com/anomalyco/opencode/pull/41728)
+  — fix(server): ensure Plugin service materialises at serve startup
+- [anomalyco/opencode#44367](https://github.com/anomalyco/opencode/issues/44367)
+  — [Desktop][Windows] npm plugin from config is silently never loaded
+
+**Workaround** (until upstream PR #41728 lands): use the **CLI** (`opencode`
+or `opencode run`) where the plugin loads normally, OR enable the
+[MCP server mode](#mcp-server-mode-v0310) below to get the `omo_*` tools
+via a sidecar process.
+
+The regression test in `src/plugin.test.ts` ("serve-mode plugin init
+contract (v0.38.5)") documents the serve-mode contract from the plugin
+author's POV and will pass even today because it exercises the factory
+directly. When upstream lands, this test should be extended to cover the
+new `opencode serve` integration test shipped with PR #41728.
+
 ### Setup
 
 Add to your `~/.config/opencode/opencode.jsonc`:

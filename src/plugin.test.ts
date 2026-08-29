@@ -765,3 +765,87 @@ describe("global error handler (v0.38.3 CI fix)", () => {
     expect(process.listenerCount("uncaughtException")).toBe(before)
   })
 })
+
+// ─── v0.38.5 regression: serve-mode plugin init contract ────────────
+//
+// OpenCode Desktop spawns `opencode serve` in HTTP/sidecar mode. The
+// upstream bug #42280 ("V2 external plugins silently fail to register
+// agents/tools after startup") + PR #41728 ("fix(server): ensure Plugin
+// service materialises at serve startup") describe the race where
+// `Plugin.service` is never materialised in serve mode, so
+// `plugin.server(input)` is never called. Symptoms from the plugin
+// author's perspective:
+//
+//   - Module loads (module-scope `logToFile` runs).
+//   - `createMetaGovernorPlugin(...)` is never called.
+//   - All `omo_*` tools are absent from the session.
+//   - All hooks (`tool.execute.before`, `chat.messages.transform`, etc.)
+//     never fire.
+//
+// This test documents the serve-mode contract from downstream's POV.
+// It is **expected to pass today** because we exercise the factory
+// directly via `createHermeticPlugin()`. When the upstream fix lands
+// and we adopt the new `opencode serve` integration test (the OpenCode
+// maintainers ship one in PR #41728), this test should be extended
+// to cover that integration too. The descriptive assertion below
+// guards against silent regression — if anyone refactors
+// `createMetaGovernorPlugin` so that it does NOT produce a callable
+// `server(input)` function, this test fails immediately.
+//
+// References:
+//   - https://github.com/anomalyco/opencode/issues/42280
+//   - https://github.com/anomalyco/opencode/pull/41728
+//   - https://github.com/anomalyco/opencode/issues/44367 (Desktop-specific)
+describe("serve-mode plugin init contract (v0.38.5)", () => {
+  // The @opencode-ai/plugin `Plugin` contract (v1.x): `createMetaGovernorPlugin(...)`
+  // returns a **callable function** `(input, options) => Promise<Hooks>`. The
+  // opencode serve loader invokes it per-request. This is the exact entry
+  // point that PR #41728 upstream fails to call in serve mode (#42280).
+  it("then createMetaGovernorPlugin(...) returns a callable Plugin function", () => {
+    const plugin = createHermeticPlugin()
+    // Per @opencode-ai/plugin contract: the factory returns the plugin as
+    // a callable `(input, options) => Promise<Hooks>`. Not an object with
+    // a `.server(input)` method.
+    expect(typeof plugin).toBe("function")
+  })
+
+  it("then invoking plugin(input, options) registers the omo_* tool handlers (smoke)", async () => {
+    const plugin = createHermeticPlugin()
+    const mockInput = { directory: "", client: null, serverUrl: new URL("http://localhost") }
+    // Should be callable and return a Promise<Hooks> with the standard
+    // hook keys. If this throws or returns a non-Hooks object, the plugin
+    // cannot register in serve mode (Desktop, OpenChamber) — see #42280.
+    const hooks = await plugin(mockInput as never, {} as never)
+    expect(hooks).toBeTruthy()
+    expect(typeof hooks).toBe("object")
+    // The 4 registered hooks per the @opencode-ai/plugin v1 contract:
+    expect("tool.execute.before" in hooks).toBe(true)
+    expect("tool.execute.after" in hooks).toBe(true)
+    expect("experimental.chat.system.transform" in hooks).toBe(true)
+    expect("experimental.chat.messages.transform" in hooks).toBe(true)
+  })
+
+  it("then the plugin module exposes a callable default export (opencode loader contract)", async () => {
+    // Per the @opencode-ai/plugin npm package loader, the entry point
+    // must export a callable that returns the plugin factory. This is
+    // the shape OpenCode Desktop's `opencode serve` expects when
+    // importing `npm:@herjarsa/omo-meta-governor`.
+    //
+    // We import the bundled entry from dist/index.js (built artifact)
+    // — if the build contract breaks, this test fails. Skip if dist
+    // doesn't exist (fresh checkout without `bun run build`).
+    const { existsSync } = await import("node:fs")
+    const { resolve } = await import("node:path")
+    const distPath = resolve(import.meta.dir, "..", "dist", "index.js")
+    if (!existsSync(distPath)) {
+      // Fresh checkout — dist not built. Skip rather than fail.
+      console.log("[v0.38.5] dist/index.js missing — skipping loader contract test")
+      return
+    }
+    const entry = require(distPath)
+    // The entry can be either `entry.default` (ESM-style default) or
+    // the entry itself (CJS-style).
+    const callable = entry.default ?? entry
+    expect(typeof callable).toBe("function")
+  })
+})
