@@ -11,6 +11,7 @@
  */
 
 import { watch } from "chokidar"
+import { existsSync } from "node:fs"
 
 export interface FsWatcher {
   stop(): Promise<void>
@@ -18,16 +19,36 @@ export interface FsWatcher {
 
 export type SkillFileEvent = "add" | "change"
 
+// v0.38.X (CI fix): Windows system paths that chokidar's readdirp walker
+// (usePolling: true) cannot lstat. Without this filter, the EINVAL leaks to
+// bun's test runner as "Unhandled error between tests" and bumps the exit
+// code to 1 even when no test fails. Mirrors src/error-handler.ts paths.
+const WINDOWS_SYSTEM_PATH_REGEX =
+  /^[A-Z]:[\\/](pagefile\.sys|DumpStack\.log\.tmp|hiberfil\.sys|swapfile\.sys)/i
+
 export async function startSkillsFsWatcher(opts: {
   projectDir: string
   onChange: (path: string, event: SkillFileEvent) => Promise<void>
 }): Promise<FsWatcher> {
+  // v0.38.X (CI fix): if the directory does not exist (common in tests with
+  // mockPluginInput.directory=""), chokidar with usePolling falls back to
+  // scanning from process.cwd() and recurses into Windows system paths
+  // (D:\DumpStack.log.tmp, D:\pagefile.sys) that throw EINVAL on lstat.
+  // Returning a no-op watcher avoids the error entirely — we don't need to
+  // watch a directory that doesn't exist.
+  if (!opts.projectDir || !existsSync(opts.projectDir)) {
+    const noop: FsWatcher = { stop: async () => {} }
+    return noop
+  }
   const isSkillFile = (p: string): boolean => p.endsWith("SKILL.md")
   const watcher = watch(opts.projectDir, {
     ignoreInitial: true,
     usePolling: true,
     interval: 100,
     binaryInterval: 100,
+    // Belt-and-braces: even if a system path sneaks past the existsSync
+    // check (e.g. created mid-scan), ignore it before readdirp lstats.
+    ignored: (p: string) => WINDOWS_SYSTEM_PATH_REGEX.test(p),
   })
   // Race-safe: if `stop()` is called before the ready promise resolves, we
   // short-circuit the await so the caller doesn't hang on plugin dispose.
