@@ -7,12 +7,24 @@ interface Logger {
 }
 
 export const DEFAULT_PATH_PATTERNS: RegExp[] = [
-  /^[A-Z]:\\(pagefile\.sys|DumpStack\.log\.tmp)/i,           // Windows system
+  /^[A-Z]:[\\/](pagefile\.sys|DumpStack\.log\.tmp)/i,        // Windows system
+  // v0.38.3 (G8): chokidar normalizes paths to forward slashes on all platforms,
+  // so the regex must accept both `C:\Users\...\Temp\` (Node fs) and
+  // `C:/Users/.../Temp/` (chokidar). Tests create temp dirs with prefix `omo-`.
+  /^[A-Z]:[\\/](Users|home)[\\/][^\\/]+[\\/]AppData[\\/]Local[\\/]Temp[\\/]/i, // Windows user temp
   /^\/(var|private\/var)\/folders\//,                        // macOS temp
   /^\/snap\//,                                               // Linux snap
 ]
 
-export const DEFAULT_ERROR_CODES = new Set(["EINVAL", "ENOENT", "EACCES"])
+export const DEFAULT_ERROR_CODES = new Set([
+  "EINVAL",
+  "ENOENT",
+  "EACCES",
+  "EBADF",  // v0.38.3 (G8 audit fix): chokidar emits EBADF on Windows when
+             // polling a temp dir that was cleaned up mid-scan. Without this,
+             // bun's test runner reports it as "Unhandled error between tests".
+  "EPERM",  // v0.38.3 (G8): same root cause as EBADF; chokidar on locked files.
+])
 
 export interface ErrorHandlerOptions {
   logger?: Logger

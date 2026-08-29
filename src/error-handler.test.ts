@@ -48,6 +48,43 @@ describe("installGlobalErrorHandler", () => {
     expect(capturedLogs).toHaveLength(0)
   })
 
+  // v0.38.3 (G8 audit regression): chokidar on Windows emits EBADF when
+  // its polling sees a temp dir that's been cleaned up. Without this filter,
+  // bun's test runner reports "Unhandled error between tests". The path
+  // pattern must include Windows user temp dirs.
+  it("filters EBADF on Windows user temp paths (chokidar post-cleanup)", () => {
+    teardown = installGlobalErrorHandler({ logger: mockLogger })
+    const err = Object.assign(new Error("EBADF"), {
+      code: "EBADF",
+      path: "C:\\Users\\herjarsa\\AppData\\Local\\Temp\\omo-v11-LiatLo",
+    })
+    expect(() => process.emit("uncaughtException", err)).not.toThrow()
+    expect(capturedLogs).toHaveLength(1)
+    expect(capturedLogs[0]).toMatchObject({ level: "warn", msg: "watcher_scan_blocked" })
+    expect(capturedLogs[0].ctx).toMatchObject({ code: "EBADF" })
+  })
+
+  it("filters EPERM on Windows user temp paths", () => {
+    teardown = installGlobalErrorHandler({ logger: mockLogger })
+    const err = Object.assign(new Error("EPERM"), {
+      code: "EPERM",
+      path: "C:\\Users\\alice\\AppData\\Local\\Temp\\locked-file",
+    })
+    expect(() => process.emit("uncaughtException", err)).not.toThrow()
+    expect(capturedLogs).toHaveLength(1)
+  })
+
+  it("does NOT filter EBADF on non-system paths", () => {
+    teardown = installGlobalErrorHandler({ logger: mockLogger })
+    // User-controlled file under a non-temp directory must NOT be swallowed.
+    const err = Object.assign(new Error("EBADF"), {
+      code: "EBADF",
+      path: "D:\\projects\\myapp\\file.txt",
+    })
+    process.emit("uncaughtException", err)
+    expect(capturedLogs).toHaveLength(0)
+  })
+
   it("respects custom path patterns", () => {
     teardown = installGlobalErrorHandler({ logger: mockLogger, paths: [/^\/custom\/path\//] })
     const err = Object.assign(new Error("EINVAL"), { code: "EINVAL", path: "/custom/path/file" })
