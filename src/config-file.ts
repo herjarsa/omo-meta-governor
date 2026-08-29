@@ -16,6 +16,7 @@ import { readFile, access } from "node:fs/promises"
 import { resolve, join } from "node:path"
 import { homedir } from "node:os"
 import type { MetaGovernorPluginConfig } from "./config"
+import { logToFile } from "./file-logger"
 
 // ─── File name ─────────────────────────────────────────────────────
 
@@ -162,7 +163,19 @@ export async function loadJsoncFile<T = Record<string, unknown>>(
   try {
     const content = await readFile(filePath, "utf-8")
     return parseJsonc<T>(content, filePath)
-  } catch {
+  } catch (err) {
+    // v0.38.3 (G4 audit fix): log JSONC parse failures via logToFile so users
+    // can diagnose malformed config. Previously the catch was empty — users
+    // saw "plugin loaded but doesn't run" with no actionable hint.
+    const message = err instanceof Error ? err.message : String(err)
+    logToFile("warn", "jsonc_parse_failed", {
+      path: filePath,
+      error: message,
+      hint:
+        "Check syntax: comments must use // or /* */, no trailing commas. " +
+        "Run `node -e \"JSON.parse(require('fs').readFileSync('" + filePath +
+        "','utf-8').replace(/\\/\\*[\\s\\S]*?\\*\\//g,'').replace(/\\/\\/[^\\n]*/g,'').replace(/,(\\s*[}\\]])/g,'$1'))\"` to isolate the issue.",
+    })
     return undefined
   }
 }

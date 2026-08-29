@@ -236,6 +236,40 @@ describe("loadJsoncFile", () => {
       expect(result).toBeUndefined()
     })
   })
+
+  // v0.38.3 (G4 audit regression): malformed JSONC must NOT throw — it must
+  // silently fall back to undefined and emit a jsonc_parse_failed log entry
+  // so users can diagnose. Previously the catch was empty (silent failure).
+  describe("#given a malformed JSONC file (v0.38.3 G4 regression)", () => {
+    beforeEach(async () => {
+      // Missing closing brace — JSON.parse will throw.
+      await writeFile(testFile, '{ "enabled": true, ')
+    })
+
+    it("then returns undefined instead of throwing", async () => {
+      const result = await loadJsoncFile(testFile)
+      expect(result).toBeUndefined()
+    })
+
+    it("then emits JSONC parse failed to the log file with path", async () => {
+      // v0.35.0 (F6) added this log; v0.38.3 (G4) added a hint about JSONC
+      // syntax. The log entry contains the file path so users can find the
+      // broken config.
+      const { readFileSync, existsSync } = await import("node:fs")
+      const { LOG_PATH } = await import("./file-logger")
+      expect(existsSync(LOG_PATH)).toBe(true)
+
+      await loadJsoncFile(testFile)
+
+      // Read full log and look for our entry by message + basename.
+      const logContent = readFileSync(LOG_PATH, "utf-8")
+      const basename = testFile.split(/[\\/]/).pop()!
+      const found = logContent
+        .split("\n")
+        .filter((l) => l.includes("JSONC parse failed") && l.includes(basename!))
+      expect(found.length).toBeGreaterThanOrEqual(1)
+    })
+  })
 })
 
 // ─── Priority ordering ──────────────────────────────────────────────
