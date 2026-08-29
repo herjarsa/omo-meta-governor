@@ -1,3 +1,23 @@
+<item>## [0.38.7] - 2026-08-29
+
+### Fixed (TUI session-killer at session start)
+
+When the user submits the FIRST message of a session, the plugin previously
+injected priming nudges via output.messages.push. The OpenCode TUI interpreted
+the synthetic assistant message as the agent's first (completed) turn and
+paused the session until the user pressed "continue".
+
+v0.38.7 fixes the bug:
+- New isSessionStart(messages) helper returns true when there is no prior
+  REAL assistant message from the agent.
+- All 6 nudges in messages.transform are gated with
+  `if (!isSessionStart(output.messages))`.
+- State mutations moved INSIDE the gate so nudges re-fire on next turn.
+- New peekDecision helper lets decision intervention read without consuming.
+
+Test count: 1101 pass / 8 skip / 0 fail. Oracle review: PASS.
+</item>
+
 <item>## [0.38.6] - 2026-08-29
 
 ### Added (Comprehensive config docs for omo-meta-governor.jsonc)
