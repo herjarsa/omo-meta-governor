@@ -32,25 +32,15 @@ export interface ErrorHandlerOptions {
   errorCodes?: Set<string>
 }
 
-// v0.38.5 (CI fix): idempotency guard that RE-INSTALLS the handler if the
-// previous one was torn down. The previous implementation (v0.38.0–v0.38.4)
-// cached the teardown function and returned it forever — so once any test
-// called cleanup(), the module-level handler stayed dead for the rest of
-// the process. chokidar/readdirp EINVAL on D:\DumpStack.log.tmp then
-// escaped to bun:test's "Unhandled error between tests" and CI failed with
-// exit code 1 even though 0 tests failed.
-//
-// The new guard checks process.listenerCount — if a default-opts handler is
-// still registered, return the cached teardown; otherwise install fresh.
-// Custom opts always install fresh (no caching).
+// v0.38.0 idempotency guard: only one default-options handler at a time.
+// The plugin factory is called many times per test suite; without this guard
+// we'd stack dozens of duplicate handlers. Custom opts always install fresh.
 let defaultTeardown: (() => void) | null = null
 
 export function installGlobalErrorHandler(opts: ErrorHandlerOptions = {}): () => void {
   // Idempotency for default opts (the common case from createMetaGovernorPlugin).
   const isDefault = Object.keys(opts).length === 0
-  if (isDefault && defaultTeardown && process.listenerCount("uncaughtException") > 0) {
-    return defaultTeardown
-  }
+  if (isDefault && defaultTeardown) return defaultTeardown
 
   const paths = opts.paths ?? DEFAULT_PATH_PATTERNS
   const errorCodes = opts.errorCodes ?? DEFAULT_ERROR_CODES
@@ -97,13 +87,7 @@ export function installGlobalErrorHandler(opts: ErrorHandlerOptions = {}): () =>
   const combinedTeardown = () => {
     teardown()
     rejectionTeardown()
-    // Note: do NOT null defaultTeardown here. The idempotency guard at the
-    // top of the function checks process.listenerCount to decide whether
-    // the previous handler is still registered — so the cached reference
-    // is harmless even after the listeners are removed. If a test calls
-    // cleanup() and then installGlobalErrorHandler() is called again (e.g.
-    // by module-load on the next test file), the guard sees listenerCount
-    // dropped below the threshold and installs a fresh handler.
+    if (isDefault) defaultTeardown = null
   }
   if (isDefault) defaultTeardown = combinedTeardown
   return combinedTeardown
