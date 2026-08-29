@@ -38,11 +38,21 @@ describe("P0-2 enforcement rules for OpenChamber MCP mode", () => {
   })
 
   describe("Oracle gate rule (P0-1 enforcement)", () => {
-    it("then instructs to invoke task(subagent_type=oracle) when filesChanged >= 3", () => {
+    // v0.38.4 Option D: Oracle gate is now frequency-based, not file-count-based.
+    // per-stop/final-only/off control mid-work Oracle; the final-gate ALWAYS fires.
+    it("then documents the v0.38.4 Option D oracle.frequency semantics", () => {
       const text = buildOracleRule()
       expect(text).toContain('subagent_type="oracle"')
-      expect(text).toContain("files touched >= 3")
+      expect(text).toContain("oracle.frequency")
+      expect(text).toContain("per-stop")
+      expect(text).toContain("final-only")
+      expect(text).toContain('off')
       expect(text).toMatch(/run_in_background=false/)
+    })
+
+    it("then states the final-gate is ALWAYS Oracle-verified regardless of frequency", () => {
+      const text = buildOracleRule()
+      expect(text).toMatch(/final-gate.*ALWAYS.*Oracle/i)
     })
 
     it("then has SYSTEM-NUDGE prefix so the LLM can detect it", () => {

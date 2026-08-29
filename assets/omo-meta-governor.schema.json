@@ -253,6 +253,23 @@
         }
       }
     },
+    "oracle": {
+      "type": "object",
+      "description": "Oracle invocation frequency (Option D, v0.38.4). Controls when the plugin invokes Oracle for verification mid-work.",
+      "additionalProperties": false,
+      "properties": {
+        "frequency": {
+          "type": "string",
+          "enum": [
+            "per-stop",
+            "final-only",
+            "off"
+          ],
+          "default": "per-stop",
+          "description": "per-stop: brake at stop + final-gate. final-only: only final-gate. off: never auto-invoke."
+        }
+      }
+    },
     "intervention": {
       "type": "object",
       "description": "Intervention config for visible decision injection.",

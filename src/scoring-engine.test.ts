@@ -313,6 +313,77 @@ describe("scoring-engine", () => {
       }
     })
 
+// // ─── v0.38.4 Option D: Oracle frequency gating ──────────────
+    //
+    // Oracle invocation mid-work is now controlled by `oracle.frequency`:
+    //   - "per-stop" (default): Oracle only when action === "stop"
+    //   - "final-only": never mid-work (Oracle only at final-gate)
+    //   - "off": never invoked automatically
+    //
+    // All three modes keep shouldEscalateTo === null for warn/escalate,
+    // eliminating the noisy mid-work Oracle prompts.
+
+    it("per-stop + escalate: shouldEscalateTo is null (suppressed mid-work)", () => {
+      const ctx: DecisionContext = {
+        ...baseContext,
+        oracleVerified: false,
+        iterationRatio: 0.95,
+      }
+      const result = score(ctx, { oracleFrequency: "per-stop" })
+      if (result.decision.action === "escalate") {
+        expect(result.decision.shouldEscalateTo).toBeNull()
+      }
+    })
+
+    it("per-stop + stop: shouldEscalateTo is 'oracle' (the brake)", () => {
+      const ctx: DecisionContext = {
+        ...baseContext,
+        oracleVerified: false,
+        iterationRatio: 1.5,
+        noProgress: true,
+        deviations: [
+          { severity: "grave", category: "test", detail: "stop brake" },
+          { severity: "grave", category: "test", detail: "stop brake 2" },
+          { severity: "grave", category: "test", detail: "stop brake 3" },
+        ],
+      }
+      const result = score(ctx, { oracleFrequency: "per-stop" })
+      if (result.decision.action === "stop") {
+        expect(result.decision.shouldEscalateTo).toBe("oracle")
+      }
+    })
+
+    it("final-only + stop: shouldEscalateTo is null (no mid-work brake)", () => {
+      const ctx: DecisionContext = {
+        ...baseContext,
+        oracleVerified: false,
+        iterationRatio: 1.5,
+        noProgress: true,
+        deviations: [
+          { severity: "grave", category: "test", detail: "stop brake" },
+          { severity: "grave", category: "test", detail: "stop brake 2" },
+          { severity: "grave", category: "test", detail: "stop brake 3" },
+        ],
+      }
+      const result = score(ctx, { oracleFrequency: "final-only" })
+      expect(result.decision.shouldEscalateTo).toBeNull()
+    })
+
+    it("off + stop: shouldEscalateTo is null (no automatic Oracle ever)", () => {
+      const ctx: DecisionContext = {
+        ...baseContext,
+        oracleVerified: false,
+        iterationRatio: 1.5,
+        noProgress: true,
+        deviations: [
+          { severity: "grave", category: "test", detail: "stop brake" },
+          { severity: "grave", category: "test", detail: "stop brake 2" },
+          { severity: "grave", category: "test", detail: "stop brake 3" },
+        ],
+      }
+      const result = score(ctx, { oracleFrequency: "off" })
+      expect(result.decision.shouldEscalateTo).toBeNull()
+    })
     // ─── Edge cases ────────────────────────────────────────────
 
     it("handles empty deviations array", () => {

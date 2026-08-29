@@ -1805,7 +1805,19 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
             } else {
               const decisionRef = output.decision.historyEntry.decision;
               const evidenceCount = decisionRef.evidence.length;
-              const target = decisionRef.shouldEscalateTo ?? "oracle";
+              // v0.38.4 Option D: respect null shouldEscalateTo. The scoring
+              // engine returns null for warn/escalate under per-stop/final-only/off
+              // modes, AND for stop under final-only/off. Previously `?? "oracle"`
+              // silently re-enabled mid-work Oracle, defeating the suppression.
+              // The DONE final-gate handler below is SEPARATE and ALWAYS invokes
+              // Oracle regardless of frequency — see detectPlanCompleteSignal path.
+              const target = decisionRef.shouldEscalateTo;
+              if (!target) {
+                // Frequency gate: oracle.frequency suppressed this escalation.
+                // Decision still logged via auditSessions for traceability.
+                logToFile("info", `escalation suppressed by oracle.frequency for ${toolInput.sessionID} (action=${decisionRef.action})`);
+                return;
+              }
               const instruction = buildEscalationPrompt({
                 reasoning: decisionRef.reasoning,
                 target,

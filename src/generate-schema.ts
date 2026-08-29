@@ -119,6 +119,26 @@ export function generateSchema(): JsonSchema {
           verbosity: { type: "string", description: "Verbosity level for internal logging.", enum: ["silent", "minimal", "verbose"], default: "minimal" },
         },
       },
+      // v0.38.4 Option D: Oracle invocation frequency. Single user-facing knob;
+      // `scoring.oracleFrequency` is derived internally to avoid dual-knob drift.
+      // - "per-stop" (default): Oracle invoked at final-gate AND when action is
+      //   "stop" (the brake). warn/escalate log only.
+      // - "final-only": Oracle invoked ONLY at final-gate. Zero mid-work prompts.
+      // - "off": Oracle never invoked automatically. Set oracleVerified manually.
+      // The DONE final-gate is ALWAYS Oracle-verified regardless of this setting.
+      oracle: {
+        type: "object",
+        description: "Oracle invocation frequency (Option D, v0.38.4). Controls when the plugin invokes Oracle for verification mid-work.",
+        additionalProperties: false,
+        properties: {
+          frequency: {
+            type: "string",
+            enum: ["per-stop", "final-only", "off"],
+            default: "per-stop",
+            description: "per-stop: brake at stop + final-gate. final-only: only final-gate. off: never auto-invoke.",
+          },
+        },
+      },
       intervention: {
         type: "object", description: "Intervention config for visible decision injection.", additionalProperties: false,
         properties: {

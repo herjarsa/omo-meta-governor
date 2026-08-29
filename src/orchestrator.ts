@@ -50,7 +50,12 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
   enabled: true,
   memory: { enabled: true, query: "", timeoutMs: 3000 },
   tokenPredictor: {},
-  scoring: {},
+  // v0.38.4 Option D: Oracle invocation frequency default. Canonical
+  // source is `oracle.frequency`; `scoring.oracleFrequency` is derived.
+  // Default "per-stop" — brake on emergencies, silent on normal work,
+  // mandatory at the DONE final-gate.
+  oracle: { frequency: "per-stop" },
+  scoring: { oracleFrequency: "per-stop" },
   decision: {},
   closedLoop: {},
   intervention: {

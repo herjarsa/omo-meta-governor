@@ -30,17 +30,47 @@ export type EnforcementResourceUri = (typeof ENFORCEMENT_RESOURCE_URIS)[number]
 const NUDGE_PREFIX = "[SYSTEM-NUDGE]"
 
 /**
- * Build the Oracle gate rule (v0.29.0 post-task Oracle verification).
- * Same text as `protocol-enforcer.ts:71-78` but standalone and exposed via MCP resource.
+ * Build the Oracle gate rule (v0.38.4 Option D — Oracle frequency).
+ *
+ * v0.38.4 REWRITE: Oracle is no longer auto-invoked mid-work for every
+ * multi-file change. Instead, the `oracle.frequency` config controls when
+ * Oracle fires:
+ *   - `"per-stop"` (default): Oracle invoked at the final-gate
+ *     (<promise>DONE</promise>) AND when the scoring engine reaches the
+ *     stop band (action === "stop"). warn/escalate log but do NOT
+ *     invoke Oracle mid-work.
+ *   - `"final-only"`: Oracle invoked ONLY at the final-gate. Even
+ *     stop-level decisions log without invoking Oracle mid-work.
+ *   - `"off"`: Oracle is NEVER invoked automatically. The agent must
+ *     set `oracleVerified` manually (e.g. via omo_recall).
+ *
+ * The DONE final-gate is ALWAYS Oracle-verified regardless of frequency.
+ *
+ * Same MCP resource contract as before — `meta-governor://rules/oracle`
+ * still returns this text. The previous "INVOKE triggers per multi-file
+ * change" was the source of the noise — now mid-work Oracle is
+ * gated by score band, not file count.
  */
 export function buildOracleRule(): string {
   return [
-    `${NUDGE_PREFIX} Oracle Review Gate (post-task verification)`,
+    `${NUDGE_PREFIX} Oracle Review Gate (v0.38.4 Option D — Oracle frequency)`,
     ``,
-    `If files touched >= 3 OR any INVOKE trigger matches, invoke Oracle with:`,
+    `The plugin invokes Oracle based on the \`oracle.frequency\` config:`,
+    ``,
+    `- \`per-stop\` (default): Oracle fires ONLY at the final-gate AND when`,
+    `  the scoring engine reaches the stop band (action === "stop").`,
+    `  warn and escalate decisions log but do NOT auto-invoke Oracle.`,
+    `- \`final-only\`: Oracle fires ONLY at the final-gate. Zero mid-work`,
+    `  invocations, even for stop decisions.`,
+    `- \`off\`: Oracle is NEVER invoked automatically. Set`,
+    `  \`oracleVerified\` manually (e.g. via omo_recall).`,
+    ``,
+    `Final-gate (ALWAYS Oracle-verified regardless of frequency):`,
+    `When you emit <promise>DONE</promise> or <promise>PLAN-COMPLETE</promise>,`,
+    `the plugin invokes Oracle with:`,
     `  task(subagent_type="oracle", run_in_background=false, prompt="Verify: ...")`,
     ``,
-    `INVOKE triggers (verbatim from protocol-enforcer.ts:74):`,
+    `INVOKE triggers for the final-gate (verbatim from protocol-enforcer.ts):`,
     `- created 1+ new file`,
     `- modified abstraction`,
     `- touched security/auth paths`,
@@ -58,8 +88,7 @@ export function buildOracleRule(): string {
     `- change is typo/comment/rename only`,
     ``,
     `Verdict: PASS -> done. FAIL/CONDITIONAL -> fix and re-invoke.`,
-    `Cost: Max 3 oracle invocations per task.`,
-    `Skip rate: Must NOT skip Oracle on 2+ file change.`,
+    `Cost: Max 3 oracle invocations per task (final-gate only).`,
   ].join("\n")
 }
 

@@ -71,6 +71,26 @@ export interface Decision {
 export type EscalationTarget = "oracle" | "user";
 
 /**
+ * v0.38.4: Oracle invocation frequency. Controls when the plugin invokes
+ * Oracle for verification — reduces noisy mid-work escalations.
+ *
+ * - `"per-stop"` (default, Option D): Oracle invoked at final-gate
+ *   AND when score crosses the stop threshold (`≤ -stopThreshold`).
+ *   warn/escalate log but do NOT inject an Oracle prompt mid-work.
+ * - `"final-only"` (Option A): Oracle invoked ONLY at final-gate.
+ *   Even stop-level decisions log without injecting an Oracle prompt.
+ * - `"off"`: Oracle is never invoked automatically.
+ */
+export type OracleFrequency = "per-stop" | "final-only" | "off";
+
+/**
+ * v0.38.4: Oracle invocation config. See `OracleFrequency` for semantics.
+ */
+export interface OracleConfig {
+  readonly frequency: OracleFrequency;
+}
+
+/**
  * Atomic evidence unit. Carries provenance so the judge can be audited.
  *
  * `confidence` ∈ [0, 1]: how sure the source is about `value`.
@@ -602,6 +622,18 @@ export interface ScoringConfig {
   readonly paralysisThreshold: number;
   /** Default escalation target when action is escalate. Default: "oracle". */
   readonly defaultEscalationTarget: EscalationTarget;
+  /**
+   * v0.38.4: Oracle invocation frequency. Controls when the plugin invokes
+   * Oracle for verification mid-work. The final-gate (DONE signal) is
+   * ALWAYS Oracle-verified regardless of this setting — only the
+   * mid-work escalation policy changes.
+   *
+   * - `"per-stop"` (default, Option D): Oracle invoked ONLY when action is
+   *   "stop" (the brake). warn/escalate log but do NOT inject Oracle mid-work.
+   * - `"final-only"` (Option A): Oracle NEVER invoked mid-work.
+   * - `"off"`: Oracle NEVER invoked automatically (set oracleVerified manually).
+   */
+  readonly oracleFrequency: OracleFrequency;
 }
 
 /**
@@ -690,6 +722,8 @@ export interface OrchestratorConfig {
   readonly closedLoop: Partial<ClosedLoopConfig>;
   /** Model override for MetaGovernor's internal LLM usage. */
   readonly modelOverride?: ModelOverrideConfig;
+  /** v0.38.4: Oracle invocation config (frequency of mid-work vs final-gate). */
+  readonly oracle?: OracleConfig;
   /** Intervention config for injecting decisions into agent context. */
   readonly intervention: InterventionConfig;
   /** Protocol enforcement config for Sisyphus protocol injection and auditing. */

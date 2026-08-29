@@ -78,6 +78,10 @@ export const defaultScoringConfig = (): ScoringConfig => ({
   stopThreshold: 0.55,
   paralysisThreshold: 3,
   defaultEscalationTarget: "oracle",
+  // v0.38.4: Oracle invocation frequency (Option D default = per-stop).
+  // warn/escalate log only; stop invokes Oracle as a brake; done is
+  // ALWAYS Oracle-verified at the final-gate regardless of this setting.
+  oracleFrequency: "per-stop",
 })
 
 // ─── Signal scoring ────────────────────────────────────────────────
@@ -228,10 +232,23 @@ function mapScoreToAction(
 function selectEscalationTarget(
   ctx: DecisionContext,
   config: ScoringConfig,
+  action: Decision["action"],
 ): "oracle" | "user" | null {
-  // Oracle first if it hasn't been consulted yet in this cycle
+  // v0.38.4 Option D: Oracle invocation frequency gates mid-work escalation.
+  // "off" and "final-only" never invoke Oracle mid-work — the final-gate
+  // (DONE signal) is ALWAYS Oracle-verified regardless of this setting.
+  if (config.oracleFrequency === "off") return null
+  if (config.oracleFrequency === "final-only") return null
+
+  // "per-stop" (default): Oracle ONLY when action is "stop" (the brake).
+  // warn and escalate log but do NOT inject Oracle mid-work — the
+  // final-gate handles verification. This eliminates the noisy
+  // mid-work Oracle prompts that disrupted agent flow.
+  if (action !== "stop") return null
+
+  // Oracle first if it hasn't been consulted yet in this cycle.
   if (!ctx.oracleVerified) return "oracle"
-  // If oracle already verified and we still have issues, escalate to user
+  // If oracle already verified and we still have issues, escalate to user.
   if (ctx.deviations.some((d) => d.severity === "grave")) return "user"
   return config.defaultEscalationTarget
 }
@@ -359,8 +376,15 @@ export function score(
   }
 
   // 6. Select escalation target
-  const shouldEscalateTo =
-    action === "escalate" ? selectEscalationTarget(ctx, resolvedConfig) : null
+  // v0.38.4 Option D: selectEscalationTarget now checks oracleFrequency AND
+  // action internally. We call it for ALL actions (not just "escalate") so
+  // the per-stop brake fires when action is "stop". The function returns null
+  // for "continue", "warn", and "escalate" under per-stop/final-only/off modes.
+  const shouldEscalateTo = selectEscalationTarget(
+    ctx,
+    resolvedConfig,
+    action,
+  )
 
   // 7. Build decision
   const decision: Decision = {
