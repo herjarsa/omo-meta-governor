@@ -100,7 +100,12 @@ describe("installGlobalErrorHandler", () => {
     const teardown1 = installGlobalErrorHandler()
     const teardown2 = installGlobalErrorHandler()
     expect(teardown2).toBe(teardown1)
-    teardown1()
+    // v0.38.5 (CI fix): do NOT call teardown1() here. Tearing down the
+    // module-level handler leaves chokidar/readdirp EINVAL errors on
+    // D:\DumpStack.log.tmp unhandled — bun:test reports them as
+    // "Unhandled error between tests" and exits code 1 even though
+    // 0 tests failed. Idempotency is about the RETURN value, not
+    // about cleanup; leave the handler installed.
   })
 
   it("teardown removes the handler", () => {
