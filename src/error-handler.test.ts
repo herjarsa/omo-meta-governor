@@ -112,4 +112,84 @@ describe("installGlobalErrorHandler", () => {
     process.emit("uncaughtException", err)
     expect(capturedLogs.length).toBe(beforeCount)
   })
+
+  // ─── v0.38.3 (CI test-windows fix) ────────────────────────────────────
+  // readdirp's _formatEntry is async (uses `await this._stat(...)`); when its
+  // _onError throws because the stream has no 'error' listener, the throw
+  // happens inside an async function and becomes an unhandledRejection —
+  // NOT an uncaughtException. The v0.38.0 handler only caught
+  // uncaughtException, so EINVAL on D:\DumpStack.log.tmp escaped to bun's
+  // test runner as "Unhandled error between tests", failing CI run
+  // #33243458484 (and the prior 3 runs at 33217903149, 33217532176,
+  // 33217143150). These tests mirror the uncaughtException suite above
+  // but emit via process.emit("unhandledRejection", ...).
+
+  it("filters EINVAL on Windows system paths via unhandledRejection", () => {
+    teardown = installGlobalErrorHandler({ logger: mockLogger })
+    const err = Object.assign(new Error("EINVAL"), { code: "EINVAL", path: "D:\\DumpStack.log.tmp" })
+    expect(() => process.emit("unhandledRejection", err)).not.toThrow()
+    expect(capturedLogs).toHaveLength(1)
+    expect(capturedLogs[0]).toMatchObject({ level: "warn", msg: "watcher_scan_blocked" })
+    expect(capturedLogs[0].ctx).toMatchObject({ code: "EINVAL" })
+  })
+
+  it("filters EBADF on Windows user temp paths via unhandledRejection", () => {
+    teardown = installGlobalErrorHandler({ logger: mockLogger })
+    const err = Object.assign(new Error("EBADF"), {
+      code: "EBADF",
+      path: "C:\\Users\\herjarsa\\AppData\\Local\\Temp\\omo-v11-LiatLo",
+    })
+    expect(() => process.emit("unhandledRejection", err)).not.toThrow()
+    expect(capturedLogs).toHaveLength(1)
+    expect(capturedLogs[0]).toMatchObject({ level: "warn", msg: "watcher_scan_blocked" })
+  })
+
+  it("filters EPERM on Windows user temp paths via unhandledRejection", () => {
+    teardown = installGlobalErrorHandler({ logger: mockLogger })
+    const err = Object.assign(new Error("EPERM"), {
+      code: "EPERM",
+      path: "C:\\Users\\alice\\AppData\\Local\\Temp\\locked-file",
+    })
+    expect(() => process.emit("unhandledRejection", err)).not.toThrow()
+    expect(capturedLogs).toHaveLength(1)
+  })
+
+  it("does NOT filter non-system paths via unhandledRejection", () => {
+    teardown = installGlobalErrorHandler({ logger: mockLogger })
+    const err = Object.assign(new Error("EINVAL"), { code: "EINVAL", path: "/tmp/user-controlled-file" })
+    process.emit("unhandledRejection", err)
+    expect(capturedLogs).toHaveLength(0)
+  })
+
+  it("does NOT filter string/number rejection reasons", () => {
+    // readdirp emits Error objects, but a non-Error rejection must not crash
+    // the filter. handler() checks "code" in reason; string/number don't
+    // have that, so they fall through cleanly.
+    teardown = installGlobalErrorHandler({ logger: mockLogger })
+    expect(() => process.emit("unhandledRejection", "string rejection")).not.toThrow()
+    expect(() => process.emit("unhandledRejection", 42)).not.toThrow()
+    expect(() => process.emit("unhandledRejection", null)).not.toThrow()
+    expect(() => process.emit("unhandledRejection", undefined)).not.toThrow()
+    expect(capturedLogs).toHaveLength(0)
+  })
+
+  it("teardown removes the unhandledRejection handler", () => {
+    const cleanup = installGlobalErrorHandler({ logger: mockLogger })
+    cleanup()
+    const beforeCount = capturedLogs.length
+    const err = Object.assign(new Error("EINVAL"), { code: "EINVAL", path: "D:\\DumpStack.log.tmp" })
+    process.emit("unhandledRejection", err)
+    expect(capturedLogs.length).toBe(beforeCount)
+  })
+
+  it("combined teardown removes BOTH listeners", () => {
+    const cleanup = installGlobalErrorHandler({ logger: mockLogger })
+    cleanup()
+    const beforeCount = capturedLogs.length
+    const err = Object.assign(new Error("EINVAL"), { code: "EINVAL", path: "D:\\pagefile.sys" })
+    // Neither uncaughtException nor unhandledRejection should fire our handler.
+    process.emit("uncaughtException", err)
+    process.emit("unhandledRejection", err)
+    expect(capturedLogs.length).toBe(beforeCount)
+  })
 })

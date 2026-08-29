@@ -65,6 +65,30 @@ export function installGlobalErrorHandler(opts: ErrorHandlerOptions = {}): () =>
   }
   process.on("uncaughtException", handler)
   const teardown = () => process.off("uncaughtException", handler)
-  if (isDefault) defaultTeardown = teardown
-  return teardown
+  // v0.38.3: register the SAME filter for unhandledRejection. readdirp's
+  // _formatEntry is async (uses `await this._stat(...)`); when its _onError
+  // throws because the stream has no 'error' listener, the throw happens
+  // inside an async function and becomes an unhandledRejection — NOT an
+  // uncaughtException. The previous v0.38.0 handler only caught
+  // uncaughtException, so EINVAL on D:\DumpStack.log.tmp escaped to
+  // bun's test runner as "Unhandled error between tests", failing CI.
+  //
+  // The rejection handler unwraps the Error from the rejection reason
+  // (typically the Error object itself, but sometimes a string/number)
+  // and applies the same filter. Same logger output ("watcher_scan_blocked")
+  // so the rejection and exception paths are indistinguishable to operators.
+  const onRejection = (reason: unknown) => {
+    if (reason && typeof reason === "object" && "code" in reason) {
+      handler(reason as Error & { code?: string; path?: string })
+    }
+  }
+  process.on("unhandledRejection", onRejection)
+  const rejectionTeardown = () => process.off("unhandledRejection", onRejection)
+  const combinedTeardown = () => {
+    teardown()
+    rejectionTeardown()
+    if (isDefault) defaultTeardown = null
+  }
+  if (isDefault) defaultTeardown = combinedTeardown
+  return combinedTeardown
 }
