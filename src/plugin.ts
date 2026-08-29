@@ -103,6 +103,7 @@ import { storeDecision, takeDecision, getDecisionHistory } from "./decision-stor
 import { countConsecutiveStops } from "./decision-handler";
 import { GraphRetrieval, getDefaultGraphRetrieval, configureDefaultGraphRetrieval } from "./graph-retrieval";
 import { AuditStateCache } from "./audit-state-cache";
+import { TtlBoundedMap } from "./utils/ttl-bounded-map";
 import { DEFAULT_VERSION } from "./metrics";
 import { statSync, readFileSync } from "node:fs";
 import { execSync, execFileSync } from "node:child_process";
@@ -836,7 +837,11 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
        *  lastWarnAtMs, two warns with the same hash within the cooldown
        *  window are suppressed. */
       lastWarnHash: string;
-      /** v0.29.0: rolling window of recent post-wave gate args hashes (last 8).
+      /**
+       * v0.29.0: rolling window of recent post-wave gate args hashes (last 8).
+       *  Used to skip re-detection of identical `subagent_type=oracle` strings
+       *  echoed through unrelated tool outputs.
+       */
       recentPwArgsHashes: string[];
       /**
        * v0.31.1: count of consecutive overflow compactions seen for this
@@ -855,15 +860,7 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
        * manually to recover.
        */
       overflowLoopGuardTripped: boolean;
-      /**
-       * v0.29.0: rolling window of recent post-wave gate args hashes (last 8).
-       *  Used to skip re-detection of identical `subagent_type=oracle` strings
-       *  echoed through unrelated tool outputs.
-       */
-      recentPwArgsHashes: string[];
     };
-    // v0.16.0: replaced unbounded Map with TTL+LRU-bounded AuditStateCache.
-    // Capped at 100 sessions, 1h TTL. Prevents the C1/H16 memory leak.
     // v0.16.0: replaced unbounded Map with TTL+LRU-bounded AuditStateCache.
     // Capped at 100 sessions, 1h TTL. Prevents the C1/H16 memory leak.
     //
@@ -878,20 +875,22 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
     });
 
     // Pending protocol violations queue
-    // Pending protocol violations queue
     // v0.16.0: TTL-wrapped queue (F1.3). Items expire after 5 minutes
     // to prevent memory growth if a session ends without consuming its queue.
-    const pendingViolations = new Map<
+    // v0.38.3 (G3+G15 audit fix): replaced raw Map with TtlBoundedMap to also
+    // enforce a size cap (was TTL-only); expired entries are lazily evicted on
+    // get(). Max 1000 sessions kept; oldest evicted first.
+    const pendingViolations = new TtlBoundedMap<
       string,
-      { items: string[]; expiresAtMs: number }
-    >();
-    const PENDING_TTL_MS = 5 * 60 * 1000;
+      { items: string[] }
+    >(1000, 5 * 60 * 1000);
 
     // v0.11.0: pending bot feedback (from `gh pr checks` / `gh pr view` output)
-    const pendingBotFeedback = new Map<
+    // v0.38.3 (G3+G15): same TtlBoundedMap migration as pendingViolations.
+    const pendingBotFeedback = new TtlBoundedMap<
       string,
-      { items: string[]; expiresAtMs: number }
-    >();
+      { items: string[] }
+    >(1000, 5 * 60 * 1000);
 
     // v0.11.0: whether the plan reminder has been injected for this session
     const planReminderSent = new Set<string>();
@@ -934,7 +933,14 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
       oracleAfterPhaseAtMs: {},
       repoModeResolved: null,
     });
-    const postWaveSessions = new Map<string, PostWaveSessionState>();
+    // v0.38.3 (G20 audit fix): postWaveSessions was unbounded — a long-running
+    // opencode server with thousands of sessions could leak memory. Use
+    // TtlBoundedMap with 24h TTL (multi-hour dev sessions are common) and
+    // 1000-session cap (oldest evicted first).
+    const postWaveSessions = new TtlBoundedMap<string, PostWaveSessionState>(
+      1000,
+      24 * 60 * 60 * 1000,
+    );
     // v0.10.0 / legacy detection imported below; closure removed in v0.15.0
     // in favor of the module-level detectors (detectDoneSignal,
     // detectPhaseCompleteSignal, detectPlanCompleteSignal). See the bottom
@@ -1196,7 +1202,6 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
             }
             pendingViolations.set(toolInput.sessionID, {
               items: existing,
-              expiresAtMs: Date.now() + PENDING_TTL_MS,
             });
             // v0.17.2 (Gap C) + v0.29.0: accumulate violations in state so the
             // deviation-detector signal fires downstream. Cap at last 5 per
@@ -1340,22 +1345,10 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
             .concat(sessionState.recentToolCalls)
             .slice(0, 20);
 
-          // v0.34.2 (P1-6): unify writeTools with IMPLEMENTATION_TOOLS so the
-          // skill-priming gate and filesChanged accounting cover every write-shaped
-          // tool (multi_edit, apply_patch, ast_grep_replace, refactor). bash with
-          // > file is also treated as a write.
-          const writeTools = [
-            "write",
-            "edit",
-            "edit_block",
-            "multi_edit",
-            "apply_patch",
-            "ast_grep_replace",
-            "refactor",
-            "desktop-commander_write_file",
-            "desktop-commander_edit_block",
-          ];
-          if (writeTools.includes(toolInput.tool) || bashHasFileWrite(toolInput)) {
+          // v0.38.3 (G1 audit fix): use the canonical IMPLEMENTATION_TOOLS from
+          // skill-priming.ts. Same list, single source of truth. bash with > file
+          // is also treated as a write (bashHasFileWrite).
+          if (IMPLEMENTATION_TOOLS.includes(toolInput.tool) || bashHasFileWrite(toolInput)) {
             sessionState.filesChanged++;
             const content = (toolOutput.output ?? "").slice(0, 500);
             sessionState.recentWriteContents = [content]
@@ -1975,7 +1968,6 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
                   pendingBotFeedback.get(toolInput.sessionID)?.items ?? [];
                 pendingBotFeedback.set(toolInput.sessionID, {
                   items: existing.concat(feedback),
-                  expiresAtMs: Date.now() + PENDING_TTL_MS,
                 });
                 logToFile(
                   "info",
@@ -2124,7 +2116,7 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
         // the model even when intervention.mode === 'silent' (the default).
         // Existing PR-reviewer feedback is merged, not overwritten.
         const botEntry = pendingBotFeedback.get(currentSessionID);
-        if (botEntry && botEntry.expiresAtMs > Date.now()) {
+        if (botEntry) {
           const feedback = botEntry.items;
           if (feedback.length > 0) {
             const feedbackText = `[MetaGovernor PR Reviewer Feedback]\n\n${feedback.map((f, i) => `${i + 1}. ${f}`).join("\n")}\n\nApply these fixes to keep the PR mergeable.`;
@@ -2199,7 +2191,7 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
         const violEntry = pendingViolations.get(currentSessionID);
         const suppressViolations = Boolean(state?.backgroundTaskInFlight || state?.oracleInFlight);
         const isTestRun = Boolean(deps.__test_persistSessionMessage);
-        if (!suppressViolations && violEntry && violEntry.expiresAtMs > Date.now()) {
+        if (!suppressViolations && violEntry) {
           const violations = violEntry.items;
           if (violations.length > 0) {
             pendingViolations.delete(currentSessionID);
@@ -2671,7 +2663,7 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
         //      autocontinue calls stay disabled for the rest of the session.
         //   2. queue a short guidance message via pendingBotFeedback so
         //      the model sees "resume your pending tasks" the next time
-        //      chat.messages.transform fires (TTL = PENDING_TTL_MS).
+        //      chat.messages.transform fires (TTL = 5 min, set on TtlBoundedMap).
         //
         // If the guard is disabled in config, do nothing â€” opencode keeps
         // full control.
@@ -2696,7 +2688,6 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
               const guidanceItem = `[META-GOVERNOR] Overflow compaction loop detected (${sessionState.overflowCompactionCount} consecutive overflow compactions). opencode issue #27924 is in play. Auto-continue is now disabled for this session. Resume your pending tasks using the existing context — do NOT regenerate context you have already produced.`;
               pendingBotFeedback.set(sessionID, {
                 items: (existing?.items ?? []).concat(guidanceItem),
-                expiresAtMs: Date.now() + PENDING_TTL_MS,
               });
             }
           } else {
