@@ -162,7 +162,11 @@ describe("graphSync init placement", () => {
     // The background init resolves asynchronously — let the microtask run.
     await new Promise((r) => setTimeout(r, 10))
 
+    // v0.38.6: use mid-session setup (prior real assistant message) so the
+    // TUI session-killer fix does not skip the graph-tools-ready nudge.
     const messages: Array<{ info: unknown; parts: unknown[] }> = [
+      { info: { role: "user", sessionID: "s-ready" }, parts: [{ type: "text", text: "first ask" }] },
+      { info: { role: "assistant", sessionID: "s-ready", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
       { info: { sessionID: "s-ready" }, parts: [{ type: "text", text: "hi" }] },
     ]
     await transform({}, { messages })

@@ -133,14 +133,18 @@ describe("includeDecisionHistory (Gap D)", () => {
       },
     )
     const transform = hooks["experimental.chat.messages.transform"]!
+    // v0.38.6: mid-session setup (prior real assistant message) so the
+    // TUI session-killer fix does not skip the synthetic push.
     const output = {
       messages: [
+        { info: { role: "user", sessionID: "test-session" }, parts: [{ type: "text", text: "first ask" }] },
+        { info: { role: "assistant", sessionID: "test-session", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
         { info: { role: "user", sessionID: "test-session" }, parts: [{ type: "text", text: "hi" }] },
       ] as Array<{ info: unknown; parts: unknown[] }>,
     }
     await transform({}, output)
 
-    // Should have at least 1 injected message
+    // Should have at least 1 injected message (original 3 + 1 injected = 4)
     expect(output.messages.length).toBeGreaterThan(1)
     const allText = output.messages
       .map((m) => (m.parts[0] as Record<string, unknown> | undefined)?.text as string ?? "")

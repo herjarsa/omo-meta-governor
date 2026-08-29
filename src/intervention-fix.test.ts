@@ -119,9 +119,19 @@ describe("cross-session decision scoping", () => {
       const hooks = await plugin(mockPluginInput, options)
       const transform = hooks["experimental.chat.messages.transform"]!
 
-      // Original input has 1 msg; session-B's own decision adds 1 more → total 2.
+      // v0.38.6: mid-session setup (prior real assistant message) so the
+      // TUI session-killer fix does not skip the synthetic push.
+      // Original input has 3 msgs; session-B's own decision adds 1 more → total 4.
       const output = {
         messages: [
+          {
+            info: { role: "user", sessionID: "session-B" },
+            parts: [{ type: "text", text: "first ask" }],
+          },
+          {
+            info: { role: "assistant", sessionID: "session-B", agent: "build" },
+            parts: [{ type: "text", text: "first reply" }],
+          },
           {
             info: { role: "user", sessionID: "session-B" },
             parts: [{ type: "text", text: "hello" }],
@@ -134,7 +144,7 @@ describe("cross-session decision scoping", () => {
       // S3 contract: no cross-leak. session-B's own decision is consumed
       // (1 message added on top of the original input); session-A's decision
       // MUST remain in the store, untouched.
-      expect(output.messages.length).toBe(2)
+      expect(output.messages.length).toBe(4)
       expect(hasDecision("session-A")).toBe(true) // session-A untouched
       expect(hasDecision("session-B")).toBe(false) // session-B consumed
     })
@@ -214,8 +224,19 @@ describe("explicit warn threshold (regression)", () => {
       const hooks = await plugin(mockPluginInput, options)
       const transform = hooks["experimental.chat.messages.transform"]!
 
+      // v0.38.6: session-start (only user message) skips synthetic push to avoid the
+      // TUI session-killer. Use mid-session setup (prior real assistant message) so
+      // the injection path is exercised.
       const output = {
         messages: [
+          {
+            info: { role: "user", sessionID: "session-1" },
+            parts: [{ type: "text", text: "first ask" }],
+          },
+          {
+            info: { role: "assistant", sessionID: "session-1", agent: "build" },
+            parts: [{ type: "text", text: "first reply" }],
+          },
           {
             info: { role: "user", sessionID: "session-1" },
             parts: [{ type: "text", text: "hello" }],
@@ -225,8 +246,8 @@ describe("explicit warn threshold (regression)", () => {
 
       await transform({}, output)
 
-      // Original input 1 msg + injected decision 1 msg = 2 total.
-      expect(output.messages.length).toBe(2)
+      // Original input 3 msgs + injected decision 1 msg = 4 total.
+      expect(output.messages.length).toBe(4)
       const lastPart = output.messages[output.messages.length - 1]!
         .parts[0] as Record<string, unknown>
       expect(lastPart.text).toContain("Test escalate message")
@@ -266,9 +287,19 @@ describe("max interventions per session", () => {
       const transform = hooks["experimental.chat.messages.transform"]!
 
       // First injection: store a decision; transform should consume it.
+      // v0.38.6: use mid-session setup (prior real assistant message) so the
+      // synthetic push is not skipped by the TUI session-killer fix.
       storeDecision("s-1", makeDecision("escalate", "s-1"))
       const out1 = {
         messages: [
+          {
+            info: { role: "user", sessionID: "s-1" },
+            parts: [{ type: "text", text: "first ask" }],
+          },
+          {
+            info: { role: "assistant", sessionID: "s-1", agent: "build" },
+            parts: [{ type: "text", text: "first reply" }],
+          },
           {
             info: { role: "user", sessionID: "s-1" },
             parts: [{ type: "text", text: "hello" }],
@@ -276,7 +307,7 @@ describe("max interventions per session", () => {
         ] as Array<{ info: unknown; parts: unknown[] }>,
       }
       await transform({}, out1)
-      expect(out1.messages.length).toBe(2) // original + injected
+      expect(out1.messages.length).toBe(4) // 3 input + 1 injected
 
       // Second injection attempt: even with a fresh decision, the cap (1)
       // must block injection. We simulate "cap already hit" by storing a
@@ -286,6 +317,14 @@ describe("max interventions per session", () => {
         messages: [
           {
             info: { role: "user", sessionID: "s-1" },
+            parts: [{ type: "text", text: "first ask" }],
+          },
+          {
+            info: { role: "assistant", sessionID: "s-1", agent: "build" },
+            parts: [{ type: "text", text: "first reply" }],
+          },
+          {
+            info: { role: "user", sessionID: "s-1" },
             parts: [{ type: "text", text: "hello" }],
           },
         ] as Array<{ info: unknown; parts: unknown[] }>,
@@ -293,7 +332,7 @@ describe("max interventions per session", () => {
       await transform({}, out2)
       // After the cap, even though a decision is pending, the transform
       // MUST NOT push (otherwise we get the instruction loop).
-      expect(out2.messages.length).toBe(1) // only the original
+      expect(out2.messages.length).toBe(3) // only the 3 originals
     })
   })
 })

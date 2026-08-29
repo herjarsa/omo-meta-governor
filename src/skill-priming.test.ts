@@ -177,13 +177,21 @@ describe("experimental.chat.messages.transform — skill priming", () => {
 
   it("sessionStart → injects once (test push), then never again for the session", async () => {
     const transform = await makeTransform({ enabled: true, trigger: "sessionStart", router: "both" })
-    const output = transformOutput()
+    // v0.38.6: mid-session setup (prior real assistant message) so the
+    // TUI session-killer fix does not skip the synthetic push.
+    const output = {
+      messages: [
+        { info: { role: "user", sessionID: "s1" }, parts: [{ type: "text", text: "first ask" }] },
+        { info: { role: "assistant", sessionID: "s1", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
+        { info: { role: "user", sessionID: "s1" }, parts: [{ type: "text", text: "hi" }] },
+      ] as Array<{ info: unknown; parts: unknown[] }>,
+    }
     await transform({}, output)
 
     // v0.33.1: in prod the directive goes via chat.system.transform (banner-free); the test-only push to
     // output.messages only fires when __test_persistSessionMessage is set (it is, via makeTransform).
-    expect(output.messages.length).toBe(2)
-    const msg = output.messages[1]!
+    expect(output.messages.length).toBe(4)
+    const msg = output.messages[3]!
     expect((msg.info as Record<string, unknown>).role).toBe("user")
     expect((msg.info as Record<string, unknown>).agent).toBe("meta-governor")
     const part = msg.parts[0] as Record<string, unknown>
@@ -207,7 +215,7 @@ describe("experimental.chat.messages.transform — skill priming", () => {
     const transform = hooks["experimental.chat.messages.transform"]!
     const after = hooks["tool.execute.after"]!
 
-    // No state yet → no priming.
+    // No state yet → no priming (session-start; push is skipped anyway).
     const output = transformOutput("s2")
     await transform({}, output)
     expect(allText(output)).not.toContain("[SKILL PRIMING]")
@@ -218,15 +226,30 @@ describe("experimental.chat.messages.transform — skill priming", () => {
       { title: "", output: "wrote", metadata: {} },
     )
 
-    // Next transform call → priming fires.
-    const output2 = transformOutput("s2")
+    // Next transform call: v0.38.6 mid-session setup (after the write tool call,
+    // the agent has already produced an assistant message containing the tool call,
+    // so the prior-real-assistant condition holds).
+    const output2 = {
+      messages: [
+        { info: { role: "user", sessionID: "s2" }, parts: [{ type: "text", text: "first ask" }] },
+        { info: { role: "assistant", sessionID: "s2", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
+        { info: { role: "user", sessionID: "s2" }, parts: [{ type: "text", text: "hi" }] },
+      ] as Array<{ info: unknown; parts: unknown[] }>,
+    }
     await transform({}, output2)
     expect(allText(output2)).toContain("[SKILL PRIMING]")
   })
 
   it("router aas (aliased to registry) → skill-hub wording; router superpowers → superpowers wording", async () => {
     const t1 = await makeTransform({ enabled: true, trigger: "sessionStart", router: "aas" })
-    const o1 = transformOutput("s3")
+    // v0.38.6: mid-session setup so the synthetic push fires.
+    const o1 = {
+      messages: [
+        { info: { role: "user", sessionID: "s3" }, parts: [{ type: "text", text: "first ask" }] },
+        { info: { role: "assistant", sessionID: "s3", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
+        { info: { role: "user", sessionID: "s3" }, parts: [{ type: "text", text: "hi" }] },
+      ] as Array<{ info: unknown; parts: unknown[] }>,
+    }
     await t1({}, o1)
     const text1 = allText(o1)
     expect(text1).toContain("omo_skill_find")
@@ -234,7 +257,13 @@ describe("experimental.chat.messages.transform — skill priming", () => {
     expect(text1).not.toContain("aas search_skills")
 
     const t2 = await makeTransform({ enabled: true, trigger: "sessionStart", router: "superpowers" })
-    const o2 = transformOutput("s4")
+    const o2 = {
+      messages: [
+        { info: { role: "user", sessionID: "s4" }, parts: [{ type: "text", text: "first ask" }] },
+        { info: { role: "assistant", sessionID: "s4", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
+        { info: { role: "user", sessionID: "s4" }, parts: [{ type: "text", text: "hi" }] },
+      ] as Array<{ info: unknown; parts: unknown[] }>,
+    }
     await t2({}, o2)
     const text2 = allText(o2)
     expect(text2).toContain("superpowers")

@@ -99,11 +99,13 @@ import {
   type MetaGovernorPluginConfig,
 } from "./config";
 import { loadMetaGovernorConfig } from "./config-file";
-import { storeDecision, takeDecision, getDecisionHistory } from "./decision-store";
+import { storeDecision, takeDecision, peekDecision, getDecisionHistory } from "./decision-store";
 import { countConsecutiveStops } from "./decision-handler";
 import { GraphRetrieval, getDefaultGraphRetrieval, configureDefaultGraphRetrieval } from "./graph-retrieval";
 import { AuditStateCache } from "./audit-state-cache";
 import { TtlBoundedMap } from "./utils/ttl-bounded-map";
+import { isSessionStart } from "./utils/session-start";
+
 import { DEFAULT_VERSION } from "./metrics";
 import { statSync, readFileSync } from "node:fs";
 import { execSync, execFileSync } from "node:child_process";
@@ -2083,16 +2085,25 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
           // v0.33.1: cache for chat.system.transform injection (banner-free path the agent actually receives).
           skillPrimingSystemInjected.set(currentSessionID, skillPrimingText);
           // v0.33.2: superficial — assistant role in prod (visible, not blocking), user in tests (assertions).
-          if (deps.__test_persistSessionMessage) {
-            output.messages.push({
-              info: { role: "user", agent: "meta-governor", synthetic: true },
-              parts: [{ type: "text", text: skillPrimingText, synthetic: true }],
-            });
-          } else {
-            output.messages.push({
-              info: { role: "assistant", agent: "meta-governor", synthetic: true },
-              parts: [{ type: "text", text: skillPrimingText, synthetic: true }],
-            });
+          // v0.38.6: at session start (no real prior assistant message) skip the synthetic
+          // push entirely — pushing a synthetic assistant message when there is no real
+          // prior assistant message makes the OpenCode TUI treat it as the agent's first
+          // (completed) turn and pause the session until the user presses "continue".
+          // The directive still reaches the agent via chat.system.transform (banner-free
+          // system-prompt injection) and the user sees the brief status via
+          // persistIntervention (log-only in prod). Mid-session injections are preserved.
+          if (!isSessionStart(output.messages)) {
+            if (deps.__test_persistSessionMessage) {
+              output.messages.push({
+                info: { role: "user", agent: "meta-governor", synthetic: true },
+                parts: [{ type: "text", text: skillPrimingText, synthetic: true }],
+              });
+            } else {
+              output.messages.push({
+                info: { role: "assistant", agent: "meta-governor", synthetic: true },
+                parts: [{ type: "text", text: skillPrimingText, synthetic: true }],
+              });
+            }
           }
           logToFile(
             "info",
@@ -2109,7 +2120,8 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
           graphSyncReadyProjects.has(sessionProjectDir) &&
           !graphSyncReadyNotified.has(currentSessionID)
         ) {
-          graphSyncReadyNotified.add(currentSessionID);
+          // v0.38.6: graphSyncReadyNotified is set INSIDE the gate so the nudge re-fires
+          // on the next turn if the push is skipped at session start.
           const graphReadyText = [
             "[META-GOVERNOR] codegraph y graphify ya estÃ¡n inicializados en este repo. ",
             "ROUTING EXPLÃCITO (v0.25.0): ",
@@ -2119,17 +2131,22 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
             "Actualizan tras cada commit.",
           ].join(" ");
           // v0.33.2: superficial — assistant in prod (visible, not blocking), user in tests.
-          if (deps.__test_persistSessionMessage) {
-            output.messages.push({
-              info: { role: "user", agent: "meta-governor", synthetic: true },
-              parts: [{ type: "text", text: graphReadyText, synthetic: true }],
-            });
-          } else {
-            output.messages.push({
-              info: { role: "assistant", agent: "meta-governor", synthetic: true },
-              parts: [{ type: "text", text: graphReadyText, synthetic: true }],
-            });
+          // v0.38.6: skip at session start (would create a fake assistant turn and pause the session).
+          if (!isSessionStart(output.messages)) {
+            graphSyncReadyNotified.add(currentSessionID);
+            if (deps.__test_persistSessionMessage) {
+              output.messages.push({
+                info: { role: "user", agent: "meta-governor", synthetic: true },
+                parts: [{ type: "text", text: graphReadyText, synthetic: true }],
+              });
+            } else {
+              output.messages.push({
+                info: { role: "assistant", agent: "meta-governor", synthetic: true },
+                parts: [{ type: "text", text: graphReadyText, synthetic: true }],
+              });
+            }
           }
+
           logToFile(
             "info",
             `graph_tools_ready_injected for session ${currentSessionID}`,
@@ -2147,18 +2164,26 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
           if (feedback.length > 0) {
             const feedbackText = `[MetaGovernor PR Reviewer Feedback]\n\n${feedback.map((f, i) => `${i + 1}. ${f}`).join("\n")}\n\nApply these fixes to keep the PR mergeable.`;
             // v0.33.2: superficial — assistant in prod, user in tests.
-            if (deps.__test_persistSessionMessage) {
-              output.messages.push({
-                info: { role: "user", agent: "meta-governor", synthetic: true },
-                parts: [{ type: "text", text: feedbackText, synthetic: true }],
-              });
-            } else {
-              output.messages.push({
-                info: { role: "assistant", agent: "meta-governor", synthetic: true },
-                parts: [{ type: "text", text: feedbackText, synthetic: true }],
-              });
+            // v0.38.6: skip at session start (would create a fake assistant turn and pause the session).
+            if (!isSessionStart(output.messages)) {
+              if (deps.__test_persistSessionMessage) {
+                output.messages.push({
+                  info: { role: "user", agent: "meta-governor", synthetic: true },
+                  parts: [{ type: "text", text: feedbackText, synthetic: true }],
+                });
+              } else {
+                output.messages.push({
+                  info: { role: "assistant", agent: "meta-governor", synthetic: true },
+                  parts: [{ type: "text", text: feedbackText, synthetic: true }],
+                });
+              }
+              // v0.38.6: only consume (delete) the queued feedback when the push
+              // actually succeeded. If the push was skipped at session start, the
+              // feedback stays queued for the next turn.
+              pendingBotFeedback.delete(currentSessionID);
             }
-            pendingBotFeedback.delete(currentSessionID);
+
+
             logToFile(
               "info",
               `injected ${feedback.length} bot feedback line(s) to model for session ${currentSessionID}`,
@@ -2191,20 +2216,25 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
           !state.oracleInFlight &&
           shouldInjectPlanReminder(sessionProjectDir, state.interventionCount)
         ) {
-          planReminderSent.add(currentSessionID);
+          // v0.38.6: planReminderSent is set INSIDE the gate so the nudge re-fires on the next turn if the push is skipped at session start.
           const planText = `[MetaGovernor] Before any code change, create PLAN.md or a \`## Plan\` section in AGENTS.md that enumerates the phases. After each phase, commit (local + fork + upstream). Each commit triggers automatic reindex via the graphify post-commit hook + \`codegraph sync\`.`;
           // v0.33.2: superficial — assistant in prod, user in tests.
-          if (deps.__test_persistSessionMessage) {
-            output.messages.push({
-              info: { role: "user", agent: "meta-governor", synthetic: true },
-              parts: [{ type: "text", text: planText, synthetic: true }],
-            });
-          } else {
-            output.messages.push({
-              info: { role: "assistant", agent: "meta-governor", synthetic: true },
-              parts: [{ type: "text", text: planText, synthetic: true }],
-            });
+          // v0.38.6: skip at session start (would create a fake assistant turn and pause the session).
+          if (!isSessionStart(output.messages)) {
+            planReminderSent.add(currentSessionID);
+            if (deps.__test_persistSessionMessage) {
+              output.messages.push({
+                info: { role: "user", agent: "meta-governor", synthetic: true },
+                parts: [{ type: "text", text: planText, synthetic: true }],
+              });
+            } else {
+              output.messages.push({
+                info: { role: "assistant", agent: "meta-governor", synthetic: true },
+                parts: [{ type: "text", text: planText, synthetic: true }],
+              });
+            }
           }
+
           logToFile(
             "info",
             `plan_reminder_injected for session ${currentSessionID}`,
@@ -2220,7 +2250,8 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
         if (!suppressViolations && violEntry) {
           const violations = violEntry.items;
           if (violations.length > 0) {
-            pendingViolations.delete(currentSessionID);
+            // v0.38.6: pendingViolations is deleted INSIDE the gate so the violation
+            // stays queued if the push is skipped at session start, then fires on the next turn.
             const isTest = Boolean(deps.__test_persistSessionMessage);
             // v0.33.0 session-killer fix: violations are NEVER banner-blocked.
             // - In tests: push to messages so pipeline assertions still work.
@@ -2229,18 +2260,27 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
             //   never as a blocking role:"user" message that requires "continua".
             const violationText = `[META-GOVERNOR PROTOCOL VIOLATIONS - YOU MUST COMPLY]\n\n${violations.map((v, i) => `${i + 1}. ${v}`).join("\n")}\n\nRemember: use codegraph/graphify for architecture queries, do not grep without trying codegraph/graphify first, no @ts-ignore/as-any, no empty catch, check memory before asking.`;
             // v0.33.2: superficial — assistant in prod (visible, not blocking), user in tests.
-            if (isTest) {
-              output.messages.push({
-                info: { role: "user", agent: "meta-governor", synthetic: true },
-                parts: [{ type: "text", text: violationText, synthetic: true }],
-              });
-              logToFile("info", `injected ${violations.length} violation(s) to model`, violations);
-            } else {
-              output.messages.push({
-                info: { role: "assistant", agent: "meta-governor", synthetic: true },
-                parts: [{ type: "text", text: violationText, synthetic: true }],
-              });
-              logToFile("info", `violations injected (superficial, assistant role) for ${currentSessionID}: ${violations.length} item(s)`, violations);
+            // v0.38.6: skip at session start (would create a fake assistant turn and pause the session).
+            // Violations still reach the agent via chat.system.transform on the next turn (per
+            // the v0.38.0 architecture) — we just don't inject the assistant-shaped banner here.
+            if (!isSessionStart(output.messages)) {
+              // v0.38.6: only consume (delete) the queued violation when the push
+              // actually succeeded. If the push was skipped at session start, the
+              // violation stays queued for the next turn (mid-session).
+              pendingViolations.delete(currentSessionID);
+              if (isTest) {
+                output.messages.push({
+                  info: { role: "user", agent: "meta-governor", synthetic: true },
+                  parts: [{ type: "text", text: violationText, synthetic: true }],
+                });
+                logToFile("info", `injected ${violations.length} violation(s) to model`, violations);
+              } else {
+                output.messages.push({
+                  info: { role: "assistant", agent: "meta-governor", synthetic: true },
+                  parts: [{ type: "text", text: violationText, synthetic: true }],
+                });
+                logToFile("info", `violations injected (superficial, assistant role) for ${currentSessionID}: ${violations.length} item(s)`, violations);
+              }
             }
             persistIntervention(currentSessionID, violationText);
             // v0.23.1: record injection timestamp for cooldown
@@ -2252,7 +2292,9 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
         }
 
         // 2. Inject MetaGovernor decision Ã¢â‚¬â€ SCOPED to current session
-        const decision = takeDecision(currentSessionID);
+        // v0.38.6: peek without consuming so takeDecision can be deferred to inside the
+        // session-start gate. Otherwise the decision is lost when push is skipped.
+        const decision = peekDecision(currentSessionID);
         if (!decision) return;
         if (decision.action === "continue") return;
         if (!decision.message) return;
@@ -2338,7 +2380,7 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
           }
           return;
         }
-        curState.interventionCount++;
+        // v0.38.6: interventionCount++ moved INSIDE the session-start gate below.
 
         // v0.17.2 (Gap D): when includeDecisionHistory is true, prepend
         // recent intervention texts so the model sees its history of decisions.
@@ -2388,10 +2430,17 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
         // v0.33.2: superficial — assistant role, visible in history but not blocking user queue.
         // The agent receives guidance via chat.system.transform (persistent);
         // user sees the notification as non-blocking assistant message.
-        output.messages.push({
-          info: { role: "assistant", agent: "meta-governor", synthetic: true },
-          parts: [textPart],
-        });
+        // v0.38.6: skip at session start (would create a fake assistant turn and pause the session).
+        // Inside the gate: actually consume the decision (peeked above) and increment the count.
+        // If the gate is closed (session-start), the decision stays in the store and fires on the next turn.
+        if (!isSessionStart(output.messages)) {
+          takeDecision(currentSessionID);
+          curState.interventionCount++;
+          output.messages.push({
+            info: { role: "assistant", agent: "meta-governor", synthetic: true },
+            parts: [textPart],
+          });
+        }
         persistIntervention(currentSessionID, messageText);
       },
 

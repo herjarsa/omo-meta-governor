@@ -157,8 +157,18 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
         for (let i = 0; i < 3; i++) {
           await autocontinue({ sessionID: sid, overflow: true }, { enabled: true });
         }
+        // v0.38.6: mid-session setup (prior assistant) so the TUI session-killer
+        // fix does not skip the loop-guard nudge injection.
         const output = {
           messages: [
+            {
+              info: { sessionID: sid, role: "user" },
+              parts: [{ type: "text", text: "first ask" }],
+            },
+            {
+              info: { sessionID: sid, role: "assistant", agent: "build" },
+              parts: [{ type: "text", text: "first reply" }],
+            },
             {
               info: { sessionID: sid, role: "user" },
               parts: [{ type: "text", text: "user prompt" }],
@@ -188,8 +198,18 @@ describe("experimental.compaction.autocontinue — overflow loop guard", () => {
         for (let i = 0; i < 3; i++) {
           await autocontinue({ sessionID: sid, overflow: true }, { enabled: true });
         }
+        // v0.38.6: mid-session setup (prior assistant) so the TUI session-killer
+        // fix does not skip the loop-guard nudge injection.
         const output = {
           messages: [
+            {
+              info: { sessionID: sid, role: "user" },
+              parts: [{ type: "text", text: "first ask" }],
+            },
+            {
+              info: { sessionID: sid, role: "assistant", agent: "build" },
+              parts: [{ type: "text", text: "first reply" }],
+            },
             {
               info: { sessionID: sid, role: "user" },
               parts: [{ type: "text", text: "user prompt" }],

@@ -158,15 +158,19 @@ describe("experimental.chat.messages.transform", () => {
       const transform = hooks["experimental.chat.messages.transform"]!
 
       // v0.10.0: messages.transform requires sessionID to scope injection.
+      // v0.38.6: use mid-session setup (prior real assistant message) so the
+      // TUI session-killer fix does not skip the synthetic push.
       const output = {
         messages: [
+          { info: { role: "user", sessionID: "test-session" }, parts: [{ type: "text", text: "first ask" }] },
+          { info: { role: "assistant", sessionID: "test-session", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
           { info: { role: "user", sessionID: "test-session" }, parts: [{ type: "text", text: "hi" }] },
         ] as Array<{ info: unknown;
       parts: unknown[] }>,
       }
       await transform({}, output)
 
-      expect(output.messages.length).toBe(2) // synthetic user message injected for warn
+      expect(output.messages.length).toBe(4) // 3 input + 1 synthetic user message injected for warn
     })
 
     it("then does NOT inject for continue decisions", async () => {
@@ -414,14 +418,17 @@ describe("minActionForMessage threshold", () => {
       const transform = hooks["experimental.chat.messages.transform"]!
 
       // v0.10.0: messages.transform requires sessionID to scope injection.
+      // v0.38.6: mid-session setup so the TUI session-killer fix does not skip the synthetic push.
       const output = {
         messages: [
+          { info: { role: "user", sessionID: "test-session" }, parts: [{ type: "text", text: "first ask" }] },
+          { info: { role: "assistant", sessionID: "test-session", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
           { info: { role: "user", sessionID: "test-session" }, parts: [{ type: "text", text: "hi" }] },
         ] as Array<{ info: unknown; parts: unknown[] }>,
       }
       await transform({}, output)
 
-      expect(output.messages.length).toBe(2) // original 1 + injected 1
+      expect(output.messages.length).toBe(4) // original 3 + injected 1
       const part = output.messages[output.messages.length - 1]!.parts[0] as Record<string, unknown>
       expect(part.text).toContain("Test stop message")
     })
@@ -465,9 +472,12 @@ auditToolCalls: true,
         { args: { filePath: "/tmp/bad.ts", content: "// @ts-ignore\nconst x: any = 1 as any;" } }
       )
 
-      // Trigger messages.transform which should inject pending violations
+      // Trigger messages.transform which should inject pending violations.
+      // v0.38.6: mid-session setup so the TUI session-killer fix does not skip the violation injection.
       const output = {
         messages: [
+          { info: { role: "user", sessionID: "test-audit-1" }, parts: [{ type: "text", text: "first ask" }] },
+          { info: { role: "assistant", sessionID: "test-audit-1", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
           { info: { role: "user", sessionID: "test-audit-1" }, parts: [{ type: "text", text: "ok" }] },
         ] as Array<{ info: unknown; parts: unknown[] }>,
       }
@@ -497,8 +507,11 @@ auditToolCalls: true,
         { args: { filePath: "/tmp/empty-catch.ts", content: "try { throw 1 } catch(e) {}" } }
       )
 
+      // v0.38.6: mid-session setup so the TUI session-killer fix does not skip the violation injection.
       const output = {
         messages: [
+          { info: { role: "user", sessionID: "test-audit-2" }, parts: [{ type: "text", text: "first ask" }] },
+          { info: { role: "assistant", sessionID: "test-audit-2", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
           { info: { role: "user", sessionID: "test-audit-2" }, parts: [{ type: "text", text: "ok" }] },
         ] as Array<{ info: unknown; parts: unknown[] }>,
       }

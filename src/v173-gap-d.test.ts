@@ -46,8 +46,14 @@ describe("v0.17.3 Gap D — decision history in messages.transform", () => {
         reasoning: "first",
       },
     })
+    // v0.38.6: mid-session setup (prior real assistant message) so the
+    // TUI session-killer fix does not skip the synthetic push.
     const output1 = {
-      messages: [{ info: { role: "user", sessionID: "ses-D-1" }, parts: [{ type: "text", text: "step1" }] }],
+      messages: [
+        { info: { role: "user", sessionID: "ses-D-1" }, parts: [{ type: "text", text: "first ask" }] },
+        { info: { role: "assistant", sessionID: "ses-D-1", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
+        { info: { role: "user", sessionID: "ses-D-1" }, parts: [{ type: "text", text: "step1" }] },
+      ],
     } as any
     await transform({}, output1)
     const firstInjection = output1.messages
@@ -68,8 +74,13 @@ describe("v0.17.3 Gap D — decision history in messages.transform", () => {
         reasoning: "second",
       },
     })
+    // v0.38.6: mid-session setup.
     const output2 = {
-      messages: [{ info: { role: "user", sessionID: "ses-D-1" }, parts: [{ type: "text", text: "step2" }] }],
+      messages: [
+        { info: { role: "user", sessionID: "ses-D-1" }, parts: [{ type: "text", text: "first ask" }] },
+        { info: { role: "assistant", sessionID: "ses-D-1", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
+        { info: { role: "user", sessionID: "ses-D-1" }, parts: [{ type: "text", text: "step2" }] },
+      ],
     } as any
     await transform({}, output2)
     const secondInjection = output2.messages
@@ -123,8 +134,14 @@ describe("v0.17.3 Gap D — decision history in messages.transform", () => {
         reasoning: "test",
       },
     })
+    // v0.38.6: mid-session setup (prior real assistant message) so the
+    // TUI session-killer fix does not skip the synthetic push.
     const output1 = {
-      messages: [{ info: { role: "user", sessionID: "ses-D-2" }, parts: [{ type: "text", text: "s1" }] }],
+      messages: [
+        { info: { role: "user", sessionID: "ses-D-2" }, parts: [{ type: "text", text: "first ask" }] },
+        { info: { role: "assistant", sessionID: "ses-D-2", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
+        { info: { role: "user", sessionID: "ses-D-2" }, parts: [{ type: "text", text: "s1" }] },
+      ],
     } as any
     await transform({}, output1)
 
@@ -140,8 +157,13 @@ describe("v0.17.3 Gap D — decision history in messages.transform", () => {
         reasoning: "test2",
       },
     })
+    // v0.38.6: mid-session setup.
     const output2 = {
-      messages: [{ info: { role: "user", sessionID: "ses-D-2" }, parts: [{ type: "text", text: "s2" }] }],
+      messages: [
+        { info: { role: "user", sessionID: "ses-D-2" }, parts: [{ type: "text", text: "first ask" }] },
+        { info: { role: "assistant", sessionID: "ses-D-2", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
+        { info: { role: "user", sessionID: "ses-D-2" }, parts: [{ type: "text", text: "s2" }] },
+      ],
     } as any
     await transform({}, output2)
 

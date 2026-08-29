@@ -38,15 +38,27 @@ export function storeDecision(sessionID: string, decision: DecisionHandlerOutput
 }
 
 /**
- * Take (retrieve and remove) the pending decision for a session.
- * Returns undefined if no decision is pending.
- */
+* Take (retrieve and remove) the pending decision for a session.
+* Returns undefined if no decision is pending.
+*/
 export function takeDecision(sessionID: string): DecisionHandlerOutput | undefined {
-  const decision = store.get(sessionID)
-  if (decision !== undefined) {
-    store.delete(sessionID)
-  }
-  return decision
+const decision = store.get(sessionID)
+if (decision !== undefined) {
+store.delete(sessionID)
+}
+return decision
+}
+
+/**
+ * v0.38.6: peek at the pending decision WITHOUT consuming it.
+ * Used by chat.messages.transform when the push may be skipped (e.g.
+ * session-start gate): the caller reads the decision, decides whether
+ * to inject it, and only calls takeDecision() if it will actually push.
+ * Without peek, takeDecision would consume the decision even when the
+ * push is skipped, losing the intervention.
+ */
+export function peekDecision(sessionID: string): DecisionHandlerOutput | undefined {
+  return store.get(sessionID)
 }
 
 /**
