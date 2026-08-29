@@ -36,7 +36,8 @@
   "description": "Self-judging agent orchestration layer for OpenCode. Reads memory, scores sessions, dispatches decisions.",
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "scripts/bootstrap-agents-md.mjs"
   ],
   "license": "MIT",
   "publishConfig": {
@@ -48,7 +49,8 @@
     "build:skills": "bun run build.ts skills",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "release": "bun scripts/release.ts"
+    "release": "bun scripts/release.ts",
+    "postinstall": "node scripts/bootstrap-agents-md.mjs || true"
   },
   "type": "module",
   "types": "./dist/index.d.ts"

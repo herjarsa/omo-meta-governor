@@ -1,3 +1,28 @@
+<item>## [0.38.9] - 2026-08-29
+
+### Added (postinstall AGENTS.md bootstrap)
+
+When a user runs `npm install @herjarsa/omo-meta-governor`, an idempotent
+postinstall script (`scripts/bootstrap-agents-md.mjs`) appends the plugin's
+[SYSTEM-NUDGE] directives to `~/.config/opencode/AGENTS.md`. This makes the
+directives visible to sub-agents spawned outside the opencode process (which
+don't load the plugin and therefore never see the runtime `chat.system.transform`
+injection).
+
+- Pure JS (`scripts/bootstrap-agents-md.mjs`) — runs under `node`, no bun dependency.
+- Idempotent: detects marker comments and skips re-write.
+- Version-aware: upgrades in place when a newer version is installed.
+- Non-fatal: catches all errors, logs to stderr, never throws.
+- Opt-out: `OMO_META_GOVERNOR_NO_BOOTSTRAP=1` env var skips entirely.
+- Safe: never overwrites user content; appends after.
+
+Pure helpers in `src/bootstrap-agents-md.ts` (25 unit tests covering
+idempotency, version upgrade, opt-out, whitespace handling, semver
+pre-release suffix detection).
+
+Test count: 1134 pass / 8 skip / 0 fail (1142 total). Oracle review: PASS.
+</item>
+
 <item>## [0.38.8] - 2026-08-29
 
 ### Fixed (CI: test-windows readdirp EINVAL flake)
