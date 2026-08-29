@@ -130,6 +130,20 @@ buildSkillPrimingMessage,
   IMPLEMENTATION_TOOLS,
 } from "./skill-priming";
 
+// v0.38.3 (CI fix): install the global error handler at MODULE LOAD time
+// (not just inside createMetaGovernorPlugin) so tests that don't invoke
+// the factory still get the filter. Previously the handler was inside the
+// factory closure, so bun:test runs that import the plugin module but
+// never call the factory (e.g. sqlite-driver.test.ts, graphsink-fix.test.ts)
+// had no handler — chokidar EINVAL on D:\DumpStack.log.tmp / D:\pagefile.sys
+// escaped to bun's test runner as "Unhandled error between tests" and
+// exit code 1, breaking the CI test-windows job.
+//
+// installGlobalErrorHandler is idempotent (defaultTeardown guard in
+// error-handler.ts), so multiple module-loads (test workers re-import)
+// reuse the same handler without stacking.
+installGlobalErrorHandler();
+
 /**
  * Dependencies required by the MetaGovernor plugin.
  * All are optional - features degrade gracefully when backends are unavailable.
@@ -266,10 +280,10 @@ export function createMetaGovernorPlugin(
     >[0],
   );
   const cwd = process.cwd();
-  // v0.38.0: install global error handler to filter chokidar/readdirp scan errors
-  // from system-protected paths (D:\pagefile.sys, etc.) — must be installed BEFORE
-  // any chokidar instance is created.
-  installGlobalErrorHandler();
+  // v0.38.3: installGlobalErrorHandler() moved to module-load time (see top
+  // of file). It must be installed BEFORE any chokidar instance is created,
+  // and putting it at module load guarantees it's installed regardless of
+  // whether createMetaGovernorPlugin is ever called.
 
   // v0.13.1: initialize custom tools for the LLM to call.
   const sqlite = getDefaultSqliteBackend();

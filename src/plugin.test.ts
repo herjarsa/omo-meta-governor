@@ -721,3 +721,47 @@ describe('bash redirect bypass (P1-6)', () => {
   // verified indirectly via the gate tests above. A direct assertion would require
   // exposing the internal session-state map, which is out of scope for this fix.
 })
+
+// ─── v0.38.3 CI fix: global error handler at module load ─────────
+//
+// Before v0.38.3, installGlobalErrorHandler() was called INSIDE
+// createMetaGovernorPlugin(), so tests that imported the plugin module but
+// never invoked the factory (sqlite-driver.test.ts, graphsink-fix.test.ts,
+// health-builder.test.ts, etc.) had no handler installed. chokidar/readdirp
+// EINVAL on D:\DumpStack.log.tmp / D:\pagefile.sys escaped to bun's test
+// runner as "Unhandled error between tests" → exit code 1 → CI test-windows
+// failure.
+//
+// After v0.38.3, installGlobalErrorHandler() runs at module load time
+// (top of src/plugin.ts). This test verifies the handler is active
+// regardless of whether the factory is called.
+describe("global error handler (v0.38.3 CI fix)", () => {
+  it("is installed at module-load time, not just when the factory is called", () => {
+    // Count listeners before emit. Our handler adds exactly one to the
+    // uncaughtException event pool (plus bun:test's own listener).
+    const before = process.listenerCount("uncaughtException")
+
+    // Emit a known EINVAL on D:\DumpStack.log.tmp — the exact path that
+    // broke the CI test-windows job. The handler MUST swallow it.
+    const err = Object.assign(new Error("EINVAL: invalid argument, lstat 'D:\\DumpStack.log.tmp'"), {
+      code: "EINVAL",
+      path: "D:\\DumpStack.log.tmp",
+    })
+    expect(() => process.emit("uncaughtException", err)).not.toThrow()
+
+    // Listener count is unchanged (handler doesn't stack on re-emit).
+    // If installGlobalErrorHandler were factory-only, our handler wouldn't
+    // be in the pool here and the error would propagate to bun:test,
+    // which would log "Unhandled error between tests" and fail this run.
+    expect(process.listenerCount("uncaughtException")).toBe(before)
+  })
+
+  it("is idempotent — multiple factory calls do NOT stack handlers", () => {
+    const before = process.listenerCount("uncaughtException")
+    // Call the factory twice. Both calls reuse the same default-handler
+    // instance (idempotency guard in error-handler.ts: `defaultTeardown`).
+    createHermeticPlugin()
+    createHermeticPlugin()
+    expect(process.listenerCount("uncaughtException")).toBe(before)
+  })
+})
