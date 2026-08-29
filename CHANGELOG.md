@@ -1,4 +1,48 @@
-<item>## [0.38.5] - 2026-08-29
+<item>## [0.38.6] - 2026-08-29
+
+### Added (Comprehensive config docs for omo-meta-governor.jsonc)
+
+The previous README example incorrectly placed the `meta_governor` config
+block inside `opencode.jsonc`. The plugin reads detailed configuration from
+a separate file `omo-meta-governor.jsonc` (see `src/config-file.ts:4-7`).
+
+v0.38.6 fixes the docs:
+
+- "Plugin registration" vs "Plugin configuration" distinction:
+  - `opencode.jsonc`: registers the plugin (`plugins: ["..."]`)
+  - `omo-meta-governor.jsonc`: holds detailed config (oracle, scoring,
+    intervention, protocolEnforcement, etc.)
+- Three config layers with closest-wins precedence:
+  1. CLI inline (highest — `omo-meta-governor --config '{...}'`)
+  2. `<projectDir>/.opencode/omo-meta-governor.jsonc`
+  3. `~/.config/opencode/omo-meta-governor.jsonc` (lowest — defaults)
+- Minimal config example to enable the governance pipeline
+- Oracle frequency (v0.38.4+, Option D) section documenting the 3 modes:
+  - `"per-stop"` (default): brake on emergencies + final-gate always
+  - `"final-only"`: only final-gate
+  - `"off"`: never auto-invoke
+- Final-gate independence clause: `<promise>DONE</promise>` /
+  `<promise>PLAN-COMPLETE</promise>` ALWAYS invokes Oracle regardless
+  of `oracle.frequency`
+
+### Files changed
+
+- `README.md` — +30 / -5 lines (Install section expanded)
+
+### Ship protocol compliance
+
+- AGENTS.md §1 (atomic commit): ✅ 1 atomic commit (20d038d).
+- AGENTS.md §2 (CI green required): ✅ Documentation-only change — no production code touched.
+- AGENTS.md §5 (Documentation Update): ✅ README.md updated.
+- AGENTS.md §3b (automated release): ✅ `bun run release 0.38.6` follows.
+
+### Test count
+
+- v0.38.5 baseline: 1094 pass / 12 skip / 0 fail (1102 total)
+- v0.38.6 final: 1094 pass / 12 skip / 0 fail (1102 total)
+- Net delta: +0 (docs only)
+
+</item>
 
 ### Added (OpenCode Desktop plugin init — regression test + documentation)
 
