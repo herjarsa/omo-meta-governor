@@ -14,6 +14,7 @@ import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { homedir } from "node:os"
 import type { ProtocolViolation } from "./types"
+import { IMPLEMENTATION_TOOLS } from "./skill-priming"
 
 // ─── Default protocol path ───────────────────────────────────────
 
@@ -192,8 +193,11 @@ export function auditToolCall(
   }
 
   // ── Rule: No type suppression patterns ─────────────────────────
-  const writeTools = ["write", "edit", "edit_block", "desktop-commander_edit_block", "desktop-commander_write_file"]
-  if (writeTools.includes(toolName)) {
+  // v0.38.3 (G1 audit fix): use the canonical IMPLEMENTATION_TOOLS list
+  // from skill-priming.ts. Prior to v0.38.3 this was a 5-entry subset that
+  // missed multi_edit / apply_patch / ast_grep_replace / refactor, letting
+  // those tools bypass the @ts-ignore/as-any audit.
+  if (IMPLEMENTATION_TOOLS.includes(toolName)) {
     const content = typeof args === "object" && args !== null
       ? JSON.stringify(args)
       : String(args ?? "")
@@ -232,7 +236,8 @@ export function auditToolCall(
   }
 
   // ── Rule: No empty catch blocks ────────────────────────────────
-  if (writeTools.includes(toolName)) {
+  // v0.38.3 (G1): see comment above — now uses IMPLEMENTATION_TOOLS.
+  if (IMPLEMENTATION_TOOLS.includes(toolName)) {
     const content = typeof args === "object" && args !== null
       ? JSON.stringify(args)
       : String(args ?? "")
@@ -323,18 +328,11 @@ export function auditToolCall(
   // agent reads/greps repeatedly, generating the same violation every turn and
   // piling up noise in the context window. The rule is meaningful only when a
   // file has just been touched.
-  const writeToolsForOracleRule = [
-    "write",
-    "edit",
-    "edit_block",
-    "desktop-commander_write_file",
-    "desktop-commander_edit_block",
-    "apply_patch",
-  ]
+  // v0.38.3 (G1): use IMPLEMENTATION_TOOLS — same set as plugin.ts filesChanged.
   if (
     context.filesChanged >= 3 &&
     !context.oracleInvoked &&
-    writeToolsForOracleRule.includes(toolName)
+    IMPLEMENTATION_TOOLS.includes(toolName)
   ) {
     violations.push({
       rule: "oracle-verification",

@@ -309,4 +309,26 @@ describe("v0.38.2 user-display vs agent-directive separation", () => {
     expect(agentMsg).toContain("omo_skill_find")
     expect(agentMsg).toContain("omo_skill_get")
   })
+
+  // v0.38.3 (G1 audit regression): IMPLEMENTATION_TOOLS is the canonical
+  // writeTools list, shared by skill-priming, plugin (filesChanged), and
+  // protocol-enforcer (audit). Must include apply_patch / multi_edit /
+  // desktop-commander_* that previously drifted between the 3 lists.
+  it("IMPLEMENTATION_TOOLS includes every write-shaped tool (v0.38.3 G1)", async () => {
+    const { IMPLEMENTATION_TOOLS } = await import("./skill-priming")
+    const expected = [
+      "write",
+      "edit",
+      "edit_block",
+      "multi_edit",
+      "apply_patch",
+      "ast_grep_replace",
+      "refactor",
+      "desktop-commander_write_file",
+      "desktop-commander_edit_block",
+    ]
+    for (const tool of expected) {
+      expect(IMPLEMENTATION_TOOLS.includes(tool)).toBe(true)
+    }
+  })
 })

@@ -28,9 +28,18 @@ import { wrapInformational, buildUserStatus, type NotificationKind } from "./age
 /**
  * Tool names that signal the agent has started implementation work.
  *
- * Superset of the writeTools list in plugin.ts (tool.execute.after): the
- * trailing tools (apply_patch / ast_grep_replace / multi_edit / refactor)
- * do NOT bump `filesChanged`, so detection keys on `recentToolCalls` only.
+ * v0.38.3 (G1 audit fix): the canonical writeTools list, shared by:
+ *   - skill-priming.ts (IMPLEMENTATION_TOOLS — detection signal)
+ *   - plugin.ts:tool.execute.after (writeTools — filesChanged accounting + bash bypass)
+ *   - protocol-enforcer.ts (writeTools — protocol violation audit)
+ *
+ * Prior to v0.38.3 these were 3 separate lists (7, 9, and 5 entries respectively).
+ * Drift between plugin.ts and protocol-enforcer.ts meant apply_patch could bypass
+ * protocolEnforcement.auditToolCalls even though it triggered filesChanged.
+ *
+ * NOTE: bash with `>` / `>>` / `<<` redirects is ALSO a write — `bashHasFileWrite`
+ * in plugin.ts detects those and feeds them into the same filesChanged pipeline.
+ * That detection is bash-specific and doesn't belong in this constant.
  */
 export const IMPLEMENTATION_TOOLS: readonly string[] = [
   "write",
@@ -40,6 +49,7 @@ export const IMPLEMENTATION_TOOLS: readonly string[] = [
   "apply_patch",
   "ast_grep_replace",
   "refactor",
+  // v0.38.3 (G1): desktop-commander equivalents added so all 3 call sites match.
   "desktop-commander_write_file",
   "desktop-commander_edit_block",
 ]

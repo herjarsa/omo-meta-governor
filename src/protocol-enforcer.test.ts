@@ -411,5 +411,22 @@ describe("protocol-enforcer", () => {
       // then
       expect(violations.every((v) => v.rule !== "oracle-verification")).toBe(true)
     })
+
+    // v0.38.3 (G1 audit regression): before unification, the audit's writeTools
+    // was a 5-entry subset that missed multi_edit / apply_patch / ast_grep_replace
+    // / refactor / desktop-commander_*. apply_patch must now trigger the same
+    // oracle-verification rule as write.
+    it("then fires oracle-verification for apply_patch when filesChanged >= 3 (v0.38.3 G1)", () => {
+      const violations = auditToolCall("apply_patch", {}, {
+        memoryToolsUsed: [],
+        hasCodegraphDir: false,
+        hasGraphifyDir: false,
+        oracleInvoked: false,
+        filesChanged: 3,
+        emptyRecall: false,
+        escalationAttempted: false,
+      })
+      expect(violations.some((v) => v.rule === "oracle-verification")).toBe(true)
+    })
   })
 })
