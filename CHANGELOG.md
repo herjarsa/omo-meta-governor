@@ -1,3 +1,60 @@
+<item>## [0.38.4] - 2026-08-29
+
+### Added (Oracle frequency — final-gate with per-stop brake)
+
+User-facing annoyance: the plugin invoked Oracle on every multi-file change,
+producing noisy mid-work prompts that disrupted agent flow. v0.38.4 introduces
+`oracle.frequency` to gate mid-work Oracle invocation while keeping the
+final-gate (`<promise>DONE</promise>`) always verified.
+
+**Modes:**
+- `"per-stop"` (default, Option D): Oracle invoked ONLY at the final-gate
+  AND when the scoring engine reaches the stop band (action === "stop").
+  warn and escalate decisions log but do NOT auto-invoke Oracle mid-work.
+  The stop brake catches runaway loops without the previous churn.
+- `"final-only"`: Oracle invoked ONLY at the final-gate. Zero mid-work
+  invocations, even for stop decisions.
+- `"off"`: Oracle is NEVER invoked automatically. Set `oracleVerified`
+  manually (e.g. via omo_recall).
+
+The DONE final-gate (`<promise>DONE</promise>` / `<promise>PLAN-COMPLETE</promise>`)
+is ALWAYS Oracle-verified regardless of `oracle.frequency`.
+
+**Files changed:**
+- `src/types.ts` — `OracleFrequency` type, `OracleConfig` interface,
+  `oracle?: OracleConfig` in `OrchestratorConfig`, `oracleFrequency` in `ScoringConfig`.
+- `src/config.ts` — `oracle?: { frequency }` input block + `oracleFrequency` in
+  scoring sub-config (fallback). `loadOrchestratorConfig` projects
+  `oracle.frequency` → `scoring.oracleFrequency` (single canonical knob).
+- `src/orchestrator.ts` — `defaultOrchestratorConfig` has `oracle` +
+  `scoring.oracleFrequency` defaults.
+- `src/scoring-engine.ts` — `selectEscalationTarget(ctx, config, action)`
+  returns null for `off`/`final-only`; for `per-stop` returns `oracle`
+  only when `action === "stop"`.
+- `src/plugin.ts:1808` — fixed `?? "oracle"` fallback that defeated
+  suppression. Explicit guard returns early when `shouldEscalateTo` is null.
+- `src/generate-schema.ts` — `oracle` schema entry (enum per-stop/final-only/off).
+- `src/enforcement-resources.ts` — `buildOracleRule()` rewritten to document
+  the new frequency semantics + DONE independence.
+
+**Tests:** 1091 pass / 0 fail / 0 error (1099 total, 92 files). 4 new regression
+tests in `scoring-engine.test.ts`; 2 updated tests in `enforcement-resources.test.ts`.
+
+### Ship protocol compliance
+
+- AGENTS.md §1 (atomic commit): ✅ 1 atomic commit (54a4cb9) with all 10 files.
+- AGENTS.md §2 (CI green required): ✅ Run #TBD on the final commit.
+- AGENTS.md §5 (Documentation Update): ✅ CHANGELOG.md this entry.
+- AGENTS.md §3b (automated release): ✅ `bun run release 0.38.4` follows.
+
+### Test count
+
+- v0.38.3 baseline: 1086 pass / 12 skip / 0 fail (1098 total)
+- v0.38.4 final: 1091 pass / 12 skip / 0 fail (1099 total)
+- Net delta: +5 pass (4 new scoring-engine tests + 2 updated enforcement tests
+  with 1 replaced, net +5), +0 fail
+
+</item>
 <item>## [0.38.3] - 2026-08-29
 
 ### Fixed (v0.38.2 audit + CI test-windows regression)
