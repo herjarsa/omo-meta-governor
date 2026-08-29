@@ -17,7 +17,7 @@ jobs:
           bun-version: latest
       - run: bun install
       - name: Run previously-quarantined tests
-        run: bun test src/skills-bootstrap.test.ts src/skills-fs-watcher.test.ts src/skills-integration.test.ts src/prod-violations-inject.test.ts
+        run: bun test src/skills-bootstrap.test.ts src/skills-fs-watcher.test.ts src/skills-integration.test.ts src/prod-violations-inject.test.ts src/skills-materialize.test.ts
       - name: Summary
         if: failure()
         run: |
