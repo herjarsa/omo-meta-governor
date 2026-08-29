@@ -1,3 +1,29 @@
+<item>## [0.38.8] - 2026-08-29
+
+### Fixed (CI: test-windows readdirp EINVAL flake)
+
+The `CI` workflow's `test-windows` job had been failing for ~10 consecutive
+runs with "3 errors" reported by bun:test (0 fail, exit code 1).
+
+Root cause: when mockPluginInput.directory="" is used in tests,
+sessionProjectDir resolves to process.cwd(). chokidar with usePolling:true
+fell back to scanning from cwd and recursed into Windows system paths
+(D:\DumpStack.log.tmp, D:\pagefile.sys) which throw EINVAL on lstat.
+
+The global error handler in src/error-handler.ts (v0.38.3 G8) was supposed
+to filter these, but bun:test's internal error counter increments BEFORE
+the process listener fires.
+
+Fix (defense in depth):
+- Skip the watcher entirely if opts.projectDir is empty or does not exist.
+  Return a no-op FsWatcher.
+- Add chokidar `ignored` callback to filter Windows system paths.
+
+User-visible impact: none. CI-only fix.
+
+Test count: 1101 pass / 8 skip / 0 fail.
+</item>
+
 <item>## [0.38.7] - 2026-08-29
 
 ### Fixed (TUI session-killer at session start)
