@@ -67,7 +67,13 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: |
           git config user.name "github-actions"
-          git config user.email "actions@github.com"
+          git config user.email "actions@github.com@users.noreply.github.com"
+          # v0.39.2: `npm version patch` requires a clean working tree.
+          # `bun run build` creates dist/ (gitignored, OK) but `bun test`
+          # also leaves some test fixtures behind. Commit any non-build
+          # artifacts first so npm version sees a clean tree.
+          git add -A
+          git diff --cached --quiet || git commit -m "ci: test+build artifacts for publish"
           npm version ${{ github.event.inputs.version }}
       - name: Publish
         if: github.event_name == 'workflow_dispatch'
