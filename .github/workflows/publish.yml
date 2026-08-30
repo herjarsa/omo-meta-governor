@@ -55,9 +55,18 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: git push --tags
 
+      # v0.39.0 fix: idempotent. `bun run release` already creates the GitHub
+      # Release via --notes-file in scripts/release.ts. Re-running `gh release
+      # create` returns HTTP 422 (release exists). continue-on-error is the
+      # canonical Actions way to express "release may already exist; either
+      # way is fine" without depending on gh release view (which had auth
+      # scope / propagation issues in the Actions runner context).
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: >
-          gh release create "$GITHUB_REF_NAME" --repo herjarsa/omo-meta-governor --title "$GITHUB_REF_NAME" --notes "See CHANGELOG.md for details."
+        continue-on-error: true
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo herjarsa/omo-meta-governor \
+            --title "$GITHUB_REF_NAME" \
+            --notes "See CHANGELOG.md for details."
