@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * v0.39.0 — omo doctor CLI
  * Pure detection/reporting + thin CLI wrapper.
