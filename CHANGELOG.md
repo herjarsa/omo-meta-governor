@@ -1,3 +1,47 @@
+<item>
+
+## [0.39.5] - 2026-08-30
+
+### Fixed (skill-priming directive wording)
+
+The skill-priming directive injected via `experimental.chat.messages.transform`
+and the `enforceMode='block'` error message in `tool.execute.before` both told
+agents to "load it via the skill tool" / "Pass the result to the skill tool".
+Opencode does not expose a native `skill` tool — agents kept retrying
+non-existent invocations before falling back to the correct delegation
+pattern.
+
+Fix: replace with the actual mechanism — `task(category='<category>',
+load_skills=['<slug>'])`. The sub-agent receives the skill content in its
+system prompt and executes the skill's instructions directly.
+
+Updates:
+- `src/skill-priming.ts:122` — `buildSkillPrimingMessage` body for
+  `superpowers` / `both` routers
+- `src/plugin.ts:1103` — `enforceMode='block'` error message
+- `src/types.ts:513` — stale `SkillPriming` JSDoc that said "via the skill tool"
+
+Tests (TDD, RED → GREEN):
+- `src/skill-priming.test.ts` — pin that `superpowers`/`both` routers do NOT
+  say "skill tool" and DO say `task(load_skills)`
+- `src/plugin.test.ts` — pin that the block error names `task()` `load_skills`
+  and never "skill tool"
+
+Test count: 1174 pass / 8 skip / 0 fail (97 files, 2786 expect() calls).
+Oracle review: not required (text-only directive fix, no logic change, no schema).
+
+### Ship protocol compliance
+
+- ✅ One atomic commit per logical unit (`fix(skill-priming): point agents at task(load_skills) instead of nonexistent skill tool`)
+- ✅ `gh run watch <run-id> --exit-status` after every push, exit 0 confirmed (CI + test-windows-flaky both success on sha `09687a8`)
+- ✅ `bun run release 0.39.5` validates CHANGELOG + runs tests + builds + publishes + tags + GitHub release
+- ✅ Oracle Review Gate NOT invoked (text-only directive wording change, no core plugin logic / scoring / audit / intervention behavior change)
+- ✅ Backward compatibility: nudge message wording only; no behavior change for agents that already used `task()` delegation; the offending "skill tool" wording was previously a non-functional instruction, so removing it can only HELP
+- ✅ No `as any` / `@ts-ignore` / `@ts-expect-error` introduced
+- ✅ No empty catch blocks `catch (e) {}` introduced
+
+</item>
+
 <item>## [0.39.2] - 2026-08-30
 
 ### Fixed (bin rename: `omo` → `omg`)
