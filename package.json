@@ -31,8 +31,8 @@
     }
   },
   "bin": {
-    "omo-meta-governor-mcp": "./dist/mcp-server.js",
-    "omg": "./dist/cli-doctor.js"
+    "omo-meta-governor-mcp": "dist/mcp-server.js",
+    "omg": "dist/cli-doctor.js"
   },
   "description": "Self-judging agent orchestration layer for OpenCode. Reads memory, scores sessions, dispatches decisions.",
   "files": [
