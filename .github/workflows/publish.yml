@@ -54,7 +54,14 @@ jobs:
           bun-version: latest
       - run: bun install
       - run: bun run typecheck
-      - run: bun test src/*.test.ts
+      # v0.39.2: was `bun test src/*.test.ts` which segfaults on
+      # version-sync.test.ts under fresh-checkout conditions (see
+      # commits cf87e70 + c48d95e — flaky test history). Running `bun test`
+      # without the file filter matches what the CI workflow uses and
+      # avoids the segfault. CI runs above already verified the suite
+      # green for this commit; this is a redundant belt-and-suspenders
+      # pre-publish check.
+      - run: bun test
       - run: bun run build
       - name: Bump version
         if: github.event_name == 'workflow_dispatch'
