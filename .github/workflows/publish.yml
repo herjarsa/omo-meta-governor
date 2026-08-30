@@ -83,7 +83,7 @@ jobs:
       - name: Publish
         if: github.event_name == 'workflow_dispatch'
         continue-on-error: true
-        run: npm publish --access public --provenance
+        run: npm publish --access public
       - name: Push tags
         if: github.event_name == 'workflow_dispatch'
         run: git push --tags
