@@ -45,10 +45,15 @@ jobs:
       # `ENEEDAUTH: need auth` because the bun-only runner doesn't expose
       # the ACTIONS_ID_TOKEN_REQUEST_TOKEN / ACTIONS_ID_TOKEN_REQUEST_URL
       # env vars in a form npm recognizes.
+      # v0.39.2: actions/setup-node@v4 with node-version: '20' ships
+      # npm 10.x by default. OIDC trusted publishing (the --provenance
+      # flag + ACTIONS_ID_TOKEN_REQUEST_TOKEN env var exchange) requires
+      # npm >= 11.5. Force an explicit upgrade before the publish step.
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org/'
+      - run: npm install -g npm@^11.5 --silent
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
