@@ -1100,7 +1100,7 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
           const query = suggestSkillFindQuery(toolInput.tool, _output?.args)
           throw new Error(
             `[meta-governor] skill-priming required: run \`${query}\` to discover relevant skills before using "${toolInput.tool}". ` +
-            `Pass the result to the skill tool to load 2-3 capabilities. ` +
+            `Pass the candidates to a sub-agent via \`task(category='<category>', load_skills=[...])\` to load 2-3 capabilities. ` +
             `Set skillPriming.enforceMode='directive' in your config to bypass this gate, or write to a tmp/test/scratch path for trivial edits.`,
           );
         }

@@ -651,6 +651,31 @@ describe("skill-priming enforceMode='block' (v0.34.0)", () => {
       ),
     ).resolves.toBeUndefined()
   })
+
+// v0.39.5 (bugfix): the enforceMode='block' error message previously said
+// "Pass the result to the skill tool to load 2-3 capabilities", but
+// opencode has no `skill` tool. The correct invocation is delegation via
+// `task(category='...', load_skills=[...])`. This test pins the corrected
+// error wording so it never regresses.
+it("v0.39.5: enforceMode='block' error message names task() load_skills (not 'skill tool')", async () => {
+clearAll()
+const plugin = createHermeticPlugin()
+const hooks = await plugin(mockPluginInput, blockOptions)
+const before = hooks["tool.execute.before"]!
+let caught: Error | null = null
+try {
+await before(
+{ tool: "write", sessionID: "block-test-wording", callID: "c1" },
+{ args: { filePath: "/app/src/core/widget.ts", content: Array.from({ length: 60 }, (_, i) => `line ${i}`).join("\n") } },
+)
+} catch (e) {
+caught = e as Error
+}
+expect(caught).not.toBeNull()
+expect(caught!.message).toContain("load_skills")
+expect(caught!.message).toContain("task(")
+expect(caught!.message).not.toMatch(/skill tool/i)
+})
 })
 
 // v0.34.0: enforceMode='directive' (default) preserves the legacy opt-in path.

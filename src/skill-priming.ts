@@ -119,7 +119,7 @@ export function buildSkillPrimingMessage(router: SkillPrimingRouter): string {
   }
   if (effectiveRouter === "superpowers" || effectiveRouter === "both") {
     lines.push(
-      `${step}. If a matching superpowers skill is available and not yet active (${SUPERPOWERS_SKILLS.join(" / ")}), load it via the skill tool. (Requires the superpowers plugin to be installed separately.)`,
+      `${step}. If a matching superpowers skill is available and not yet active (${SUPERPOWERS_SKILLS.join(" / ")}), delegate it to a sub-agent via \`task(category='<category>', load_skills=['<slug>'])\` — the skill's content is injected into the sub-agent's system prompt. (Requires the superpowers plugin to be installed separately.)`,
     )
     step++
   }

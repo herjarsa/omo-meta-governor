@@ -510,7 +510,10 @@ export interface PostWaveConfig {
  * for the task: querying the AAS skill catalog (aas search_skills /
  * get_skill / compose_stack) and/or loading the task-appropriate
  * superpowers skill (brainstorming, writing-plans, test-driven-development,
- * systematic-debugging, subagent-driven-development) via the skill tool.
+ * systematic-debugging, subagent-driven-development) via task delegation
+ * with `load_skills=[<slug>]` (no native `skill` tool exists in opencode).
+ * v0.33.1: skill-hub catalog routing (omo_skill_find / omo_skill_get / omo_skill_add)
+ * replaces the retired AAS MCP tools.
  * Config-gated, once per session, minimal context cost — the directive
  * explicitly forbids enumerating the full catalog.
  */

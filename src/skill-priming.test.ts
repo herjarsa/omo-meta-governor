@@ -128,6 +128,20 @@ expect(msg).toContain("Do NOT enumerate the full catalog")
     expect(directive).toContain("[SKILL PRIMING]")
     expect(directive).not.toMatch(/will be blocked|must call .* first|enforcement/i)
 })
+
+// v0.39.5 (bugfix): the previous wording said "load it via the skill tool",
+// but opencode does NOT expose a `skill` tool — agents kept retrying
+// nonexistent invocations. The correct mechanism is delegation via
+// `task(category='...', load_skills=[...])` — the skill's content is then
+// injected into the sub-agent's system prompt. This test pins the
+// corrected instruction so the wording never regresses.
+for (const router of ["superpowers", "both"] as const) {
+const msg = buildSkillPrimingMessage(router)
+expect(msg).not.toMatch(/skill tool/i)
+expect(msg).toContain("load_skills")
+expect(msg).toContain("task(")
+expect(msg).toContain("category=")
+}
 })
 
 // ─── Pure: shouldInjectSkillPriming ────────────────────────────────
