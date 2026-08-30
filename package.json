@@ -1,6 +1,6 @@
 {
   "name": "@herjarsa/omo-meta-governor",
-  "version": "0.39.0",
+  "version": "0.39.2",
   "repository": {
     "type": "git",
     "url": "https://github.com/herjarsa/omo-meta-governor.git"
@@ -30,7 +30,7 @@
       "import": "./dist/lib.js"
     }
   },
-"bin": {
+  "bin": {
     "omo-meta-governor-mcp": "./dist/mcp-server.js",
     "omg": "./dist/cli-doctor.js"
   },
