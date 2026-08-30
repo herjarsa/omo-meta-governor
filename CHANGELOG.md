@@ -1,3 +1,31 @@
+<item>## [0.39.2] - 2026-08-30
+
+### Fixed (bin rename: `omo` → `omg`)
+
+v0.39.0 introduced `bin.omo` for the new doctor CLI. The name collides with
+`omo` from other tools on the npm global path (e.g. `oh-my-openagent`,
+`omo-ai`). On Windows, PowerShell shims (`.ps1`) shadow the npm cmd shim,
+so `omo --help` invoked the wrong binary even after install succeeded.
+
+Fix:
+- Rename bin entry: `"omo": "./dist/cli-doctor.js"` → `"omg": "./dist/cli-doctor.js"`
+- `omg` is a short, unambiguous prefix derived from `omo-meta-governor`.
+- Invoke as `omg doctor [--report-only] [--verbose] [--yes]`.
+
+### Note (accidental v0.39.1)
+
+v0.39.0 verification used `gh workflow run --ref v0.39.0`, which fires
+`workflow_dispatch` (NOT tag push). The workflow_dispatch path runs
+`npm version patch` + `npm publish`, accidentally bumping and publishing
+v0.39.1 with identical content to v0.39.0. Subsequent `npm unpublish` /
+`npm deprecate` failed (token has `:publish` scope but not `:unpublish`).
+v0.39.1 remains on npm with identical content to v0.39.0; v0.39.2 ships the
+bin rename without overwriting it.
+
+### Test count
+~1190 pass / 8 skip / 0 fail. Oracle review: PASS (10/10 from v0.39.0 base; rename is mechanical).
+
+</item>
 <item>## [0.39.0] - 2026-08-30
 
 ### Added (Plugin folder consolidation + omo doctor CLI)
