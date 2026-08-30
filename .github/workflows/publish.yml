@@ -39,6 +39,16 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+      # v0.39.2 fix: setup-node@v4 registers the registry in ~/.npmrc with
+      # the right host config to perform the OIDC token exchange at publish
+      # time. Without this, `npm publish --provenance` fails with
+      # `ENEEDAUTH: need auth` because the bun-only runner doesn't expose
+      # the ACTIONS_ID_TOKEN_REQUEST_TOKEN / ACTIONS_ID_TOKEN_REQUEST_URL
+      # env vars in a form npm recognizes.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org/'
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
