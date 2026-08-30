@@ -22,8 +22,8 @@ import {
   existsSync,
   unlinkSync,
 } from "node:fs"
-import { resolve, dirname } from "node:path"
-import { homedir } from "node:os"
+import { dirname } from "node:path"
+import { oldPluginPaths, newPluginPaths, migrateOldToNew } from "./utils/migrate"
 
 // ---------------------------------------------------------------------------
 // Redaction
@@ -88,7 +88,12 @@ function redactData(data: unknown, seen: WeakSet<object> = new WeakSet()): unkno
 // Configuration
 // ---------------------------------------------------------------------------
 
-const LOG_PATH = resolve(homedir(), ".config", "opencode", "meta-governor.log")
+try {
+  migrateOldToNew({ oldPaths: oldPluginPaths(), newPaths: newPluginPaths() })
+} catch {
+  // best-effort: never break plugin load
+}
+const LOG_PATH = newPluginPaths().log
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024 // 10MB
 const MAX_ROTATED_FILES = 5
 

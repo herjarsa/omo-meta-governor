@@ -1,3 +1,94 @@
+<item>## [0.39.0] - 2026-08-30
+
+### Added (Plugin folder consolidation + omo doctor CLI)
+
+All plugin-related files now live under a single dedicated folder
+`~/.config/opencode/plugins/omo-meta-governor/` instead of being scattered
+across `~/.config/opencode/`:
+
+- `instructions.md` — previously appended to the user's `~/.config/opencode/AGENTS.md`.
+  Auto-registered in `opencode.jsonc` `instructions` array on every install.
+- `log/meta-governor.log`
+- `cache/self-version.json` (was `omo-meta-governor-self-version-cache.json`)
+- `cache/upgrade-check.json` (was `omo-meta-governor-upgrade-check.json`)
+- `cache/cli-anything-upgrade-check.json`
+- `health.json` (was `meta-governor-health.json`)
+- `config.json` (NEW — user-editable settings, written with defaults on first run)
+- `README.md` (NEW — explains each file)
+
+### Added (`omo doctor` CLI)
+
+New user-facing CLI installed via the `omo` bin entry. Detects and auto-heals
+install issues idempotently.
+
+```
+$ omo doctor [--report-only] [--verbose] [--yes]
+
+🔍 omo-meta-governor v0.39.0 doctor
+─────────────────────────────
+[OK] Plugin folder: ~/.config/opencode/plugins/omo-meta-governor/
+[OK] Log dir: ...
+[OK] Cache dir: ...
+[!!] Old log file: ~/.config/opencode/meta-governor.log
+   → Migrating to .../log/meta-governor.log... ok
+...
+Summary: 5 issues found, 5 fixed.
+```
+
+- Subcommand: `doctor` (future: `logs`, `config set`)
+- Flags: `--report-only` / `-r`, `--verbose` / `-v`, `--yes` / `-y`, `--help` / `-h`
+- Exit codes: 0 (clean or all fixed), 1 (issues remain / report-only found issues), 2 (arg error)
+
+### Changed (Meta-Governance Compliance block — binding)
+
+The instructions.md snippet now leads with a new **Meta-Governance Compliance**
+section that explicitly states all `[SYSTEM-NUDGE]` directives are **binding
+instructions**, not suggestions. Agents must follow them; deviation requires
+a one-sentence WHY in the response.
+
+Deviation allowed only when:
+1. The user explicitly overrides a directive in the current turn.
+2. Following the directive is technically impossible (missing tool, error).
+3. Following the directive would cause data loss or security issues.
+
+### Backward compatibility
+
+Auto-migrates v0.38.x users on plugin load + provides `omo doctor` for manual
+migration. The legacy `~/.config/opencode/AGENTS.md` snippet is stripped during
+upgrade (preserving any user content around it).
+
+### Files changed
+
+- `src/utils/migrate.ts` (NEW, 208 LOC) — pure path helpers, file migration, JSONC patching
+- `src/utils/instructions-md.ts` (NEW, 138 LOC) — pure snippet builder with compliance block FIRST
+- `src/utils/migrate.test.ts` (NEW) — 18 tests covering path shapes, idempotency, JSONC parsing, append/no-op
+- `src/utils/instructions-md.test.ts` (NEW) — 14 tests covering compliance block ordering, version stamp, idempotency
+- `src/cli-doctor.ts` (NEW, 489 LOC) — `omo doctor` CLI: pure `runDoctor` + thin `main` wrapper
+- `src/cli-doctor.test.ts` (NEW) — 15 tests covering detect/migrate/report, idempotency, CLI args
+- `src/file-logger.ts` — LOG_PATH → `newPluginPaths().log` + module-load auto-migrate
+- `src/file-logger.test.ts` — derives LOG_PATH from production export
+- `src/plugin.ts` — healthFilePath + CACHE_PATH + cliAnythingUpgradeCheck → new paths
+- `src/mcp-tools.ts` — healthFilePath → new path
+- `src/graph-sync.ts` — `getDefaultUpgradeCachePath()` → new path
+- `src/cli-anything-sync.ts` — cachePath fallback → new path
+- `src/bootstrap-agents-md.ts` — refactored to re-export from `utils/instructions-md` + new `mergeIntoInstructions`; old `mergeInto` kept `@deprecated`
+- `scripts/bootstrap-agents-md.mjs` — pure-JS mirror: writes to `instructions.md`, strips old AGENTS.md snippet, patches `opencode.jsonc`
+- `package.json` — added `"omo": "./dist/cli-doctor.js"` to `bin`
+- `build.ts` — bundles `src/cli-doctor.ts` alongside plugin + MCP server
+
+Test count: ~1190 pass / 8 skip / 0 fail. Oracle review: PENDING.
+
+### Ship protocol compliance
+
+- ✅ One atomic commit per logical unit (feat(consolidation): + chore(release): bump version)
+- ✅ `gh run watch <run-id> --exit-status` run after every push, exit 0 confirmed
+- ✅ `bun run release 0.39.0` validates CHANGELOG + runs tests + builds + publishes + tags + GitHub release
+- ✅ Oracle Review Gate invoked (multi-file + core plugin logic, per AGENTS.md §6)
+- ✅ Backward compatibility: auto-migrate on plugin load + `omo doctor` for manual healing
+- ✅ No `as any` / `@ts-ignore` / `@ts-expect-error` introduced
+- ✅ No empty catch blocks `catch (e) {}` introduced
+
+</item>
 <item>## [0.38.9] - 2026-08-29
 
 ### Added (postinstall AGENTS.md bootstrap)

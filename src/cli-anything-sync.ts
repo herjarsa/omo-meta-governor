@@ -8,6 +8,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { execSync } from "node:child_process"
+import { oldPluginPaths, newPluginPaths, migrateOldToNew } from "./utils/migrate"
 import {
   fetchCliHubLatestVersion,
   getInstalledCliHubVersion,
@@ -20,6 +21,11 @@ import {
   type CliAnythingCode,
   type Runner,
 } from "./cli-anything"
+try {
+  migrateOldToNew({ oldPaths: oldPluginPaths(), newPaths: newPluginPaths() })
+} catch {
+  // best-effort: never break plugin load
+}
 
 // ---------------------------------------------------------------------------
 // Config
@@ -102,8 +108,7 @@ export async function runCliAnythingSync(
     autoInstall: config.autoInstall ?? true,
     autoUpgrade: config.autoUpgrade ?? true,
     cachePath:
-      config.cachePath ??
-      `${process.env.HOME || process.env.USERPROFILE || "~"}/.config/opencode/omo-cli-anything-upgrade-check.json`,
+      config.cachePath ?? newPluginPaths().cliAnythingUpgradeCheck,
     upgradeCheckTtlMs: config.upgradeCheckTtlMs ?? 24 * 60 * 60 * 1000,
     projectDir: config.projectDir,
     runner: config.runner,

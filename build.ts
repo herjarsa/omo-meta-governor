@@ -30,8 +30,9 @@ const outDir = "dist"
 // Clean
 await $`rm -rf ${outDir}`
 await $`mkdir -p ${outDir}`
-// Bundle runtime (entry "." exports ONLY the callable plugin; utils -> lib)
-await $`bun build ./src/index.ts ./src/lib.ts --outdir ${outDir} --format esm --target node --minify --sourcemap`
+// v0.39.0: add cli-doctor (omo bin) to the bundle so `npx omo doctor` works
+// after install. Pure ESM, node target — matches the other entry points.
+await $`bun build ./src/index.ts ./src/lib.ts ./src/cli-doctor.ts --outdir ${outDir} --format esm --target node --minify --sourcemap`
 // v0.31.0: MCP server entry. Built alongside the plugin so users can opt
 // in via `mcp.omo-meta-governor` in opencode.jsonc. Uses node target + esm
 // format to match the plugin output (interop with both Bun and Node).

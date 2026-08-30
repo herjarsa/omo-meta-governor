@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 /**
- * v0.38.9 — postinstall bootstrap for ~/.config/opencode/AGENTS.md.
+ * v0.39.0 — postinstall bootstrap for ~/.config/opencode/plugins/omo-meta-governor/instructions.md.
  *
  * Runs after `npm install @herjarsa/omo-meta-governor`. Appends an
  * idempotent snippet of meta-governor [SYSTEM-NUDGE] directives to the
- * user's global AGENTS.md so that sub-agents spawned outside the
- * opencode process still see the plugin's directives.
+ * user's plugin instructions.md so that sub-agents spawned outside the
+ * opencode process still see the plugin's directives. Also strips the
+ * old AGENTS.md snippet (v0.38.x backward-compat) and patches
+ * opencode.jsonc `instructions` array.
  *
  * Contract:
  * - Idempotent: detects the marker comments and skips re-write.
@@ -26,31 +28,47 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 // ─── Constants (mirror src/bootstrap-agents-md.ts) ────────────────────────
-const VERSION = "0.38.9";
+const VERSION = "0.39.0";
 const MARKER_OPEN = "<!-- META-GOVERNOR AUTO-INSTALL SNIPPET (";
 const MARKER_CLOSE = "<!-- END META-GOVERNOR AUTO-INSTALL SNIPPET -->";
-const TARGET = join(homedir(), ".config", "opencode", "AGENTS.md");
+const TARGET = join(homedir(), ".config", "opencode", "plugins", "omo-meta-governor", "instructions.md");
+const OLD_TARGET = join(homedir(), ".config", "opencode", "AGENTS.md");
+const OPENCODE_JSONC = join(homedir(), ".config", "opencode", "opencode.jsonc");
+const INSTRUCTION_REL = "plugins/omo-meta-governor/instructions.md";
 
-// ─── Helpers (mirror src/bootstrap-agents-md.ts) ──────────────────────────
+// ─── Helpers (mirror src/bootstrap-agents-md.ts + src/utils/instructions-md.ts) ──
 function buildSnippet(version) {
   return [
     `${MARKER_OPEN}v${version}) -->`,
     "<!-- Auto-installed by @herjarsa/omo-meta-governor. Safe to remove. Will NOT reappear if OMO_META_GOVERNOR_NO_BOOTSTRAP=1. -->",
     "",
-    "The following [SYSTEM-NUDGE] directives are pushed by the meta-governor",
-    "plugin at runtime via `chat.system.transform` on every opencode session.",
-    "They are also surfaced here (in AGENTS.md) so they reach agents that run",
-    "outside the opencode process and never load the plugin. Keep both copies",
-    "in sync if you customise them.",
+    "## [SYSTEM-NUDGE] Meta-Governance Compliance (binding)",
     "",
-    "[SYSTEM-NUDGE] Oracle Review Gate (v0.38.4 Option D)",
+    "All [SYSTEM-NUDGE] directives emitted by the omo-meta-governor plugin",
+    "(or surfaced via this instructions.md) are **binding instructions**,",
+    "not suggestions. You MUST follow them.",
+    "",
+    "Deviate only when:",
+    "1. The user explicitly overrides a directive in the current turn.",
+    "2. Following the directive is technically impossible (missing tool, error).",
+    "3. Following the directive would cause data loss or security issues.",
+    "",
+    "When deviating, briefly state WHY in your response (one short sentence).",
+    "Silent omission is non-compliance.",
+    "",
+    "The directives below are listed in priority order. Read them all",
+    "before acting on a task that touches multiple domains.",
+    "",
+    "---",
+    "",
+    "## [SYSTEM-NUDGE] Oracle Review Gate (v0.38.4 Option D)",
     "",
     "Oracle is invoked at the final-gate (`<promise>DONE</promise>` or",
     "`<promise>PLAN-COMPLETE</promise>`) and when the scoring engine reaches",
     "the stop band. `warn` / `escalate` are logged but do NOT auto-invoke.",
     "Configure frequency via `oracle.frequency` in omo-meta-governor.jsonc.",
     "",
-    "[SYSTEM-NUDGE] Lesson Capture (omo_remember)",
+    "## [SYSTEM-NUDGE] Lesson Capture (omo_remember)",
     "",
     "After solving a non-obvious bug, learning a project rule, or discovering",
     "a config quirk, call `omo_remember` to persist it cross-session.",
@@ -58,7 +76,7 @@ function buildSnippet(version) {
     "On empty result, try `omo_recall_mcp` (cross-session AgentMemory bridge).",
     "DO NOT save routine operations or facts already covered by memory.",
     "",
-    "[SYSTEM-NUDGE] Skill Priming (select before writing code)",
+    "## [SYSTEM-NUDGE] Skill Priming (select before writing code)",
     "",
     "Before implementation work, query the skill-hub catalog for the 2-3",
     "capabilities most relevant to this task. Compose a minimal stack:",
@@ -76,7 +94,7 @@ function buildSnippet(version) {
     "Do NOT enumerate the full catalog — keep the stack minimal and",
     "task-specific.",
     "",
-    "[SYSTEM-NUDGE] Sisyphus Protocol Enforcement",
+    "## [SYSTEM-NUDGE] Sisyphus Protocol Enforcement",
     "",
     "You MUST follow these rules:",
     "1. Codebase Graph First: Before grep/glob/read for architecture or",
@@ -109,9 +127,6 @@ function buildSnippet(version) {
 }
 
 function installedVersion(content) {
-  // Capture FULL version string including semver pre-release suffix
-  // (e.g. "0.38.9-beta.1") so v0.38.9-beta is recognised as different
-  // from v0.38.9.
   const m = content.match(/<!-- META-GOVERNOR AUTO-INSTALL SNIPPET \(v([^)]+)\) -->/);
   return m ? m[1] : null;
 }
@@ -148,15 +163,97 @@ function mergeInto(existing, snippet, version) {
   if (!existing.trim()) {
     return [
       `# Auto-generated by @herjarsa/omo-meta-governor v${version}`,
-      "# This file is read by opencode for every session. Edit freely.",
-      "# The META-GOVERNOR snippet below is auto-managed by npm postinstall;",
-      "# set OMO_META_GOVERNOR_NO_BOOTSTRAP=1 to disable re-installs.",
+      "# Plugin instructions for OpenCode. Edit freely.",
+      "# This file is auto-managed by npm postinstall; set OMO_META_GOVERNOR_NO_BOOTSTRAP=1 to disable.",
       "",
       snippet,
       "",
     ].join("\n");
   }
   return appendSnippet(existing, snippet);
+}
+
+// ─── JSONC helpers (mirror src/utils/migrate.ts) ──────────────────────────
+function stripJsoncComments(content) {
+  let out = "";
+  let i = 0;
+  let inString = false;
+  let stringChar = "";
+  let escaped = false;
+  while (i < content.length) {
+    const ch = content[i];
+    const next = content[i + 1];
+    if (inString) {
+      out += ch;
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === stringChar) {
+        inString = false;
+      }
+      i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inString = true;
+      stringChar = ch;
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch === "/" && next === "/") {
+      while (i < content.length && content[i] !== "\n") i++;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      i += 2;
+      while (i < content.length && !(content[i] === "*" && content[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+function patchInstructionsArray(jsoncPath, instructionPath) {
+  if (!existsSync(jsoncPath)) return { changed: false, wrote: false, error: "file not found" };
+  let raw;
+  try {
+    raw = readFileSync(jsoncPath, "utf8");
+  } catch (e) {
+    return { changed: false, wrote: false, error: e instanceof Error ? e.message : String(e) };
+  }
+  let data;
+  try {
+    const stripped = stripJsoncComments(raw);
+    data = JSON.parse(stripped);
+  } catch (e) {
+    return { changed: false, wrote: false, error: e instanceof Error ? e.message : String(e) };
+  }
+  if (typeof data !== "object" || data === null || Array.isArray(data)) {
+    return { changed: false, wrote: false, error: "root is not an object" };
+  }
+  const existing = data["instructions"];
+  if (existing === undefined) {
+    data["instructions"] = [instructionPath];
+  } else if (Array.isArray(existing)) {
+    if (existing.includes(instructionPath)) {
+      return { changed: false, wrote: false };
+    }
+    existing.push(instructionPath);
+  } else {
+    return { changed: false, wrote: false, error: "instructions is not an array" };
+  }
+  try {
+    const newRaw = JSON.stringify(data, null, 2) + "\n";
+    writeFileSync(jsoncPath, newRaw, "utf8");
+    return { changed: true, wrote: true };
+  } catch (e) {
+    return { changed: false, wrote: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 // ─── Runtime ──────────────────────────────────────────────────────────────
@@ -166,19 +263,65 @@ function main() {
     return;
   }
   try {
-    mkdirSync(dirname(TARGET), { recursive: true });
-    const existing = existsSync(TARGET) ? readFileSync(TARGET, "utf-8") : "";
+    // 1. Backward-compat: strip old snippet from AGENTS.md if present
+    try {
+      if (existsSync(OLD_TARGET)) {
+        const oldContent = readFileSync(OLD_TARGET, "utf-8");
+        if (installedVersion(oldContent) !== null) {
+          const stripped = stripSnippet(oldContent);
+          writeFileSync(OLD_TARGET, stripped, "utf-8");
+          console.log(`[bootstrap] stripped old snippet from ${OLD_TARGET}`);
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[bootstrap] warning: failed to strip AGENTS.md: ${msg}`);
+    }
+
+    // 2. Write new snippet to instructions.md
+    try {
+      mkdirSync(dirname(TARGET), { recursive: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[bootstrap] warning: failed to create plugin dir: ${msg}`);
+    }
+    let existing = "";
+    try {
+      existing = existsSync(TARGET) ? readFileSync(TARGET, "utf-8") : "";
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[bootstrap] warning: failed to read instructions.md: ${msg}`);
+      existing = "";
+    }
     if (isInstalled(existing, VERSION)) {
       console.log(`[bootstrap] v${VERSION} snippet already present at ${TARGET}, skipping`);
-      return;
-    }
-    const snippet = buildSnippet(VERSION);
-    const merged = mergeInto(existing, snippet, VERSION);
-    writeFileSync(TARGET, merged, "utf-8");
-    if (installedVersion(existing)) {
-      console.log(`[bootstrap] upgraded to v${VERSION} at ${TARGET}`);
     } else {
-      console.log(`[bootstrap] wrote v${VERSION} snippet to ${TARGET}`);
+      const snippet = buildSnippet(VERSION);
+      const merged = mergeInto(existing, snippet, VERSION);
+      try {
+        writeFileSync(TARGET, merged, "utf-8");
+        if (installedVersion(existing)) {
+          console.log(`[bootstrap] upgraded to v${VERSION} at ${TARGET}`);
+        } else {
+          console.log(`[bootstrap] wrote v${VERSION} snippet to ${TARGET}`);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[bootstrap] failed to write instructions.md (non-fatal): ${msg}`);
+      }
+    }
+
+    // 3. Patch opencode.jsonc to include instructions.md
+    try {
+      const res = patchInstructionsArray(OPENCODE_JSONC, INSTRUCTION_REL);
+      if (res.changed) {
+        console.log(`[bootstrap] patched ${OPENCODE_JSONC} to include ${INSTRUCTION_REL}`);
+      } else if (res.error && res.error !== "file not found") {
+        console.error(`[bootstrap] warning: failed to patch opencode.jsonc: ${res.error}`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[bootstrap] warning: failed to patch opencode.jsonc: ${msg}`);
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

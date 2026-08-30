@@ -1,10 +1,9 @@
-import { describe, expect, it, beforeEach, afterEach } from "bun:test"
-import { logToFile } from "./file-logger"
+import { describe, expect, it, afterEach } from "bun:test"
+import { logToFile, LOG_PATH } from "./file-logger"
 import { readFileSync, rmSync, existsSync } from "node:fs"
-import { resolve } from "node:path"
-import { homedir } from "node:os"
 
-const LOG_PATH = resolve(homedir(), ".config", "opencode", "meta-governor.log")
+// v0.39.0: derive LOG_PATH from the production export so the test stays
+// in sync if the canonical path ever changes again.
 
 describe("file-logger", () => {
   afterEach(() => {
@@ -91,4 +90,3 @@ describe("redaction", () => {
     expect(content).toContain('"port":3000')
   })
 })
-

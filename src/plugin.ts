@@ -91,7 +91,7 @@ import {
   buildProtocolRule as buildEnforcementProtocolRule,
 } from "./enforcement-resources";
 import { resolve } from "node:path";
-import { homedir } from "node:os";
+import { oldPluginPaths, newPluginPaths, migrateOldToNew } from "./utils/migrate";
 import { buildPluginHealth, createThrottledHealthWriter, describeLogFile, writeHealthToFile } from "./health";
 import { createMetricsCollector } from "./metrics";
 import {
@@ -254,12 +254,12 @@ const metricsCollector = createMetricsCollector({
   global: true,
   version: DEFAULT_VERSION,
 });
-const healthFilePath = resolve(
-  homedir(),
-  ".config",
-  "opencode",
-  "meta-governor-health.json",
-);
+const healthFilePath = newPluginPaths().health;
+try {
+  migrateOldToNew({ oldPaths: oldPluginPaths(), newPaths: newPluginPaths() })
+} catch {
+  // best-effort: never break plugin load
+}
 
 // - Plugin factory
 
@@ -389,7 +389,7 @@ export function createMetaGovernorPlugin(
   // v0.35.0 (audit fix F16): cache the npm registry check with a 24h TTL
   // so opencode restart loops do not hammer the registry.
   (async () => {
-    const CACHE_PATH = resolve(homedir(), ".config", "opencode", "omo-meta-governor-self-version-cache.json")
+    const CACHE_PATH = newPluginPaths().selfVersionCache
     const TTL_MS = 24 * 60 * 60 * 1000
     let cached: { latest: string; checkedAtMs: number } | null = null
     try {
@@ -615,7 +615,7 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
           autoUpgrade: rawCliAnything?.autoUpgrade ?? true,
           cachePath:
             rawCliAnything?.cachePath ??
-            `${process.env.HOME || process.env.USERPROFILE || "~"}/.config/opencode/omo-cli-anything-upgrade-check.json`,
+            newPluginPaths().cliAnythingUpgradeCheck,
           upgradeCheckTtlMs: rawCliAnything?.upgradeCheckTtlMs ?? 24 * 60 * 60 * 1000,
           projectDir: sessionProjectDir,
           installScope: rawCliAnything?.installScope ?? "global",

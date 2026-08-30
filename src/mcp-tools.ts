@@ -19,7 +19,7 @@ import { resolve as resolvePath, dirname, join } from "node:path"
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
-import { homedir } from "node:os"
+import { oldPluginPaths, newPluginPaths, migrateOldToNew } from "./utils/migrate"
 
 import { getDefaultGraphRetrieval } from "./graph-retrieval"
 import { getDefaultSqliteBackend } from "./sqlite-backend"
@@ -51,6 +51,11 @@ import {
 import { buildOmoSkillLocalLinkTool } from "./skills-local-link-tool"
 import { buildOmoSkillSemanticFindTool } from "./skills-semantic-find-tool"
 import { buildOmoSkillCreateTool } from "./skills-create-tool"
+try {
+  migrateOldToNew({ oldPaths: oldPluginPaths(), newPaths: newPluginPaths() })
+} catch {
+  // best-effort: never break plugin load
+}
 
 let PLUGIN_VERSION = "0.0.0"
 try {
@@ -150,8 +155,7 @@ function buildAdapters(): readonly McpAdapter[] {
     global: true,
     version: PLUGIN_VERSION,
   })
-  // Match the plugin-mode health file path (see plugin.ts:194).
-  const healthFilePath = resolvePath(homedir(), ".config", "opencode", "meta-governor-health.json")
+  const healthFilePath = newPluginPaths().health
 
   // Pass only what each builder declares — no wider deps blob.
   return [

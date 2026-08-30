@@ -18,9 +18,14 @@
 import { execSync, spawn } from "node:child_process"
 import { access, stat } from "node:fs/promises"
 import { resolve, join } from "node:path"
-import { homedir } from "node:os"
 import { constants } from "node:fs"
+import { oldPluginPaths, newPluginPaths, migrateOldToNew } from "./utils/migrate"
 import { killProcessTree, trackPid, untrackPid, runGuardedSync, runGuarded, killOrphanedToolProcesses } from "./proc-guard"
+  try {
+  migrateOldToNew({ oldPaths: oldPluginPaths(), newPaths: newPluginPaths() })
+  } catch {
+  // best-effort: never break plugin load
+}
 
 // ─── GraphSync config ──────────────────────────────────────────────
 
@@ -1007,7 +1012,7 @@ export interface UpgradeCache {
 }
 
 export function getDefaultUpgradeCachePath(): string {
-  return resolve(homedir(), ".config", "opencode", "omo-meta-governor-upgrade-check.json")
+  return newPluginPaths().upgradeCheck
 }
 
 export async function readUpgradeCache(path: string): Promise<UpgradeCache | null> {
