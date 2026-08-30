@@ -6,3 +6,4 @@ graphify-out
 package-lock.json
 .omo/
 .cortexkit/
+.env
