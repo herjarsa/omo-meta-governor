@@ -46,7 +46,7 @@ jobs:
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           npm version ${{ github.event.inputs.version }}
-- name: Publish
+      - name: Publish
         if: github.event_name == 'workflow_dispatch'
         continue-on-error: true
         run: npm publish --access public
