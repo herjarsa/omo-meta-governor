@@ -22,6 +22,18 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # v0.39.2: Trusted Publishing via OIDC. `id-token: write` is REQUIRED for
+    # npm to mint a short-lived auth token from the GitHub Actions OIDC
+    # provider at publish time. The trust is configured on npmjs.com
+    # (Settings -> Trusted Publishers) against:
+    #   Publisher:  GitHub Actions
+    #   Owner:      herjarsa
+    #   Repo:       omo-meta-governor
+    #   Workflow:   publish.yml
+    # With `--provenance`, npm publishes via OIDC with no long-lived token
+    # (replaces the deprecated 2FA-bypass GAT pattern from npm v11.x and
+    # earlier). No `secrets.NPM_TOKEN` is required anymore; if present it
+    # is ignored in favor of the OIDC exchange.
     permissions:
       contents: write
       id-token: write
@@ -34,12 +46,6 @@ jobs:
       - run: bun run typecheck
       - run: bun test src/*.test.ts
       - run: bun run build
-      - name: Configure npm auth
-        run: |
-          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
-          echo "registry=https://registry.npmjs.org/" >> ~/.npmrc
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Bump version
         if: github.event_name == 'workflow_dispatch'
         run: |
@@ -49,9 +55,7 @@ jobs:
       - name: Publish
         if: github.event_name == 'workflow_dispatch'
         continue-on-error: true
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance
       - name: Push tags
         if: github.event_name == 'workflow_dispatch'
         run: git push --tags
