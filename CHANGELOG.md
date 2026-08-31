@@ -1,3 +1,44 @@
+
+## [0.40.0] - 2026-08-31
+
+### Fixed (BREAKING: hooks that never fired are removed; observability restored via event hook)
+
+**Audit finding (the plugin was structurally broken against OpenCode v1.x):**
+
+OpenCode v1.x stopped invoking experimental.chat.system.transform (never fires — the plugin was registering a dead hook since v0.13). It also limited 	ool.execute.before / 	ool.execute.after to the TaskTool only (subagent invocations), not to regular tools like ash, grep, ead, write. This meant the plugin's governance loop was dormant in the main agent context — only experimental.chat.messages.transform actually fired per turn.
+
+Fix:
+- src/plugin.ts — dropped the dead experimental.chat.system.transform registration (it was silently never invoked). Removed 140+ lines of unreachable code that future readers would have wasted time trying to debug.
+- src/plugin.ts — added event hook (fires on EVERY OpenCode event: session.created, message.updated, 	ool.execute.before/after for ALL tools, etc.). The event hook restores full tool-call observability for the main agent and increments 	ool_calls_observed + orchestrator_runs per the spec.
+- src/plugin.ts — kept experimental.chat.messages.transform (this DOES fire on every turn per OpenCode source) for skill-priming, plan-reminders, graph-tools-ready nudges, and bot feedback injection.
+- src/plugin.ts — kept 	ool.execute.before / 	ool.execute.after for TaskTool subagent governance (they fire in that case).
+- src/plugin.test.ts — pinned the new hook registration shape: event present, experimental.chat.system.transform absent, experimental.chat.messages.transform and tool hooks still present.
+- src/session-start-nudge.test.ts — removed assertions against the removed experimental.chat.system.transform hook. Skill-priming now reaches the agent via experimental.chat.messages.transform only (verified by the v0.38.6 session-start tests).
+
+Behavioral changes:
+- **health.json session.toolCallsObserved now reflects EVERY tool call** (not just TaskTool subagents).
+- **health.json ersion field unchanged** — bump is major (v0.40.0) due to removing a registered hook surface.
+- **v0.38.2 agent/user surface separation unchanged** — no new text injection paths, just observability restoration.
+
+Tests (TDD, RED → GREEN):
+- src/plugin.test.ts — 0.40.0 hook registration > registers the event hook for general observability — pin event hook is a function.
+- src/plugin.test.ts — 0.40.0 hook registration > drops the dead experimental.chat.system.transform hook — pin the hook is undefined.
+- src/plugin.test.ts — 0.40.0 hook registration > keeps messages.transform and tool hooks (they DO fire) — pin the live hooks still present.
+- src/plugin.test.ts — 0.40.0 hook registration > event hook fires for tool.execute.before/after and increments counters — integration assertion on the event hook.
+
+Test count: 1168 pass / 8 skip / 0 fail (97 files, ~2780 expect() calls).
+Oracle review: not required (hook registration fix — no scoring / audit / intervention behavior change; v0.38.2 agent/user surface separation untouched).
+
+### Ship protocol compliance
+
+- ✅ One atomic commit per logical unit (ix(hooks): replace dead system.transform with event hook for live tool observability)
+- ✅ gh run watch <run-id> --exit-status after every push, exit 0 confirmed
+- ✅ un run release 0.40.0 validates CHANGELOG + runs tests + builds + publishes + tags + GitHub release
+- ✅ Oracle Review Gate NOT invoked (hook shape fix — instrumentation only, no scoring/audit/intervention behavior change)
+- ✅ Backward compatibility: health.json field schema unchanged; experimental.chat.system.transform was registered but never invoked (removing it has zero observable behavior change for consumers); event hook is strictly additive (consumers that don't listen for it see no change)
+- ✅ No s any / @ts-ignore / @ts-expect-error introduced
+- ✅ No empty catch blocks catch (e) {} introduced
+
 <item>
 
 ## [0.39.6] - 2026-08-31

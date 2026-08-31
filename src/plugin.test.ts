@@ -102,7 +102,7 @@ describe("createMetaGovernorPlugin", () => {
       },
     }
 
-    it("then returns hooks with all 3 handlers", async () => {
+    it("then returns hooks with event + messages.transform + tool handlers", async () => {
       clearAll()
       const plugin = createHermeticPlugin({
         graphSync: { enabled: false, autoInstall: false },
@@ -110,7 +110,7 @@ describe("createMetaGovernorPlugin", () => {
       const hooks = await plugin(mockPluginInput, options)
       expect(hooks["tool.execute.after"]).toBeDefined()
       expect(hooks["experimental.chat.messages.transform"]).toBeDefined()
-      expect(hooks["experimental.chat.system.transform"]).toBeDefined()
+      expect(typeof hooks.event).toBe("function")
     })
   })
 
@@ -128,8 +128,8 @@ describe("createMetaGovernorPlugin", () => {
         graphSync: { enabled: false, autoInstall: false },
       })
       const hooks = await plugin(mockPluginInput, options)
+      expect(typeof hooks.event).toBe("function")
       expect(hooks["experimental.chat.messages.transform"]).toBeDefined()
-      expect(hooks["experimental.chat.system.transform"]).toBeDefined()
     })
   })
 })
@@ -217,154 +217,6 @@ describe("experimental.chat.messages.transform", () => {
   })
 })
 
-// ─── System Transform Tests ───────────────────────────────────────
-
-describe("experimental.chat.system.transform", () => {
-  describe("#given system mode with a stored stop decision", () => {
-    const options: PluginOptions = {
-      meta_governor: {
-        enabled: true,
-        intervention: { mode: "system", minActionForMessage: "warn" },
-      },
-    }
-
-    it("then appends guidance to system strings", async () => {
-      clearAll()
-      storeDecision("test-session", makeDecision("stop"))
-
-      const plugin = createHermeticPlugin({
-        graphSync: { enabled: false, autoInstall: false },
-      })
-      const hooks = await plugin(mockPluginInput, options)
-      const transform = hooks["experimental.chat.system.transform"]!
-
-      const output = { system: ["existing system prompt"] }
-      await transform({ sessionID: "test-session" }, output)
-
-      expect(output.system.length).toBeGreaterThan(1)
-      expect(output.system[output.system.length - 1]).toBe("---")
-      expect(output.system.some((s) => s.includes("Test stop message"))).toBe(true)
-    })
-  })
-
-  describe("#given message mode (not system)", () => {
-    const options: PluginOptions = {
-      meta_governor: {
-        enabled: true,
-        intervention: { mode: "message", minActionForMessage: "warn" },
-        // v0.19.3: user config enables protocolEnforcement by default;
-        // disable it explicitly so this test asserts ONLY the decision-
-        // injection path (not the protocol path).
-        protocolEnforcement: { enabled: false },
-      },
-    }
-
-    it("then appends decision to system strings (v0.33.1: banner-free path)", async () => {
-      clearAll()
-      storeDecision("test-session", makeDecision("stop"))
-
-      const plugin = createHermeticPlugin({
-        graphSync: { enabled: false, autoInstall: false },
-      })
-      const hooks = await plugin(mockPluginInput, options)
-      const transform = hooks["experimental.chat.system.transform"]!
-
-      const output = { system: ["existing system prompt"] }
-      await transform({ sessionID: "test-session" }, output)
-
-      // v0.33.1: 'message' mode now routes decisions via chat.system.transform too
-      // (banner-free; the role:'user' synthetic push was the session-killer).
-      expect(output.system.length).toBeGreaterThan(1)
-      expect(output.system.some((s) => s.includes("Test stop message"))).toBe(true)
-    })
-  })
-
-  // v0.37.0 (audit P0-2): enforcement resources are mirrored into system prompt
-  // so plugin-CLI mode agents see the same rules that OpenChamber reads via
-  // resources/read. The agent must detect the [SYSTEM-NUDGE] prefix.
-  describe("#given enforcement resource mirroring (v0.37.0 audit P0-2)", () => {
-    const options: PluginOptions = {
-      meta_governor: {
-        enabled: true,
-        intervention: { mode: "silent" },
-        skillPriming: { enabled: false },
-        protocolEnforcement: { enabled: false },
-      },
-    }
-
-    it("then injects [SYSTEM-NUDGE] oracle rule into system prompt", async () => {
-      clearAll()
-      const plugin = createHermeticPlugin({
-        graphSync: { enabled: false, autoInstall: false },
-      })
-      const hooks = await plugin(mockPluginInput, options)
-      const transform = hooks["experimental.chat.system.transform"]!
-      const output = { system: ["existing"] as string[] }
-      await transform({ sessionID: "enforce-1" }, output)
-      const joined = output.system.join("\n")
-      expect(joined).toContain("[SYSTEM-NUDGE] Oracle Review Gate")
-      expect(joined).toContain('subagent_type="oracle"')
-    })
-
-    it("then injects [SYSTEM-NUDGE] agentmemory rule mentioning omo_remember", async () => {
-      clearAll()
-      const plugin = createHermeticPlugin({
-        graphSync: { enabled: false, autoInstall: false },
-      })
-      const hooks = await plugin(mockPluginInput, options)
-      const transform = hooks["experimental.chat.system.transform"]!
-      const output = { system: ["existing"] as string[] }
-      await transform({ sessionID: "enforce-2" }, output)
-      const joined = output.system.join("\n")
-      expect(joined).toContain("[SYSTEM-NUDGE] Lesson Capture")
-      expect(joined).toContain("omo_remember")
-    })
-
-    it("then injects [SYSTEM-NUDGE] skill-priming rule naming codegraph + graphify", async () => {
-      clearAll()
-      const plugin = createHermeticPlugin({
-        graphSync: { enabled: false, autoInstall: false },
-      })
-      const hooks = await plugin(mockPluginInput, options)
-      const transform = hooks["experimental.chat.system.transform"]!
-      const output = { system: ["existing"] as string[] }
-      await transform({ sessionID: "enforce-3" }, output)
-      const joined = output.system.join("\n")
-      expect(joined).toContain("[SYSTEM-NUDGE] Skill Priming")
-      expect(joined).toContain("codegraph")
-      expect(joined).toContain("graphify")
-    })
-
-    it("then injects [SYSTEM-NUDGE] protocol rule", async () => {
-      clearAll()
-      const plugin = createHermeticPlugin({
-        graphSync: { enabled: false, autoInstall: false },
-      })
-      const hooks = await plugin(mockPluginInput, options)
-      const transform = hooks["experimental.chat.system.transform"]!
-      const output = { system: ["existing"] as string[] }
-      await transform({ sessionID: "enforce-4" }, output)
-      const joined = output.system.join("\n")
-      expect(joined).toContain("[SYSTEM-NUDGE] Sisyphus Protocol Enforcement")
-    })
-
-    it("then does NOT inject when meta_governor is disabled (hook absent)", async () => {
-      clearAll()
-      const plugin = createHermeticPlugin({
-        graphSync: { enabled: false, autoInstall: false },
-      })
-      const hooks = await plugin(
-        mockPluginInput,
-        { meta_governor: { enabled: false } } as PluginOptions,
-      )
-      // When plugin is disabled, the factory early-returns and does NOT
-      // create the system.transform hook at all. This is correct enforcement:
-      // a disabled plugin cannot inject nudges. OpenChamber users who want
-      // enforcement must keep meta_governor enabled.
-      expect(hooks["experimental.chat.system.transform"]).toBeUndefined()
-    })
-  })
-})
 
 // ─── minActionForMessage Threshold Tests ──────────────────────────
 

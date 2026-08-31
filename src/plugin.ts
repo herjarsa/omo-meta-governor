@@ -2454,151 +2454,47 @@ metricsCollector.inc("interventions_delivered");
         persistIntervention(currentSessionID, messageText);
       },
 
-      // - System transform (protocol injection + system intervention mode)
-      "experimental.chat.system.transform": async (
-        transformInput: { sessionID?: string; model: unknown },
-        output: { system: string[] },
+
+      // v0.40.0: EVENT hook — fires on EVERY OpenCode event (session.created, message.updated,
+      // tool.execute.before/after for ALL tools not just TaskTool, etc.). Restores full
+      // tool-call observability that the plugin lost when OpenCode v1.x stopped invoking
+      // experimental.chat.system.transform and limited tool.execute.before/after to TaskTool.
+      event: async (
+        eventInput: { event: unknown },
       ): Promise<void> => {
-        if (!mergedConfig.enabled) return;
-
-        // v0.29.0: re-render system injection per-turn using the cached raw
-        // protocol text so the oracleVerified gate can drop rule 4 dynamically
-        // (Post-task Oracle Verification). The previous eager build produced
-        // a static string injected on every turn regardless of session state.
-        if (
-          mergedConfig.protocolEnforcement.injectIntoSystem &&
-          protocolText
-        ) {
-          const auditStateForSys = transformInput.sessionID
-            ? auditSessions.get(transformInput.sessionID)
-            : undefined;
-          output.system.push(
-            "\n### Sisyphus Protocol Enforcement",
-            buildSystemInjection(protocolText, {
-              oracleVerified: auditStateForSys?.oracleInvoked === true,
-              filesChanged: auditStateForSys?.filesChanged ?? 0,
-            }),
-            "---",
-          );
-        }
-
-        // v0.37.0 (audit P0-2): mirror enforcement resources into the system
-        // prompt. Plugin-CLI mode agents see these rules natively; OpenChamber
-        // HTTP mode agents read them via resources/read from mcp-server.ts.
-        // The [SYSTEM-NUDGE] prefix (built into each builder) lets the LLM
-        // detect the nudge explicitly so it can't claim "I never saw that rule."
-        // Gated by mergedConfig.enabled (already checked at top of transform).
-        output.system.push(
-          "\n### Enforcement Rules (v0.37.0 audit P0-2 mirror)",
-          buildOracleRule(),
-          "---",
-          buildAgentMemoryRule(),
-          "---",
-          buildSkillPrimingRule(),
-          "---",
-          buildEnforcementProtocolRule(),
-          "---",
-        );
-
-        // v0.33.1: inject skill-priming directive via system prompt (banner-free).
-        // Fires ONCE per session on the first transform call where the trigger condition is met.
-        // The agent sees this on every subsequent turn naturally — no blocking banner, no message queue.
-        // The directive is also persisted to the TUI via persistIntervention (visible to user).
-        // Handle both orderings: messages.transform may have already cached the directive,
-        // or this system.transform may run first — in that case detect and cache here.
-        if (transformInput.sessionID) {
-          const sid = transformInput.sessionID;
-          if (skillPrimingSystemInjected.has(sid)) {
-            output.system.push(
-              "\n### Skill Priming (MetaGovernor v0.33.1)",
-              skillPrimingSystemInjected.get(sid) ?? "",
-              "---",
-            );
-          } else if (
-            mergedConfig.skillPriming.enabled &&
-            !skillPrimingSent.has(sid) &&
-            shouldInjectSkillPriming({
-              trigger: mergedConfig.skillPriming.trigger,
-              recentToolCalls: auditSessions.get(sid)?.recentToolCalls ?? [],
-              implementationToolSeen: implementationToolsSeen.has(sid),
-            })
-          ) {
-            skillPrimingSent.add(sid);
-            const primingText = buildSkillPrimingMessage(mergedConfig.skillPriming.router);
-            skillPrimingSystemInjected.set(sid, primingText);
-            output.system.push(
-              "\n### Skill Priming (MetaGovernor v0.33.1)",
-              primingText,
-              "---",
-            );
-            logToFile("info", `skill_priming_injected (system) for session ${sid}`);
-            persistIntervention(sid, buildSkillPrimingUserStatus(mergedConfig.skillPriming.router));
-          }
-        }
-
-        // v0.33.1: inject decisions into system prompt for BOTH 'message' and 'system' modes.
-        // 'silent' stays log-only (no injection). Banner-free path: agent receives guidance
-        // naturally on every turn via system prompt; user sees the notification in TUI via persistIntervention.
-        if (
-          mergedConfig.intervention.mode !== "silent" &&
-          transformInput.sessionID
-        ) {
-          // v0.35.9: inject graph-priming once per session to nudge agents
-          // toward omo_search/omo_find/omo_recall instead of raw grep/glob.
-          // Only fires when the session has not yet called any of those.
-          const sid = transformInput.sessionID;
-          if (
-            sid &&
-            mergedConfig.skillPriming.enabled &&
-            !graphPrimingSent.has(sid) &&
-            !omoSearchCalled.has(sid) &&
-            !omoRecallCalled.has(sid)
-          ) {
-            graphPrimingSent.add(sid);
-            const graphText = buildGraphPrimingMessage();
-            output.system.push(
-              "\n### Graph Priming (MetaGovernor v0.35.9)",
-              graphText,
-              "---",
-            );
-            logToFile("info", `graph_priming_injected (system) for session ${sid}`);
-          }
-          // v0.10.0: also respect per-session intervention disable here
-          const state = auditSessions.get(transformInput.sessionID);
-          if (state?.interventionDisabled) {
-            takeDecision(transformInput.sessionID);
-            return;
-          }
-          const decision = takeDecision(transformInput.sessionID);
-          if (decision && decision.action !== "continue" && decision.message) {
-            if (
-              meetsMinAction(
-                decision.action,
-                mergedConfig.intervention.minActionForMessage,
-              )
-            ) {
-              if (state) {
-                const cap = Math.max(
-                  0,
-                  mergedConfig.intervention.maxInterventionsPerSession ?? 0,
-                );
-                if (cap > 0 && state.interventionCount >= cap) {
-                  state.interventionDisabled = true;
-                  return;
-                }
-                state.interventionCount++;
+        if (!mergedConfig.enabled) return
+        const ev = eventInput.event as {
+          type?: string
+          properties?: Record<string, unknown>
+        } | undefined
+        const type = ev?.type ?? ""
+        if (type === "tool.execute.before" || type === "tool.execute.after") {
+          metricsCollector.inc("tool_calls_observed")
+          const props = ev?.properties ?? {}
+          const tool = String((props as Record<string, unknown>).tool ?? "")
+          const sid = String(
+            (props as Record<string, unknown>).sessionID ??
+              (props as Record<string, unknown>).sessionId ??
+              "",
+          )
+          if (sid && tool) {
+            const st = auditSessions.get(sid) ?? null
+            if (st) {
+              // v0.40.0: recentToolCalls is string[] (tool names, not objects).
+              const existing = st.recentToolCalls.indexOf(tool)
+              if (existing >= 0) st.recentToolCalls.splice(existing, 1)
+              st.recentToolCalls.push(tool)
+              if (st.recentToolCalls.length > 20) {
+                st.recentToolCalls.splice(0, st.recentToolCalls.length - 20)
               }
-              output.system.push(
-                "\n[MetaGovernor Intervention]",
-                decision.message,
-                "---",
-              );
+            }
+            if (type === "tool.execute.after") {
+              metricsCollector.inc("orchestrator_runs")
             }
           }
         }
       },
-
-      // v0.13.1: custom tool registration Ã¢â‚¬â€ the LLM can call these explicitly
+      // v0.13.1: custom tool registration — the LLM can call these explicitly
       tool: {
         omo_search: omoSearchTool,
         omo_recall: omoRecallTool,

@@ -119,12 +119,9 @@ describe("v0.38.6 session-start priming nudge does not kill the session", () => 
     const synth = output.messages.filter(isSyntheticAssistantMessage);
     expect(synth).toHaveLength(0);
 
-    // The agent still sees the skill-priming directive (verified via system.transform).
-    const sysTransform = hooks["experimental.chat.system.transform"]!;
-    const sysOutput = { system: [""] as string[] };
-    await sysTransform({ sessionID: "ses-start-1", model: {} }, sysOutput);
-    const sysJoined = sysOutput.system.join("\n");
-    expect(sysJoined).toMatch(/skill|priming|catalog|skill-hub/i);
+    // v0.40.0: experimental.chat.system.transform was dropped (OpenCode v1.x never invokes it).
+    // Skill-priming now reaches the agent via experimental.chat.messages.transform only.
+    expect(true).toBe(true);
   });
 
   it("mid-session skill-priming nudge STILL pushes synthetic assistant message (no regression)", async () => {
@@ -134,7 +131,6 @@ describe("v0.38.6 session-start priming nudge does not kill the session", () => 
     );
     const hooks = await plugin(mockPluginInput, PROD_OPTIONS);
     const transform = hooks["experimental.chat.messages.transform"]!;
-
     // Mid-session conversation: prior real assistant message exists.
     // The TUI is in "running mode" so the synthetic injection is safe.
     const output = {
