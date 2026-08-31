@@ -211,13 +211,15 @@ export function buildPluginHealth(input: BuildPluginHealthInput): PluginHealth {
       lastInterventionISO: c.interventions_delivered?.lastOccurrenceISO ?? null,
     },
     logFile: describeLogFile(input.logFilePath),
-    session: {
-      id: input.sessionID,
-      toolCallsObserved: c.orchestrator_runs?.count ?? 0,
-      violationsDetected: c.protocol_violations_detected?.count ?? 0,
-      interventionsSkipped,
-      firstSeenISO: input.snapshot.startedAtISO,
-      lastSeenISO: new Date().toISOString(),
+session: {
+id: input.sessionID,
+// v0.39.6: derive from dedicated counter (was aliased to orchestrator_runs,
+// which is 0 in production because orchestrator never wired inc()).
+toolCallsObserved: c.tool_calls_observed?.count ?? 0,
+violationsDetected: c.protocol_violations_detected?.count ?? 0,
+interventionsSkipped,
+firstSeenISO: input.snapshot.startedAtISO,
+lastSeenISO: new Date().toISOString(),
     },
     graphSync: {
       lastUpgradeAtISO: null,

@@ -41,9 +41,11 @@ const baseSnapshot = {
     orchestrator_runs: { count: 5 },
     orchestrator_errors: {},
     decisions_skipped_continue: { count: 3 },
-    decisions_skipped_no_decision: { count: 1 },
     decisions_skipped_no_message: {},
+    decisions_skipped_no_decision: { count: 1 },
     decisions_skipped_below_threshold: { count: 2 },
+    // v0.39.6: separate counter from orchestrator_runs (was aliased, stuck at 0)
+    tool_calls_observed: { count: 5 },
   },
 }
 

@@ -13,6 +13,7 @@ import { describe, expect, it, beforeEach } from "bun:test"
 import type { PluginInput, PluginOptions } from "@opencode-ai/plugin"
 import type { DecisionHandlerOutput } from "./types"
 import { createHermeticPlugin } from "./__test-helpers__/hermetic-plugin"
+import { __test_metricsCollector } from "./plugin"
 import { clearAll, storeDecision, takeAnyDecision, takeDecision, hasDecision } from "./decision-store"
 
 // ─── Mock plugin input ────────────────────────────────────────────
@@ -888,5 +889,30 @@ describe("serve-mode plugin init contract (v0.38.5)", () => {
     // the entry itself (CJS-style).
     const callable = entry.default ?? entry
     expect(typeof callable).toBe("function")
+  })
+})
+
+// ─── v0.39.6: counter wiring ────────────────────────────────────────────
+// Bug: production code never called metricsCollector.inc() so health.json
+// always showed 0 for every counter. Fix wires inc() into tool.execute.after
+// and after runMetaGovernor returns. These tests prove the wiring.
+
+describe("v0.39.6 counter wiring", () => {
+  beforeEach(() => {
+    __test_metricsCollector.reset()
+  })
+
+  it("tool.execute.after increments tool_calls_observed", async () => {
+const plugin = createHermeticPlugin({ graphSync: { enabled: false } })
+const hooks = await plugin(mockPluginInput, { meta_governor: { enabled: true } })
+const before = __test_metricsCollector.getMetrics().counters.tool_calls_observed?.count ?? 0
+const hook = hooks["tool.execute.after"]
+if (!hook) throw new Error("tool.execute.after not registered")
+await hook(
+{ tool: "bash", sessionID: "ses_test", callID: "c1", args: { command: "ls" } },
+{ title: "ok", output: "", metadata: {} },
+)
+const after = __test_metricsCollector.getMetrics().counters.tool_calls_observed?.count ?? 0
+    expect(after).toBe(before + 1)
   })
 })

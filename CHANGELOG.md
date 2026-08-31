@@ -1,5 +1,46 @@
 <item>
 
+## [0.39.6] - 2026-08-31
+
+### Fixed (live metrics counters: toolCallsObserved stuck at 0 forever)
+
+Bug: health.json showed every runtime counter at 0 (decisionsTaken,
+interventionsDelivered, orchestratorRuns, 	oolCallsObserved)
+even though 	ool.execute.after and 	ool.execute.before fired on every
+call. Root cause: the orchestrator, scoring engine, and audit path NEVER
+called metricsCollector.inc(...) from production code — only test files
+did. Counters were defined, snapshotted, and written to disk — but never
+incremented. Additionally, health.session.toolCallsObserved was aliased to
+orchestrator_runs.count so it inherited the 0 from the missing inc() call.
+
+Fix:
+- src/metrics.ts — add 	ool_calls_observed to MetricEvent union and ALL_EVENTS
+- src/plugin.ts — wire inc("tool_calls_observed") at start of 	ool.execute.after
+- src/plugin.ts — wire inc("orchestrator_runs") + inc("decisions_taken") after unMetaGovernor returns (in 	ool.execute.after)
+- src/plugin.ts — wire inc("interventions_delivered") inside persistIntervention
+- src/plugin.ts — export __test_metricsCollector test seam so tests can assert on counter increments
+- src/health.ts — remap session.toolCallsObserved to c.tool_calls_observed?.count (was aliased to orchestrator_runs, stuck at 0)
+
+Tests (TDD, RED → GREEN):
+- src/plugin.test.ts — 0.39.6 counter wiring > tool.execute.after increments tool_calls_observed: pin the wiring fires once per call
+- src/metrics.test.ts — added 	ool_calls_observed to the all-events list (count went 20 → 21)
+- src/health-builder.test.ts — fixture now includes 	ool_calls_observed: { count: 5 }
+
+Test count: 1175 pass / 8 skip / 0 fail (97 files, ~2788 expect() calls).
+Oracle review: not required (instrumentation only — no scoring / audit / intervention behavior change, no schema change).
+
+### Ship protocol compliance
+
+- ✅ One atomic commit per logical unit (ix(metrics): wire runtime inc() calls so health.json counters reflect real work)
+- ✅ gh run watch <run-id> --exit-status after every push, exit 0 confirmed
+- ✅ un run release 0.39.6 validates CHANGELOG + runs tests + builds + publishes + tags + GitHub release
+- ✅ Oracle Review Gate NOT invoked (instrumentation only — counters incremented but no behavior change; v0.38.2 agent/user surface separation untouched)
+- ✅ Backward compatibility: health.json schema unchanged; 	oolCallsObserved now reads from a NEW dedicated counter but field name + semantics are identical from a consumer's POV
+- ✅ No s any / @ts-ignore / @ts-expect-error introduced
+- ✅ No empty catch blocks catch (e) {} introduced
+
+<item>
+
 ## [0.39.5] - 2026-08-30
 
 ### Fixed (skill-priming directive wording)

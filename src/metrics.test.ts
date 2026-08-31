@@ -38,8 +38,10 @@ describe("createMetricsCollector", () => {
         "orchestrator_errors",
         // v0.35.0 (skills-resolution): new counters from 3-tier resolver
         "tier3_reminders_sent",
-        "tier3_skills_created",
-        "materialization_failures",
+"tier3_skills_created",
+"materialization_failures",
+// v0.39.6: hook observation counter
+"tool_calls_observed",
       ]
       for (const e of events) m.inc(e)
       const snap = m.getMetrics()

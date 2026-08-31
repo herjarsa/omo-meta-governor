@@ -68,6 +68,7 @@ export type MetricEvent =
   | "materialization_failures"
   | "tier3_reminders_sent"
   | "tier3_skills_created"
+  | "tool_calls_observed"
 
 export interface MetricBucket {
   count: number
@@ -111,8 +112,8 @@ const ALL_EVENTS: readonly MetricEvent[] = [
   "materialization_failures",
   "tier3_reminders_sent",
   "tier3_skills_created",
+  "tool_calls_observed",
 ] as const
-
 function emptyCounters(): Record<MetricEvent, MetricBucket> {
   const out = {} as Record<MetricEvent, MetricBucket>
   for (const e of ALL_EVENTS) {

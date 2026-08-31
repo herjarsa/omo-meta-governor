@@ -250,10 +250,13 @@ function extractQueryFromArgs(toolInput: {
 
 // Module-level metrics collector Ã¢â‚¬â€ shared across all invocations of the plugin
 const metricsCollector = createMetricsCollector({
-  sessionID: "__global__",
-  global: true,
-  version: DEFAULT_VERSION,
+sessionID: "__global__",
+global: true,
+version: DEFAULT_VERSION,
 });
+// v0.39.6: test seam so plugin.test.ts can assert on counter increments.
+// Not part of the public API; production code must use metricsCollector directly.
+export const __test_metricsCollector = metricsCollector;
 const healthFilePath = newPluginPaths().health;
 try {
   migrateOldToNew({ oldPaths: oldPluginPaths(), newPaths: newPluginPaths() })
@@ -1007,9 +1010,11 @@ return;
 }
 // Prod: log-only. session.prompt() queues a user message that kills subagents.
 logToFile("info", `persist intervention (superficial, not queued) for ${sessionID}: ${text.slice(0, 200)}`);
+// v0.39.6: count interventions delivered. Previously this counter stayed at 0.
+metricsCollector.inc("interventions_delivered");
 };
 
-    // v0.31.3: refresh the on-disk health snapshot as audits happen so
+// v0.31.3: refresh the on-disk health snapshot as audits happen so
     // `cat meta-governor-health.json` reflects a LIVE plugin instead of a
     // stale zero-metrics snapshot left behind by an old MCP-server run.
     const healthWriter = createThrottledHealthWriter(
@@ -1276,10 +1281,10 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
           args: unknown;
         },
         toolOutput: { title: string; output: string; metadata: unknown },
-): Promise<void> => {
+        ): Promise<void> => {
         if (!mergedConfig.enabled) return;
 
-        // v0.34.0: per-session skill-find tracking. Used by tool.execute.before
+        metricsCollector.inc("tool_calls_observed");
         // gate when enforceMode='block' to permit implementation tools only
         // after the agent has actually queried the skill-hub catalog.
         // v0.35.3 (Bug B): also unlock on omo_skill_add and omo_skill_get. Agents
@@ -1793,7 +1798,12 @@ logToFile("info", `persist intervention (superficial, not queued) for ${sessionI
             sessionState.lessonCount++;
           }
 
-          // v0.31.8: escalate prompt is now guarded + deferred — same session-killer root cause as persist.
+
+          // v0.39.6: count real decisions (anything other than the no-op 'continue').
+          if (output.decision.action !== "continue") {
+            metricsCollector.inc("decisions_taken");
+          }
+
           // Previously did session.prompt immediately inside tool.execute.after, racing with the active tool loop.
           // Now skip while backgroundTaskInFlight/oracleInFlight and defer 250ms so the current turn settles.
           if (
