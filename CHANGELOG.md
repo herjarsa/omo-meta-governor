@@ -1,5 +1,5 @@
 
-## [0.41.0] - 2026-08-31
+## [0.42.0] - 2026-08-31
 
 ### Added (Tier 1 governance hooks - supreme commander policy enforcement)
 
