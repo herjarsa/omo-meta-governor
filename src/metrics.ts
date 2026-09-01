@@ -69,6 +69,11 @@ export type MetricEvent =
   | "tier3_reminders_sent"
   | "tier3_skills_created"
   | "tool_calls_observed"
+  | "governance_blocks"
+  | "governance_asks"
+  | "governance_tools_hidden"
+  | "governance_tools_rewritten"
+  | "governance_commands_blocked"
 
 export interface MetricBucket {
   count: number
@@ -113,6 +118,11 @@ const ALL_EVENTS: readonly MetricEvent[] = [
   "tier3_reminders_sent",
   "tier3_skills_created",
   "tool_calls_observed",
+  "governance_blocks",
+  "governance_asks",
+  "governance_tools_hidden",
+  "governance_tools_rewritten",
+  "governance_commands_blocked",
 ] as const
 function emptyCounters(): Record<MetricEvent, MetricBucket> {
   const out = {} as Record<MetricEvent, MetricBucket>

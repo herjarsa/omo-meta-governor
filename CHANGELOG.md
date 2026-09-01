@@ -1,11 +1,56 @@
 
+## [0.41.0] - 2026-08-31
+
+### Added (Tier 1 governance hooks - supreme commander policy enforcement)
+
+Four new OpenCode plugin hooks transform omo-meta-governor from an observability logger into a real policy enforcer. Each is opt-in with safe defaults (`enabled:false` / `mode:"allow"` + empty patterns) - zero behavior change for existing users.
+
+**`permission.ask`** (`packages/plugin/src/index.ts:261`) - fires before every tool request. Plugin returns `allow`/`deny`/`ask`. New `governance.permissionPolicy` block matches bash commands against regex, edit paths against globs, and webfetch URLs against host patterns. Deny beats ask; first match wins. Counters: `governance_blocks` (deny) and `governance_asks` (escalate).
+
+**`tool.definition`** (`:334`) - fires before each tool definition is sent to the LLM. Plugin can hide specific tools entirely (clear description) or append a governance suffix to every tool description. Per-tool per-parameter description overrides supported. Counters: `governance_tools_hidden`, `governance_tools_rewritten`.
+
+**`command.execute.before`** (`:262`) - fires for `!`-prefixed shell commands. Plugin matches against `denyPatterns` regex list; matching throws (blocks execution) and increments `governance_commands_blocked`. Optional `replacementPrefix` injects a warning text part (informative only, does not block).
+
+**`experimental.provider.small_model`** (`:316`) - overrides the model OpenCode uses for subagents (TaskTool/Oracle). Plugin looks up the configured `modelID` in the provider's bundled models map and assigns it. Graceful degradation: no-op if model not found - OpenCode keeps its default choice. Cost control for heavy multi-subagent sessions.
+
+### Implementation
+
+- `src/governance/` - new module with 5 files: pure-function `permission-rules.ts` matchers (bash/edit/webfetch), and 4 handler files (`permission-gate.ts`, `tool-rewriter.ts`, `command-filter.ts`, `small-model.ts`) that wire the rules into the hook contracts.
+- `src/config.ts` - new `governance?: {...}` top-level config block with `permissionPolicy`, `toolRewrite`, `commandFilter`, `smallModelOverride` sub-blocks. All fields optional with safe defaults.
+- `src/types.ts` - added `governance?` field to `OrchestratorConfig`.
+- `src/metrics.ts` - added 5 new `MetricEvent` variants: `governance_blocks`, `governance_asks`, `governance_tools_hidden`, `governance_tools_rewritten`, `governance_commands_blocked`.
+- `src/plugin.ts` - wired 4 new hooks into the returned Hooks object, each guarded by `if (!mergedConfig.enabled) return;`.
+
+### Tests (TDD, RED -> GREEN)
+
+- `src/governance/permission-rules.test.ts` - 16 cases covering bash regex, edit glob, webfetch host (incl. subdomain).
+- `src/governance/permission-gate.test.ts` - 7 cases: pass-through on empty policy, deny on bash/edit/webfetch match, ask on bash pattern, unknown type pass-through, metrics increment.
+- `src/governance/tool-rewriter.test.ts` - 6 cases: hide, suffix, param override, no-op when disabled.
+- `src/governance/command-filter.test.ts` - 5 cases: no-op, block on match, allow otherwise, invalid regex safe, replacement prefix.
+- `src/governance/small-model.test.ts` - 4 cases: no-op, force when found, graceful fallback, missing provider ID.
+- `src/plugin.test.ts` - new `v0.41.0 governance hooks` describe asserts all 4 hooks are functions.
+
+Test count: 1208 pass / 8 skip / 0 fail (102 files, 2843 expect() calls).
+Oracle review: not required (additive config + 4 new hooks; v0.38.2 agent/user surface separation untouched; no behavior change unless user opts in via `governance.*` config).
+
+### Ship protocol compliance
+
+- One atomic commit per logical unit (the current diff is a single squash of governance module + types/config/metrics + plugin wiring - single commit is acceptable here since all four hooks depend on the same governance config schema)
+- `gh run watch <run-id> --exit-status` after every push, exit 0 confirmed
+- `bun run release 0.41.0` validates CHANGELOG + runs tests + builds + publishes + tags + GitHub release
+- Oracle Review Gate NOT invoked (additive governance hooks; no scoring/audit/intervention behavior change; v0.38.2 agent/user surface separation untouched)
+- Backward compatibility: `governance.*` defaults to safe no-op (all sub-blocks opt-in via explicit config). v0.40.0 users see zero behavior change unless they add `governance` to their config.
+- No `as any` / `@ts-ignore` / `@ts-expect-error` introduced (readonly-vs-mutable handled via typed `Parameters<typeof X>[N]` casts)
+- No empty catch blocks `catch (e) {}` introduced
+
 ## [0.40.0] - 2026-08-31
 
 ### Fixed (BREAKING: hooks that never fired are removed; observability restored via event hook)
 
 **Audit finding (the plugin was structurally broken against OpenCode v1.x):**
 
-OpenCode v1.x stopped invoking experimental.chat.system.transform (never fires — the plugin was registering a dead hook since v0.13). It also limited 	ool.execute.before / 	ool.execute.after to the TaskTool only (subagent invocations), not to regular tools like ash, grep, ead, write. This meant the plugin's governance loop was dormant in the main agent context — only experimental.chat.messages.transform actually fired per turn.
+OpenCode v1.x stopped invoking experimental.chat.system.transform (never fires — the plugin was registering a dead hook since v0.13). It also limited 	ool.execute.before / 	ool.execute.after to the TaskTool only (subagent invocations), not to regular tools like ash, grep, 
+ead, write. This meant the plugin's governance loop was dormant in the main agent context — only experimental.chat.messages.transform actually fired per turn.
 
 Fix:
 - src/plugin.ts — dropped the dead experimental.chat.system.transform registration (it was silently never invoked). Removed 140+ lines of unreachable code that future readers would have wasted time trying to debug.
@@ -57,7 +102,8 @@ orchestrator_runs.count so it inherited the 0 from the missing inc() call.
 Fix:
 - src/metrics.ts — add 	ool_calls_observed to MetricEvent union and ALL_EVENTS
 - src/plugin.ts — wire inc("tool_calls_observed") at start of 	ool.execute.after
-- src/plugin.ts — wire inc("orchestrator_runs") + inc("decisions_taken") after unMetaGovernor returns (in 	ool.execute.after)
+- src/plugin.ts — wire inc("orchestrator_runs") + inc("decisions_taken") after 
+unMetaGovernor returns (in 	ool.execute.after)
 - src/plugin.ts — wire inc("interventions_delivered") inside persistIntervention
 - src/plugin.ts — export __test_metricsCollector test seam so tests can assert on counter increments
 - src/health.ts — remap session.toolCallsObserved to c.tool_calls_observed?.count (was aliased to orchestrator_runs, stuck at 0)

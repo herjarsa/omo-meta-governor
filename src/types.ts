@@ -734,7 +734,16 @@ export interface OrchestratorConfig {
   /** Skill priming config (v0.20.0): proactive skill-selection nudge. */
   readonly skillPriming: SkillPrimingConfig;
   /** Skill hub config (v0.32.0): registry-backed catalog + hybrid search. */
+  /** Skill hub config (v0.32.0): registry-backed catalog + hybrid search. */
   readonly skillHub: SkillHubConfig;
+  /** v0.41.0: Tier 1 governance - active policy enforcement via OpenCode hooks. */
+  readonly governance?: {
+    readonly permissionPolicy?: { readonly mode?: "allow" | "deny-on-match" | "ask-on-match"; readonly bashDenyPatterns?: readonly string[]; readonly bashAskPatterns?: readonly string[]; readonly editDenyPaths?: readonly string[]; readonly editAskPaths?: readonly string[]; readonly webfetchDenyHosts?: readonly string[] };
+    readonly toolRewrite?: { readonly enabled?: boolean; readonly descriptionSuffix?: string; readonly hideToolIDs?: readonly string[]; readonly parameterOverrides?: Record<string, Record<string, string>> };
+    readonly commandFilter?: { readonly enabled?: boolean; readonly denyPatterns?: readonly string[]; readonly replacementPrefix?: string };
+    readonly smallModelOverride?: { readonly enabled?: boolean; readonly modelID?: string; readonly providerID?: string };
+  };
+  /** Post-wave workflow gate (v0.21.0): landing directives after Oracle-approved waves. */
   /** Post-wave workflow gate (v0.21.0): landing directives after Oracle-approved waves. */
   readonly postWave?: PostWaveConfig;
   /** CI monitor (v0.25.0): auto-trigger GH Actions on git push and surface failures. */

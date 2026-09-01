@@ -768,3 +768,33 @@ const after = __test_metricsCollector.getMetrics().counters.tool_calls_observed?
     expect(after).toBe(before + 1)
   })
 })
+
+// ─── v0.41.0: Tier 1 governance hook wiring ───────────────────────────────
+describe("v0.41.0 governance hooks", () => {
+  it("registers all 4 governance hooks as functions", async () => {
+    const plugin = createHermeticPlugin({ graphSync: { enabled: false } })
+    const hooks = await plugin(mockPluginInput, { meta_governor: { enabled: true } })
+    expect(typeof hooks["permission.ask"]).toBe("function")
+    expect(typeof hooks["tool.definition"]).toBe("function")
+    expect(typeof hooks["command.execute.before"]).toBe("function")
+    expect(typeof hooks["experimental.provider.small_model"]).toBe("function")
+  })
+
+  it("governance hooks are no-ops with default config (empty policy)", async () => {
+    const plugin = createHermeticPlugin({ graphSync: { enabled: false } })
+    const hooks = await plugin(mockPluginInput, { meta_governor: { enabled: true } })
+    // Default governance has empty deny patterns — hooks should pass through
+    const permOutput: { status: "ask" | "deny" | "allow" } = { status: "ask" }
+    await (hooks["permission.ask"] as unknown as (i: unknown, o: unknown) => Promise<void>)({ type: "bash", command: "rm -rf /" }, permOutput)
+    expect(permOutput.status).toBe("ask")
+    const toolOutput = { description: "original", parameters: { properties: {} } }
+    await (hooks["tool.definition"] as unknown as (i: unknown, o: unknown) => Promise<void>)({ toolID: "bash" }, toolOutput)
+    expect(toolOutput.description).toBe("original")
+    const cmdOutput = { parts: [] as Array<{ type: string; text: string }> }
+    await (hooks["command.execute.before"] as unknown as (i: unknown, o: unknown) => Promise<void>)({ command: "rm -rf /", sessionID: "s1", arguments: "" }, cmdOutput)
+    expect(cmdOutput.parts.length).toBe(0)
+    const smallOutput: { model?: unknown } = { model: undefined }
+    await (hooks["experimental.provider.small_model"] as unknown as (i: unknown, o: unknown) => Promise<void>)({ provider: { models: {} } }, smallOutput)
+    expect(smallOutput.model).toBeUndefined()
+  })
+})

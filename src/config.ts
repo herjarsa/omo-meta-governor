@@ -156,6 +156,70 @@ export interface MetaGovernorPluginConfig {
   }
 
   /** Sisyphus protocol enforcement config. */
+  /**
+   * v0.41.0: Tier 1 governance - active policy enforcement via OpenCode hooks.
+   *
+   * Before v0.41.0 the plugin could only OBSERVE tool calls. This block adds
+   * the ability to BLOCK and REWRITE: permission.ask denies dangerous ops,
+   * tool.definition rewrites tool descriptions, command.execute.before filters
+   * destructive shell commands, and experimental.provider.small_model forces
+   * cheap models on subagents.
+   *
+   * All sub-blocks default to no-op (no behavior change vs v0.40.0) - features
+   * require explicit opt-in via the respective flags.
+   */
+  governance?: {
+    /** permission.ask policy. Default "allow" + empty patterns = no-op (preserves v0.40.0). */
+    permissionPolicy?: {
+      /**
+       * @default "allow"
+       * - "allow": plugin only denies when a pattern matches (default).
+       * - "deny-on-match": same as "allow" - kept for future semantic.
+       * - "ask-on-match": only escalate to user prompt on pattern match.
+       */
+      mode?: "allow" | "deny-on-match" | "ask-on-match"
+      /** Bash command regex patterns to deny (matched anywhere in command). */
+      bashDenyPatterns?: string[]
+      /** Bash command patterns that require user confirmation. */
+      bashAskPatterns?: string[]
+      /** Edit path glob patterns to deny (matched against file path). */
+      editDenyPaths?: string[]
+      /** Edit path patterns that require user confirmation. */
+      editAskPaths?: string[]
+      /** webfetch URL host patterns to deny (matched against host). */
+      webfetchDenyHosts?: string[]
+    }
+    /** tool.definition policy. Default disabled (no behavior change). */
+    toolRewrite?: {
+      /** @default false */
+      enabled?: boolean
+      /** Suffix to append to every tool description visible to LLM. */
+      descriptionSuffix?: string
+      /** Hide specific tools entirely from LLM by clearing description. */
+      hideToolIDs?: string[]
+      /** Override parameter descriptions per tool. */
+      parameterOverrides?: Record<string, Record<string, string>>
+    }
+    /** command.execute.before policy. Default disabled. */
+    commandFilter?: {
+      /** @default false */
+      enabled?: boolean
+      /** Dangerous command regex patterns - throw on match to block execution. */
+      denyPatterns?: string[]
+      /** Prefix injected as warning text part (does not block, only warns). */
+      replacementPrefix?: string
+    }
+    /** experimental.provider.small_model override for subagent cost control. Default disabled. */
+    smallModelOverride?: {
+      /** @default false */
+      enabled?: boolean
+      /** Force this model ID for subagents (e.g. "claude-3-5-haiku-20241022"). */
+      modelID?: string
+      /** Provider ID (e.g. "anthropic"). */
+      providerID?: string
+    }
+  }
+
   protocolEnforcement?: {
     enabled?: boolean
     path?: string

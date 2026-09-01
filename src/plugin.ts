@@ -94,6 +94,10 @@ import { resolve } from "node:path";
 import { oldPluginPaths, newPluginPaths, migrateOldToNew } from "./utils/migrate";
 import { buildPluginHealth, createThrottledHealthWriter, describeLogFile, writeHealthToFile } from "./health";
 import { createMetricsCollector } from "./metrics";
+import { handlePermissionAsk } from "./governance/permission-gate";
+import { handleToolDefinition } from "./governance/tool-rewriter";
+import { handleCommandFilter } from "./governance/command-filter";
+import { handleSmallModel } from "./governance/small-model";
 import {
   loadOrchestratorConfig,
   type MetaGovernorPluginConfig,
@@ -2493,6 +2497,23 @@ metricsCollector.inc("interventions_delivered");
             }
           }
         }
+      },
+      // v0.41.0: Tier 1 governance hooks — active policy enforcement
+      "permission.ask": async (input, output) => {
+        if (!mergedConfig.enabled) return;
+        await handlePermissionAsk(input as never, output as never, (mergedConfig.governance?.permissionPolicy ?? {}) as unknown as Parameters<typeof handlePermissionAsk>[2], metricsCollector);
+      },
+      "tool.definition": async (input, output) => {
+        if (!mergedConfig.enabled) return;
+        await handleToolDefinition(input as never, output as never, mergedConfig.governance?.toolRewrite ?? {}, metricsCollector);
+      },
+      "command.execute.before": async (input, output) => {
+        if (!mergedConfig.enabled) return;
+        await handleCommandFilter(input as never, output as never, mergedConfig.governance?.commandFilter ?? {}, metricsCollector);
+      },
+      "experimental.provider.small_model": async (input, output) => {
+        if (!mergedConfig.enabled) return;
+        await handleSmallModel(input as never, output as never, mergedConfig.governance?.smallModelOverride ?? {});
       },
       // v0.13.1: custom tool registration — the LLM can call these explicitly
       tool: {
