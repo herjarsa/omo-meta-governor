@@ -206,7 +206,9 @@ describe("experimental.chat.messages.transform — skill priming", () => {
     // output.messages only fires when __test_persistSessionMessage is set (it is, via makeTransform).
     expect(output.messages.length).toBe(4)
     const msg = output.messages[3]!
-    expect((msg.info as Record<string, unknown>).role).toBe("user")
+    // v0.43.0 Phase 1: push always uses role:assistant (banner-killer mitigation;
+    // the prior __test_persistSessionMessage→role:user discrimination is removed).
+    expect((msg.info as Record<string, unknown>).role).toBe("assistant")
     expect((msg.info as Record<string, unknown>).agent).toBe("meta-governor")
     const part = msg.parts[0] as Record<string, unknown>
     expect(part.type).toBe("text")
