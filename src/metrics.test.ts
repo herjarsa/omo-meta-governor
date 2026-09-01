@@ -16,7 +16,7 @@ describe("createMetricsCollector", () => {
       expect(snap.counters.interventions_delivered?.count ?? 0).toBe(0)
     })
 
-    test("all 20 MetricEvent types can be incremented", () => {
+    test("all 26 MetricEvent types can be incremented", () => {
       const m = createMetricsCollector({ sessionID: "sess" })
       const events: MetricEvent[] = [
         "decisions_taken",
@@ -38,10 +38,16 @@ describe("createMetricsCollector", () => {
         "orchestrator_errors",
         // v0.35.0 (skills-resolution): new counters from 3-tier resolver
         "tier3_reminders_sent",
-"tier3_skills_created",
-"materialization_failures",
-// v0.39.6: hook observation counter
-"tool_calls_observed",
+        "tier3_skills_created",
+        "materialization_failures",
+        // v0.39.6: hook observation counter
+        "tool_calls_observed",
+        // v0.41.0: governance counters
+        "governance_blocks",
+        "governance_asks",
+        "governance_tools_hidden",
+        "governance_tools_rewritten",
+        "governance_commands_blocked",
       ]
       for (const e of events) m.inc(e)
       const snap = m.getMetrics()
