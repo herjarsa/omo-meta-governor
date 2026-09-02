@@ -1,6 +1,39 @@
 
 ## [0.42.0] - 2026-08-31
 
+## [0.45.0] - 2026-09-02
+
+**Auditor Restoration FASE 7** — self-reflection via session.prompt().
+
+### Added
+- **Self-reflection trigger via session.prompt().** When the auditor detects the main agent going off-track (decision is escalate/stop), the plugin injects a directive via session.prompt() that asks the main LLM to act as a senior engineer and answer:
+  1. What is going wrong or inefficiently?
+  2. Are you stuck in a loop? Cite specific evidence.
+  3. What is the correct path forward to complete the user's task?
+
+This is the closest approximation to an independent auditor in OpenCode 1.x (plugins cannot spawn subagents). The main LLM reflects on its own behavior in real-time; the user sees the directive as a real user message in the TUI.
+
+- New metric: `reflections_triggered` (count of self-reflection directives sent).
+- New test seam: `__test_reflectionPrompt` (hermetic tests capture the directive text).
+- New state field: `lastReflectionAtMs` on `AuditState` (5-minute cooldown per session).
+
+### Scope (mirrors FASE 3 / FASE 4)
+- Main agent only (subagent scope guard via `__test_isMainSession`).
+- Decision action must be `escalate` or `stop` (`warn` fires too frequently).
+- Cooldown: 5 minutes per session to avoid flooding.
+- Not at session start (preserves v0.38.7 TUI-killer fix).
+
+### Ship protocol compliance
+- AGENTS.md §1 (atomic commit): ✅ 1 atomic commit (#16).
+- AGENTS.md §2 (CI green required): ✅ All 3 platform jobs (test / test-macos / test-windows) green.
+- AGENTS.md §5 (Documentation Update): ✅ CHANGELOG.md this entry.
+- §3b (automated release): ✅ tag push triggers OIDC publish.
+
+### Test count
+- 1232 pass / 8 skip / 0 fail / 2902 expect() calls (was 1210/8/0/2818 at v0.41.0 baseline).
+- +22 net tests across `auditor-restoration.test.ts` (8), `auto-remember.test.ts` (3), `session-prompt-main.test.ts` (3), `auditor-system-transform.test.ts` (4), `auditor-reflection.test.ts` (5), `governance-activation.test.ts` (7).
+- TypeScript: `tsc --noEmit` clean.
+
 ## [0.44.0] - 2026-09-02
 
 **Auditor Restoration FASE 6** — restores the persistent system-prompt injection that v0.40.0 erroneously removed.
