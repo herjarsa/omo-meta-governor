@@ -15,7 +15,7 @@ import type { DecisionHandlerOutput } from "./types";
 import { createMetaGovernorPlugin } from "./plugin";
 import { createHermeticPlugin } from "./__test-helpers__/hermetic-plugin";
 import { clearAll, storeDecision } from "./decision-store";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -251,39 +251,40 @@ describe("auditor-restoration Phase 1 — active push in messages.transform", ()
 
   it("4/8 protocol violation push in production mode uses role assistant + marker", async () => {
     const sid = "auditor-violation-prod";
-    const plugin = await createProdPlugin({}, "")(
-      mockPluginInput(""),
-      {
-        meta_governor: {
-          enabled: true,
-          skillPriming: { enabled: false },
-          protocolEnforcement: { enabled: true, auditToolCalls: true },
-          intervention: { mode: "message", minActionForMessage: "warn" },
-        },
-      } as PluginOptions,
-    );
-    const before = plugin["tool.execute.before"] as unknown as (i: unknown, o: unknown) => Promise<void>;
-    await before(
-      { tool: "write", sessionID: sid, callID: "call-v1" },
-      { args: { filePath: "/tmp/bad.ts", content: "// @ts-ignore\nconst x: any = 1 as any;" } },
-      { args: { filePath: "/tmp/bad.ts", content: "// @ts-ignore\nconst x: any = 1 as any;" } },);
-    const transform = plugin["experimental.chat.messages.transform"]!;
-    // v0.43.0 Phase 1: drain once-per-session nudges (plan reminder) via a session-start call.
-    // On Linux/macOS CI, the workspace cwd may lack PLAN.md / AGENTS.md ## Plan, causing
-    // shouldInjectPlanReminder to return true and fire a second push during the mid-session call.
-    const drain = sessionStartOutput(sid);
-    await transform({}, drain);
-    // Now mid-session: only the queued violation push should land.
-    const output = midSessionOutput(sid);
-    const pushedBefore = output.messages.length;
-    await transform({}, output);
-    const pushed = getPushedParts(output, pushedBefore);
-    expect(pushed.length).toBe(1);
-    assertAssistantWrapped(pushed);
-    const text = (pushed[0]!.parts[0] as Record<string, unknown>).text as string;
-    expect(text).toContain("PROTOCOL VIOLATIONS");
+    // Use a tmpdir as projectDir so shouldInjectPlanReminder returns false regardless of
+    // host cwd contents. We create PLAN.md inside the tmpdir to make that explicit.
+    const dir = mkdtempSync(join(tmpdir(), "auditor-violation-"));
+    writeFileSync(join(dir, "PLAN.md"), "# test");
+    try {
+      const plugin = await createProdPlugin({}, dir)(
+        mockPluginInput(dir),
+        {
+          meta_governor: {
+            enabled: true,
+            skillPriming: { enabled: false },
+            protocolEnforcement: { enabled: true, auditToolCalls: true },
+            intervention: { mode: "message", minActionForMessage: "warn" },
+          },
+        } as PluginOptions,
+      );
+      const before = plugin["tool.execute.before"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+      await before(
+        { tool: "write", sessionID: sid, callID: "call-v1" },
+        { args: { filePath: "/tmp/bad.ts", content: "// @ts-ignore\nconst x: any = 1 as any;" } },
+      );
+      const transform = plugin["experimental.chat.messages.transform"]!;
+      const output = midSessionOutput(sid);
+      const pushedBefore = output.messages.length;
+      await transform({}, output);
+      const pushed = getPushedParts(output, pushedBefore);
+      expect(pushed.length).toBe(1);
+      assertAssistantWrapped(pushed);
+      const text = (pushed[0]!.parts[0] as Record<string, unknown>).text as string;
+      expect(text).toContain("PROTOCOL VIOLATIONS");
+    } finally {
+      try { rmSync(dir, { recursive: true, force: true }); } catch {}
+    }
   });
-
 
   // ─── 5. decision intervention prod ─────────────────────────────────
 
