@@ -192,6 +192,8 @@ __test_persistSessionMessage?: typeof import("./session-bridge").persistSessionM
   __test_startSkillsFsWatcher?: typeof import("./skills-fs-watcher").startSkillsFsWatcher;
   /** v0.31.3: test-only DI seam — persist-retry backoff override (ms). */
   __test_persistRetryDelayMs?: number;
+  /** v0.43.0 Phase 3: scope-guard for main-agent only persist/escalation. When provided, return true for main sessions (parentID null) and false for subagent/oracle sessions. */
+  __test_isMainSession?: (sessionID: string) => boolean;
 }
 
 // - Helpers
@@ -978,8 +980,20 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
 //   - Test seam (`__test_persistSessionMessage`): full retry behavior, asserts 2 calls on timeout.
 //   - Prod: log-only. User sees notification via messages.transform (assistant role, non-blocking).
 //     Agent receives governance via chat.system.transform on its next turn.
+// v0.43.0 Phase 3: scope guard - subagent/oracle sessions stay log-only to avoid the v0.33.0
+// session-killer bug. The main agent (parentID null) is the only one where session.prompt() is safe.
+const isMainSession = (sid: string): boolean => {
+  if (typeof deps.__test_isMainSession === "function") {
+    try { return deps.__test_isMainSession(sid); } catch { return true; }
+  }
+  return true;
+};
 const persistIntervention = (sessionID: string, text: string): void => {
 if (!sessionID || !text) return;
+if (!isMainSession(sessionID)) {
+logToFile("info", `persist skipped (subagent) for ${sessionID}`);
+return;
+}
 if (!mergedConfig.intervention.persistToSession) return;
 const st = auditSessions.get(sessionID);
 if (st?.backgroundTaskInFlight || st?.oracleInFlight) {
