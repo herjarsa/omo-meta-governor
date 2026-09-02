@@ -109,6 +109,7 @@ import { GraphRetrieval, getDefaultGraphRetrieval, configureDefaultGraphRetrieva
 import { AuditStateCache } from "./audit-state-cache";
 import { TtlBoundedMap } from "./utils/ttl-bounded-map";
 import { isSessionStart } from "./utils/session-start";
+import { wrapInformational } from "./agent-notifications";
 
 import { DEFAULT_VERSION } from "./metrics";
 import { statSync, readFileSync } from "node:fs";
@@ -2107,17 +2108,10 @@ metricsCollector.inc("interventions_delivered");
           // system-prompt injection) and the user sees the brief status via
           // persistIntervention (log-only in prod). Mid-session injections are preserved.
           if (!isSessionStart(output.messages)) {
-            if (deps.__test_persistSessionMessage) {
-              output.messages.push({
-                info: { role: "user", agent: "meta-governor", synthetic: true },
-                parts: [{ type: "text", text: skillPrimingText, synthetic: true }],
-              });
-            } else {
-              output.messages.push({
-                info: { role: "assistant", agent: "meta-governor", synthetic: true },
-                parts: [{ type: "text", text: skillPrimingText, synthetic: true }],
-              });
-            }
+            output.messages.push({
+              info: { role: "assistant", agent: "meta-governor", synthetic: true },
+              parts: [{ type: "text", text: skillPrimingText, synthetic: true }],
+            });
           }
           logToFile(
             "info",
@@ -2148,17 +2142,11 @@ metricsCollector.inc("interventions_delivered");
           // v0.38.6: skip at session start (would create a fake assistant turn and pause the session).
           if (!isSessionStart(output.messages)) {
             graphSyncReadyNotified.add(currentSessionID);
-            if (deps.__test_persistSessionMessage) {
-              output.messages.push({
-                info: { role: "user", agent: "meta-governor", synthetic: true },
-                parts: [{ type: "text", text: graphReadyText, synthetic: true }],
-              });
-            } else {
-              output.messages.push({
-                info: { role: "assistant", agent: "meta-governor", synthetic: true },
-                parts: [{ type: "text", text: graphReadyText, synthetic: true }],
-              });
-            }
+            const wrappedGraphReady = wrapInformational(graphReadyText, { kind: "graph-priming" });
+            output.messages.push({
+              info: { role: "assistant", agent: "meta-governor", synthetic: true },
+              parts: [{ type: "text", text: wrappedGraphReady, synthetic: true }],
+            });
           }
 
           logToFile(
@@ -2180,17 +2168,11 @@ metricsCollector.inc("interventions_delivered");
             // v0.33.2: superficial — assistant in prod, user in tests.
             // v0.38.6: skip at session start (would create a fake assistant turn and pause the session).
             if (!isSessionStart(output.messages)) {
-              if (deps.__test_persistSessionMessage) {
-                output.messages.push({
-                  info: { role: "user", agent: "meta-governor", synthetic: true },
-                  parts: [{ type: "text", text: feedbackText, synthetic: true }],
-                });
-              } else {
-                output.messages.push({
-                  info: { role: "assistant", agent: "meta-governor", synthetic: true },
-                  parts: [{ type: "text", text: feedbackText, synthetic: true }],
-                });
-              }
+              const wrappedFeedback = wrapInformational(feedbackText, { kind: "postwave" });
+              output.messages.push({
+                info: { role: "assistant", agent: "meta-governor", synthetic: true },
+                parts: [{ type: "text", text: wrappedFeedback, synthetic: true }],
+              });
               // v0.38.6: only consume (delete) the queued feedback when the push
               // actually succeeded. If the push was skipped at session start, the
               // feedback stays queued for the next turn.
@@ -2236,17 +2218,11 @@ metricsCollector.inc("interventions_delivered");
           // v0.38.6: skip at session start (would create a fake assistant turn and pause the session).
           if (!isSessionStart(output.messages)) {
             planReminderSent.add(currentSessionID);
-            if (deps.__test_persistSessionMessage) {
-              output.messages.push({
-                info: { role: "user", agent: "meta-governor", synthetic: true },
-                parts: [{ type: "text", text: planText, synthetic: true }],
-              });
-            } else {
-              output.messages.push({
-                info: { role: "assistant", agent: "meta-governor", synthetic: true },
-                parts: [{ type: "text", text: planText, synthetic: true }],
-              });
-            }
+            const wrappedPlan = wrapInformational(planText, { kind: "postwave" });
+            output.messages.push({
+              info: { role: "assistant", agent: "meta-governor", synthetic: true },
+              parts: [{ type: "text", text: wrappedPlan, synthetic: true }],
+            });
           }
 
           logToFile(
@@ -2260,41 +2236,25 @@ metricsCollector.inc("interventions_delivered");
 
         const violEntry = pendingViolations.get(currentSessionID);
         const suppressViolations = Boolean(state?.backgroundTaskInFlight || state?.oracleInFlight);
-        const isTestRun = Boolean(deps.__test_persistSessionMessage);
         if (!suppressViolations && violEntry) {
           const violations = violEntry.items;
           if (violations.length > 0) {
             // v0.38.6: pendingViolations is deleted INSIDE the gate so the violation
             // stays queued if the push is skipped at session start, then fires on the next turn.
-            const isTest = Boolean(deps.__test_persistSessionMessage);
-            // v0.33.0 session-killer fix: violations are NEVER banner-blocked.
-            // - In tests: push to messages so pipeline assertions still work.
-            // - In prod: ONLY persist (TUI-visible). The agent sees the violation
-            //   on its NEXT turn via chat.system.transform / chat.messages context,
-            //   never as a blocking role:"user" message that requires "continua".
+            // v0.43.0: always push with role assistant + informational marker (Phase 1 auditor restore).
             const violationText = `[META-GOVERNOR PROTOCOL VIOLATIONS - YOU MUST COMPLY]\n\n${violations.map((v, i) => `${i + 1}. ${v}`).join("\n")}\n\nRemember: use codegraph/graphify for architecture queries, do not grep without trying codegraph/graphify first, no @ts-ignore/as-any, no empty catch, check memory before asking.`;
-            // v0.33.2: superficial — assistant in prod (visible, not blocking), user in tests.
             // v0.38.6: skip at session start (would create a fake assistant turn and pause the session).
-            // Violations still reach the agent via chat.system.transform on the next turn (per
-            // the v0.38.0 architecture) — we just don't inject the assistant-shaped banner here.
             if (!isSessionStart(output.messages)) {
               // v0.38.6: only consume (delete) the queued violation when the push
               // actually succeeded. If the push was skipped at session start, the
               // violation stays queued for the next turn (mid-session).
               pendingViolations.delete(currentSessionID);
-              if (isTest) {
-                output.messages.push({
-                  info: { role: "user", agent: "meta-governor", synthetic: true },
-                  parts: [{ type: "text", text: violationText, synthetic: true }],
-                });
-                logToFile("info", `injected ${violations.length} violation(s) to model`, violations);
-              } else {
-                output.messages.push({
-                  info: { role: "assistant", agent: "meta-governor", synthetic: true },
-                  parts: [{ type: "text", text: violationText, synthetic: true }],
-                });
-                logToFile("info", `violations injected (superficial, assistant role) for ${currentSessionID}: ${violations.length} item(s)`, violations);
-              }
+              const wrappedViolation = wrapInformational(violationText, { kind: "enforcement" });
+              output.messages.push({
+                info: { role: "assistant", agent: "meta-governor", synthetic: true },
+                parts: [{ type: "text", text: wrappedViolation, synthetic: true }],
+              });
+              logToFile("info", `violations injected for ${currentSessionID}: ${violations.length} item(s)`, violations);
             }
             persistIntervention(currentSessionID, violationText);
             // v0.23.1: record injection timestamp for cooldown
@@ -2380,20 +2340,9 @@ metricsCollector.inc("interventions_delivered");
           }
           return;
         }
-        // FIX v0.31.7: WARN decisions are now log-only (non-blocking) in prod. Only escalate/stop require "continua" click.
-        // WARN with -0.30 (No progress) was killing delegation loops every turn when user had minActionForMessage=warn.
-        // In hermetic tests isTest=true we keep old behavior so persist-retry can assert the pipeline.
-        const isTestWarn = Boolean(deps.__test_persistSessionMessage);
-        if (decision.action === "warn" && !isTestWarn) {
-          logToFile("info", `warn suppressed (non-blocking) for ${currentSessionID}: ${decision.message}`);
-          // Keep history for future escalate context but do not push to messages (no banner, no continua).
-          const entry = `[${decision.action}] ${decision.message}`;
-          const last = curState.recentInterventionTexts?.slice(-1)[0];
-          if (last !== entry) {
-            curState.recentInterventionTexts = [...(curState.recentInterventionTexts ?? []), entry].slice(-5);
-          }
-          return;
-        }
+        // v0.43.0 Phase 1: always push via assistant + marker (WARN no longer suppressed via isTest gate).
+        // The banner-killer mitigation (role:assistant) guarantees non-blocking TUI; subagent resilience
+        // is handled by wrapInformational marker. Keep interventionCount inside isSessionStart gate.
         // v0.38.6: interventionCount++ moved INSIDE the session-start gate below.
 
         // v0.17.2 (Gap D): when includeDecisionHistory is true, prepend
@@ -2434,9 +2383,10 @@ metricsCollector.inc("interventions_delivered");
           ].slice(-dedupedMax);
         }
 
+        const wrappedDecision = wrapInformational(messageText, { kind: "intervention" });
         const textPart = {
           type: "text",
-          text: messageText,
+          text: wrappedDecision,
           synthetic: true,
         };
 
