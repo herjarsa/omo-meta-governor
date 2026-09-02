@@ -2257,7 +2257,6 @@ metricsCollector.inc("interventions_delivered");
               logToFile("info", `violations injected for ${currentSessionID}: ${violations.length} item(s)`, violations);
             }
             persistIntervention(currentSessionID, violationText);
-            persistIntervention(currentSessionID, violationText);
             // v0.23.1: record injection timestamp for cooldown
             const injectState = auditSessions.get(currentSessionID);
             if (injectState) {
