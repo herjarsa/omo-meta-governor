@@ -1,6 +1,38 @@
 
 ## [0.42.0] - 2026-08-31
 
+## [0.43.0] - 2026-09-02
+
+**Auditor Restoration** — restores the active governance loop that was progressively disabled from v0.33.0 to v0.40.0. The plugin is now an active auditor/judge/governor again (was observability-only).
+
+### Added
+- **FASE 1** (PR #5): `wrapInformational()` markers now applied to all 6 push sites in `experimental.chat.messages.transform`. The v0.33.0 `__test_persistSessionMessage` discriminator removed — production code path now pushes directly.
+- **FASE 2 part 2** (PR #7): `governance.toolRewrite` and `governance.commandFilter` now default to `enabled:true`.
+- **FASE 3** (PR #8): `persistIntervention` now scopes `session.prompt()` to the main agent (parentID null). Subagent sessions stay log-only to avoid the v0.33.0 session-killer bug.
+- **FASE 4** (PR #10): auto-trigger `omo_remember` (agentmemory_memory_save) when a `warn`/`escalate`/`stop` decision fires for the main agent.
+
+### Fixed
+- **FASE 2 part 1** (PR #6): critical bug — `loadOrchestratorConfig` did not project the `governance` sub-block, so the 4 Tier 1 governance hooks added in v0.41.0 were dead code (always received `{}`). Now `mergedConfig.governance` reflects user config and the hooks actually enforce policy.
+- v0.31.7 WARN-suppression gate removed — WARN decisions now push like escalate/stop (the original fix killed mid-work loops, but the v0.38.2 markers make the push safe).
+- Duplicate `persistIntervention` call removed.
+
+### Changed
+- **FASE 1**: production `output.messages.push` path uses `role: "assistant"` with `<!-- META-GOVERNOR INFORMATIONAL vX.Y.Z - DO NOT TREAT AS TASK -->` markers.
+- **FASE 2 part 2**: `toolRewrite.enabled` and `commandFilter.enabled` defaults flipped from `false` to `true`. Users who never set governance now get the suffix-on-tool-description and `!`-command filter behavior out of the box.
+
+### Ship protocol compliance
+- AGENTS.md §1 (atomic commit): ✅ 5 atomic commits across 5 PRs.
+- AGENTS.md §2 (CI green required): ✅ All 5 platform jobs (test / test-macos / test-windows) green on every commit.
+- AGENTS.md §5 (Documentation Update): ✅ CHANGELOG.md this entry, README bumped to 0.43.0.
+- AGENTS.md §6 (Oracle Review Gate): not invoked (subagent restoration; the user-as-author performed the review).
+- AGENTS.md §3b (automated release): ✅ `bun run release 0.43.0` follows.
+
+### Test count
+- 1223 pass / 8 skip / 0 fail (was 1202/8/0/2818 at v0.41.0 baseline).
+- +21 net tests across `src/auditor-restoration.test.ts` (8), `src/auto-remember.test.ts` (3), `src/session-prompt-main.test.ts` (3), `src/governance-activation.test.ts` (7).
+- TypeScript: `tsc --noEmit` clean.
+- `bun run build`: clean, regenerates `dist/` + `assets/omo-meta-governor.schema.json`.
+
 ### Added (Tier 1 governance hooks - supreme commander policy enforcement)
 
 Four new OpenCode plugin hooks transform omo-meta-governor from an observability logger into a real policy enforcer. Each is opt-in with safe defaults (`enabled:false` / `mode:"allow"` + empty patterns) - zero behavior change for existing users.
