@@ -578,45 +578,38 @@ graphSync: {
       skillsBin: full.cliAnything?.skillsBin ?? "npx skills",
       installScope: full.cliAnything?.installScope ?? "global",
     },
-    // v0.43.0: project governance from full.governance so the permission.ask/tool.definition/
-    // command.execute.before hooks added in v0.41.0 can actually enforce policy.
-    // Previously this was missing, so mergedConfig.governance was always undefined.
-    governance: full.governance
-      ? {
-          permissionPolicy: full.governance.permissionPolicy
-            ? {
-                mode: full.governance.permissionPolicy.mode,
-                bashDenyPatterns: full.governance.permissionPolicy.bashDenyPatterns,
-                bashAskPatterns: full.governance.permissionPolicy.bashAskPatterns,
-                editDenyPaths: full.governance.permissionPolicy.editDenyPaths,
-                editAskPaths: full.governance.permissionPolicy.editAskPaths,
-                webfetchDenyHosts: full.governance.permissionPolicy.webfetchDenyHosts,
-              }
-            : undefined,
-          toolRewrite: full.governance.toolRewrite
-            ? {
-                enabled: full.governance.toolRewrite.enabled,
-                descriptionSuffix: full.governance.toolRewrite.descriptionSuffix,
-                hideToolIDs: full.governance.toolRewrite.hideToolIDs,
-                parameterOverrides: full.governance.toolRewrite.parameterOverrides,
-              }
-            : undefined,
-          commandFilter: full.governance.commandFilter
-            ? {
-                enabled: full.governance.commandFilter.enabled,
-                denyPatterns: full.governance.commandFilter.denyPatterns,
-                replacementPrefix: full.governance.commandFilter.replacementPrefix,
-              }
-            : undefined,
-          smallModelOverride: full.governance.smallModelOverride
-            ? {
-                enabled: full.governance.smallModelOverride.enabled,
-                modelID: full.governance.smallModelOverride.modelID,
-                providerID: full.governance.smallModelOverride.providerID,
-              }
-            : undefined,
-        }
-      : undefined,
+    // v0.43.0 Phase 2 part 2: activate governance defaults — toolRewrite + commandFilter enabled by default.
+    // permissionPolicy stays opt-in via mode; smallModelOverride stays opt-in via enabled.
+    governance: {
+      permissionPolicy: full.governance?.permissionPolicy
+        ? {
+            mode: full.governance.permissionPolicy.mode,
+            bashDenyPatterns: full.governance.permissionPolicy.bashDenyPatterns,
+            bashAskPatterns: full.governance.permissionPolicy.bashAskPatterns,
+            editDenyPaths: full.governance.permissionPolicy.editDenyPaths,
+            editAskPaths: full.governance.permissionPolicy.editAskPaths,
+            webfetchDenyHosts: full.governance.permissionPolicy.webfetchDenyHosts,
+          }
+        : undefined,
+      toolRewrite: {
+        enabled: full.governance?.toolRewrite?.enabled ?? true,
+        descriptionSuffix: full.governance?.toolRewrite?.descriptionSuffix,
+        hideToolIDs: full.governance?.toolRewrite?.hideToolIDs,
+        parameterOverrides: full.governance?.toolRewrite?.parameterOverrides,
+      },
+      commandFilter: {
+        enabled: full.governance?.commandFilter?.enabled ?? true,
+        denyPatterns: full.governance?.commandFilter?.denyPatterns,
+        replacementPrefix: full.governance?.commandFilter?.replacementPrefix,
+      },
+      smallModelOverride: full.governance?.smallModelOverride
+        ? {
+            enabled: full.governance.smallModelOverride.enabled,
+            modelID: full.governance.smallModelOverride.modelID,
+            providerID: full.governance.smallModelOverride.providerID,
+          }
+        : undefined,
+    },
   }
 }
 
