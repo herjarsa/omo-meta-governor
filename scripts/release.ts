@@ -123,9 +123,16 @@ export async function release(
     if (addResult.exitCode !== 0) {
       throw new Error(`git add package.json failed: ${addResult.stderr}`)
     }
-    const commitResult = await run(["git", "commit", "-m", `chore(release): bump version to ${version.tag}`])
-    if (commitResult.exitCode !== 0) {
-      throw new Error(`git commit failed: ${commitResult.stderr}`)
+    // v0.43.0: skip the commit if package.json was already at this version
+    // (PR #11 may have landed the bump commit before the script ran).
+    const statusCheck = await run(["git", "status", "--porcelain", "--untracked-files=no"])
+    if (statusCheck.stdout.trim().length === 0) {
+      console.log(`[release] (skip commit: package.json already at ${version.tag}, no changes)`)
+    } else {
+      const commitResult = await run(["git", "commit", "-m", `chore(release): bump version to ${version.tag}`])
+      if (commitResult.exitCode !== 0) {
+        throw new Error(`git commit failed: ${commitResult.stderr}`)
+      }
     }
   }
 
