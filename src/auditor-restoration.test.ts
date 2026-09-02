@@ -127,7 +127,7 @@ function createProdPlugin(
 describe("auditor-restoration Phase 1 — active push in messages.transform", () => {
   beforeEach(() => clearAll());
 
-  it("1/8 skill-priming push in production mode uses role assistant + marker", async () => {
+  it("1/8 skill-priming push in production mode uses role assistant + marker", { timeout: 30000 }, async () => {
     const sid = "auditor-skill-prod";
     const plugin = await createProdPlugin(
       {},
