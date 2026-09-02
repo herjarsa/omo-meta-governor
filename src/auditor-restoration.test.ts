@@ -272,7 +272,15 @@ describe("auditor-restoration Phase 1 — active push in messages.transform", ()
     const pushedBefore = output.messages.length;
     await transform({}, output);
     const pushed = getPushedParts(output, pushedBefore);
-    expect(pushed.length).toBe(1);
+    // Diagnostic: log pushed length to help diagnose cross-platform failures.
+    if (pushed.length !== 1) {
+      const summaries = pushed.map((m, i) => {
+        const info = m.info as Record<string, unknown>;
+        const text = (m.parts[0] as Record<string, unknown>)?.text as string ?? "<no text>";
+        return `[${i}] role=${info.role} agent=${info.agent} textLen=${text.length} textHead=${text.slice(0, 80).replace(/\n/g, "\\n")}`;
+      });
+      throw new Error(`Expected 1 pushed message but got ${pushed.length}. Diagnostics:\n${summaries.join("\n")}\nOutput total messages: ${output.messages.length} (was ${pushedBefore} before transform).`);
+    }
     assertAssistantWrapped(pushed);
     const text = (pushed[0]!.parts[0] as Record<string, unknown>).text as string;
     expect(text).toContain("PROTOCOL VIOLATIONS");
