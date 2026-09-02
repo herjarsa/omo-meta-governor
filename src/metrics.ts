@@ -74,6 +74,8 @@ export type MetricEvent =
   | "governance_tools_hidden"
   | "governance_tools_rewritten"
   | "governance_commands_blocked"
+  | "reflections_triggered"
+
 
 export interface MetricBucket {
   count: number

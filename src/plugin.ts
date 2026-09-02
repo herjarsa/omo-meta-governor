@@ -198,6 +198,12 @@ __test_persistSessionMessage?: typeof import("./session-bridge").persistSessionM
   __test_isMainSession?: (sessionID: string) => boolean;
   /** v0.43.0 Phase 4: test-only hook for auto-remember — captures the directive that would be sent via promptAgent. */
   __test_autoRemember?: (payload: { sessionID: string; decision: import("./types").DecisionHandlerOutput; promptText: string }) => void;
+  /**
+   * v0.45.0 Phase 7: test-only seam for the self-reflection prompt that would
+   * be sent via session.prompt() when the auditor detects the agent is going
+   * off-track. Captures the full directive text so tests can assert content.
+   */
+  __test_reflectionPrompt?: (payload: { sessionID: string; text: string }) => void;
 }
 
 // - Helpers
@@ -863,6 +869,8 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
        *  suppress duplicate warnings during background-task waits (same
        *  reasoning firing 3 times in a row â†’ only fire once per cooldown). */
       lastWarnAtMs: number;
+      /** v0.45.0 Phase 7: timestamp of the last self-reflection prompt sent via session.prompt(). */
+      lastReflectionAtMs?: number;
       /** v0.29.0: hash of the last warn decision's reasoning. Combined with
        *  lastWarnAtMs, two warns with the same hash within the cooldown
        *  window are suppressed. */
@@ -2449,7 +2457,59 @@ metricsCollector.inc("interventions_delivered");
             }
             logToFile("info", `auto-remember queued for ${currentSessionID}: ${decision.action}`);
           }
-        } catch {}
+                } catch {}
+
+        // v0.45.0 Phase 7: trigger self-reflection via session.prompt()
+        if (
+          mergedConfig.enabled &&
+          curState &&
+          isMainSession(currentSessionID) &&
+          !isSessionStart(output.messages) &&
+          (decision.action === "escalate" || decision.action === "stop") &&
+          !curState.backgroundTaskInFlight &&
+          !curState.oracleInFlight &&
+          (curState.lastReflectionAtMs === undefined ||
+            Date.now() - curState.lastReflectionAtMs > 5 * 60_000)
+        ) {
+          curState.lastReflectionAtMs = Date.now();
+          metricsCollector.inc("reflections_triggered");
+          const reasoning = decision.historyEntry?.reasoning ?? decision.message;
+          const recentViolations = curState.accumulatedDeviations.slice(-3);
+          const violationLines = recentViolations.length > 0
+            ? recentViolations.map((v) => `  - [${v.severity}] ${v.category}: ${v.detail.slice(0, 200)}`).join("\n")
+            : "  (none recorded)";
+          const reflectionText = [
+            "[omo-meta-governor audit - self-reflection required]",
+            "",
+            `Recent decision: ${decision.action} (score ${(decision.historyEntry?.decision?.score ?? 0).toFixed(2)})`,
+            `Reasoning: ${reasoning.slice(0, 400)}`,
+            `Message: ${decision.message.slice(0, 400)}`,
+            `Tool calls so far: ${curState.iteration}`,
+            "",
+            "Recent protocol violations (if any):",
+            violationLines,
+            "",
+            "You are being audited by omo-meta-governor v" + DEFAULT_VERSION + ". As a senior engineer,",
+            "review what you have just done and answer these questions honestly:",
+            "  1. What is going wrong or inefficiently?",
+            "  2. Are you stuck in a loop? Cite specific evidence.",
+            "  3. What is the correct path forward to complete the user's task?",
+            "",
+            "Be specific and actionable. If you should stop or pivot, say so clearly.",
+          ].join("\n");
+          if (typeof deps.__test_reflectionPrompt === "function") {
+            try { deps.__test_reflectionPrompt({ sessionID: currentSessionID, text: reflectionText }); } catch {}
+          } else {
+            setTimeout(() => {
+              void promptAgent(currentSessionID, {
+                toolName: "omo_reflection",
+                mcpTool: "session.prompt",
+                mcpArgs: { parts: [{ type: "text", text: reflectionText }] },
+                preamble: "omo-meta-governor audit: senior-engineer self-reflection required.",
+              }).catch((err) => { logToFile("warn", "reflection promptAgent failed: " + String(err)); });
+            }, 0);
+          }
+        }
       },
 
 
