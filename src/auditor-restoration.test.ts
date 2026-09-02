@@ -279,7 +279,19 @@ describe("auditor-restoration Phase 1 — active push in messages.transform", ()
         const text = (m.parts[0] as Record<string, unknown>)?.text as string ?? "<no text>";
         return `[${i}] role=${info.role} agent=${info.agent} textLen=${text.length} textHead=${text.slice(0, 80).replace(/\n/g, "\\n")}`;
       });
-      throw new Error(`Expected 1 pushed message but got ${pushed.length}. Diagnostics:\n${summaries.join("\n")}\nOutput total messages: ${output.messages.length} (was ${pushedBefore} before transform).`);
+      // Diagnostic v2: dump full text of each push to identify the second message.
+      const lines2: string[] = [];
+      lines2.push(`Expected 1 pushed message but got ${pushed.length}.`);
+      lines2.push(`Output total messages: ${output.messages.length} (was ${pushedBefore} before transform)`);
+      for (let i = 0; i < pushed.length; i++) {
+        const m = pushed[i]!;
+        const info = m.info as Record<string, unknown>;
+        const text = (m.parts[0] as Record<string, unknown>)?.text as string ?? "<no text>";
+        lines2.push(`PUSH[${i}]: role=${info.role} agent=${info.agent} textLen=${text.length}`);
+        lines2.push(`  HEAD: ${text.slice(0, 200).replace(/\n/g, "\\n")}`);
+        lines2.push(`  TAIL: ${text.slice(-100).replace(/\n/g, "\\n")}`);
+      }
+      throw new Error(lines2.join("\n"));
     }
     assertAssistantWrapped(pushed);
     const text = (pushed[0]!.parts[0] as Record<string, unknown>).text as string;
