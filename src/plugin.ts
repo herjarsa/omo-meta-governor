@@ -4,6 +4,8 @@ import type {
   PluginInput,
   PluginOptions,
 } from "@opencode-ai/plugin";
+import type { Model as SDKModel } from "@opencode-ai/sdk";
+
 import { randomUUID as crypto_randomUUID, createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type {
@@ -2577,6 +2579,70 @@ metricsCollector.inc("interventions_delivered");
             "---",
           );
         }
+      },
+
+      // v0.44.0 (FASE 6): re-enable experimental.chat.system.transform.
+      //
+      // The CHANGELOG entry for v0.40.0 falsely claimed this hook was "silently
+      // never invoked" by OpenCode v1.x and removed the registration to "drop dead
+      // code". Empirically verified in OpenCode 1.18.26 SDK
+      // (node_modules/@opencode-ai/plugin/dist/index.d.ts:265-270): the hook IS in
+      // the type definitions and IS invoked by OpenCode. Re-registering it now
+      // turns the plugin back into the "supreme commander auditor" that was
+      // working up to v0.29: every turn, the plugin appends a summary of recent
+      // violations + non-continue decisions to output.system[] which is
+      // injected into the agent's system prompt and PERSISTS across the session.
+      //
+      // Two surfaces:
+      //   - output.system[]  (this hook)  -> AGENT context, persistent, system prompt
+      //   - session.prompt() (FASE 3)      -> USER visible in TUI (main agent only)
+      "experimental.chat.system.transform": async (
+        sysInput: { sessionID?: string; model: SDKModel },
+        sysOutput: { system: string[] },
+      ): Promise<void> => {
+        if (!mergedConfig.enabled) return;
+        const sessionID = sysInput.sessionID;
+        if (!sessionID) return;
+        const st = auditSessions.get(sessionID);
+        if (!st) return;
+
+        // Build the audit summary from accumulated state. Format each item
+        // compactly so it fits in the system prompt without ballooning context.
+        const lines: string[] = [];
+        lines.push("[omo-meta-governor audit] v" + DEFAULT_VERSION + " — runtime governance active");
+        lines.push("");
+
+        // Recent violations (capped at last 5 to keep system prompt small).
+        const recentViolations = st.accumulatedDeviations.slice(-5);
+        if (recentViolations.length > 0) {
+          lines.push("RECENT PROTOCOL VIOLATIONS (most recent first):");
+          for (const v of recentViolations.slice().reverse()) {
+            lines.push(`  - [${v.severity}] ${v.category}: ${v.detail.slice(0, 200)}`);
+          }
+          lines.push("");
+        }
+
+        // Recent decisions (capped at last 3 non-continue actions).
+        const recentDecisions = (st as any).recentDecisions ?? [];
+        const nonContinueDecisions = recentDecisions.filter((d: any) => d.action !== "continue").slice(-3);
+        if (nonContinueDecisions.length > 0) {
+          lines.push("RECENT DECISIONS (non-continue):");
+          for (const d of nonContinueDecisions.slice().reverse()) {
+            lines.push(`  - [${d.action}] score=${d.score.toFixed(2)} reasoning=${(d.reasoning ?? "").slice(0, 200)}`);
+          }
+          lines.push("");
+        }
+
+        // If nothing notable, emit a single line so the agent always sees
+        // the audit surface (confirms the plugin is alive and watching).
+        if (recentViolations.length === 0 && nonContinueDecisions.length === 0) {
+          lines.push("No violations or non-continue decisions in this session yet.");
+          lines.push("Continue to use tools; the auditor will surface issues here.");
+        }
+
+        // Append (do not clobber) — OpenCode already populated system[] with
+        // model-specific instructions; we add our audit block at the end.
+        sysOutput.system.push(lines.join("\n"));
       },
 
       // v0.13.1 + v0.31.1: disable auto-continue when (a) the plugin has
