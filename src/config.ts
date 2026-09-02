@@ -578,6 +578,45 @@ graphSync: {
       skillsBin: full.cliAnything?.skillsBin ?? "npx skills",
       installScope: full.cliAnything?.installScope ?? "global",
     },
+    // v0.43.0: project governance from full.governance so the permission.ask/tool.definition/
+    // command.execute.before hooks added in v0.41.0 can actually enforce policy.
+    // Previously this was missing, so mergedConfig.governance was always undefined.
+    governance: full.governance
+      ? {
+          permissionPolicy: full.governance.permissionPolicy
+            ? {
+                mode: full.governance.permissionPolicy.mode,
+                bashDenyPatterns: full.governance.permissionPolicy.bashDenyPatterns,
+                bashAskPatterns: full.governance.permissionPolicy.bashAskPatterns,
+                editDenyPaths: full.governance.permissionPolicy.editDenyPaths,
+                editAskPaths: full.governance.permissionPolicy.editAskPaths,
+                webfetchDenyHosts: full.governance.permissionPolicy.webfetchDenyHosts,
+              }
+            : undefined,
+          toolRewrite: full.governance.toolRewrite
+            ? {
+                enabled: full.governance.toolRewrite.enabled,
+                descriptionSuffix: full.governance.toolRewrite.descriptionSuffix,
+                hideToolIDs: full.governance.toolRewrite.hideToolIDs,
+                parameterOverrides: full.governance.toolRewrite.parameterOverrides,
+              }
+            : undefined,
+          commandFilter: full.governance.commandFilter
+            ? {
+                enabled: full.governance.commandFilter.enabled,
+                denyPatterns: full.governance.commandFilter.denyPatterns,
+                replacementPrefix: full.governance.commandFilter.replacementPrefix,
+              }
+            : undefined,
+          smallModelOverride: full.governance.smallModelOverride
+            ? {
+                enabled: full.governance.smallModelOverride.enabled,
+                modelID: full.governance.smallModelOverride.modelID,
+                providerID: full.governance.smallModelOverride.providerID,
+              }
+            : undefined,
+        }
+      : undefined,
   }
 }
 
