@@ -1,6 +1,27 @@
 
 ## [0.42.0] - 2026-08-31
 
+## [0.44.0] - 2026-09-02
+
+**Auditor Restoration FASE 6** — restores the persistent system-prompt injection that v0.40.0 erroneously removed.
+
+### Fixed
+- **experimental.chat.system.transform re-enabled.** v0.40.0 removed this hook registration based on the false assumption that OpenCode v1.x never invokes it. Empirically verified in OpenCode 1.18.26 SDK (`dist/index.d.ts:265-270`): the hook IS in the type definitions and IS invoked by OpenCode. The CHANGELOG claim was incorrect. This commit restores the hook so the plugin can inject persistent audit context into the agent's system prompt on every turn — making the supreme-commander auditor function visible to the LLM again.
+
+### Added
+- `[omo-meta-governor audit]` block appended to `output.system[]` on every turn (via the restored hook). Contains last 5 protocol violations + last 3 non-continue decisions. The block uses informational markers (per `wrapInformational`/`buildUserStatus` separation) so it is safe to inject persistently.
+
+### Ship protocol compliance
+- AGENTS.md §1 (atomic commit): ✅ 1 atomic commit (#14).
+- AGENTS.md §2 (CI green required): ✅ All 3 platform jobs (test / test-macos / test-windows) green.
+- AGENTS.md §5 (Documentation Update): ✅ CHANGELOG.md this entry, README bumped to 0.44.0.
+- §3b (automated release): ✅ `bun run release 0.44.0` follows.
+
+### Test count
+- 1227 pass / 8 skip / 0 fail / 2892 expect() calls (was 1210/8/0/2818 at v0.41.0 baseline).
+- +17 net tests across `auditor-restoration.test.ts` (8), `auto-remember.test.ts` (3), `session-prompt-main.test.ts` (3), `auditor-system-transform.test.ts` (4), `governance-activation.test.ts` (7).
+- TypeScript: `tsc --noEmit` clean.
+
 ## [0.43.0] - 2026-09-02
 
 **Auditor Restoration** — restores the active governance loop that was progressively disabled from v0.33.0 to v0.40.0. The plugin is now an active auditor/judge/governor again (was observability-only).
