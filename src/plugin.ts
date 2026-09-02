@@ -194,6 +194,8 @@ __test_persistSessionMessage?: typeof import("./session-bridge").persistSessionM
   __test_persistRetryDelayMs?: number;
   /** v0.43.0 Phase 3: scope-guard for main-agent only persist/escalation. When provided, return true for main sessions (parentID null) and false for subagent/oracle sessions. */
   __test_isMainSession?: (sessionID: string) => boolean;
+  /** v0.43.0 Phase 4: test-only hook for auto-remember — captures the directive that would be sent via promptAgent. */
+  __test_autoRemember?: (payload: { sessionID: string; decision: import("./types").DecisionHandlerOutput; promptText: string }) => void;
 }
 
 // - Helpers
@@ -2420,6 +2422,32 @@ metricsCollector.inc("interventions_delivered");
           });
         }
         persistIntervention(currentSessionID, messageText);
+        // v0.43.0 Phase 4: auto-trigger omo_remember on notable decisions for main agent only.
+        // Fire-and-forget via promptAgent (or test seam) so the agent remembers WHY it was warned.
+        try {
+          const notable = decision.action === "warn" || decision.action === "escalate" || decision.action === "stop";
+          if (notable && isMainSession(currentSessionID) && !isSessionStart(output.messages)) {
+            const rememberContent = `MetaGovernor ${decision.action}: ${decision.message} (reasoning: ${decision.historyEntry?.reasoning ?? decision.message})`;
+            const rememberPromptText =
+              `Please call the \`agentmemory_memory_save\` MCP tool with EXACTLY these args:\n\n` +
+              "```json\n" +
+              JSON.stringify({ content: rememberContent, concepts: ["metagovernor", decision.action] }, null, 2) +
+              "\n```\n\nDo not paraphrase, modify, or add fields. Pass the args through verbatim.";
+            if (typeof deps.__test_autoRemember === "function") {
+              try { deps.__test_autoRemember({ sessionID: currentSessionID, decision, promptText: rememberPromptText }); } catch {}
+            } else {
+              setTimeout(() => {
+                void promptAgent(currentSessionID, {
+                  toolName: "omo_remember",
+                  mcpTool: "agentmemory_memory_save",
+                  mcpArgs: { content: rememberContent, concepts: ["metagovernor", decision.action] },
+                  preamble: "MetaGovernor auto-remember: notable decision — remember WHY this intervention fired.",
+                }).catch((err) => { logToFile("warn", "auto-remember promptAgent failed: " + String(err)); });
+              }, 0);
+            }
+            logToFile("info", `auto-remember queued for ${currentSessionID}: ${decision.action}`);
+          }
+        } catch {}
       },
 
 
