@@ -266,37 +266,24 @@ describe("auditor-restoration Phase 1 — active push in messages.transform", ()
     await before(
       { tool: "write", sessionID: sid, callID: "call-v1" },
       { args: { filePath: "/tmp/bad.ts", content: "// @ts-ignore\nconst x: any = 1 as any;" } },
-    );
+      { args: { filePath: "/tmp/bad.ts", content: "// @ts-ignore\nconst x: any = 1 as any;" } },);
     const transform = plugin["experimental.chat.messages.transform"]!;
+    // v0.43.0 Phase 1: drain once-per-session nudges (plan reminder) via a session-start call.
+    // On Linux/macOS CI, the workspace cwd may lack PLAN.md / AGENTS.md ## Plan, causing
+    // shouldInjectPlanReminder to return true and fire a second push during the mid-session call.
+    const drain = sessionStartOutput(sid);
+    await transform({}, drain);
+    // Now mid-session: only the queued violation push should land.
     const output = midSessionOutput(sid);
     const pushedBefore = output.messages.length;
     await transform({}, output);
     const pushed = getPushedParts(output, pushedBefore);
-    // Diagnostic: log pushed length to help diagnose cross-platform failures.
-    if (pushed.length !== 1) {
-      const summaries = pushed.map((m, i) => {
-        const info = m.info as Record<string, unknown>;
-        const text = (m.parts[0] as Record<string, unknown>)?.text as string ?? "<no text>";
-        return `[${i}] role=${info.role} agent=${info.agent} textLen=${text.length} textHead=${text.slice(0, 80).replace(/\n/g, "\\n")}`;
-      });
-      // Diagnostic v2: dump full text of each push to identify the second message.
-      const lines2: string[] = [];
-      lines2.push(`Expected 1 pushed message but got ${pushed.length}.`);
-      lines2.push(`Output total messages: ${output.messages.length} (was ${pushedBefore} before transform)`);
-      for (let i = 0; i < pushed.length; i++) {
-        const m = pushed[i]!;
-        const info = m.info as Record<string, unknown>;
-        const text = (m.parts[0] as Record<string, unknown>)?.text as string ?? "<no text>";
-        lines2.push(`PUSH[${i}]: role=${info.role} agent=${info.agent} textLen=${text.length}`);
-        lines2.push(`  HEAD: ${text.slice(0, 200).replace(/\n/g, "\\n")}`);
-        lines2.push(`  TAIL: ${text.slice(-100).replace(/\n/g, "\\n")}`);
-      }
-      throw new Error(lines2.join("\n"));
-    }
+    expect(pushed.length).toBe(1);
     assertAssistantWrapped(pushed);
     const text = (pushed[0]!.parts[0] as Record<string, unknown>).text as string;
     expect(text).toContain("PROTOCOL VIOLATIONS");
   });
+
 
   // ─── 5. decision intervention prod ─────────────────────────────────
 
