@@ -111,6 +111,7 @@ import { GraphRetrieval, getDefaultGraphRetrieval, configureDefaultGraphRetrieva
 import { AuditStateCache } from "./audit-state-cache";
 import { TtlBoundedMap } from "./utils/ttl-bounded-map";
 import { isSessionStart } from "./utils/session-start";
+import { listBundledSkillNames } from "./utils/skill-catalog";
 import { wrapInformational } from "./agent-notifications";
 
 import { DEFAULT_VERSION } from "./metrics";
@@ -205,6 +206,10 @@ __test_persistSessionMessage?: typeof import("./session-bridge").persistSessionM
    */
   __test_reflectionPrompt?: (payload: { sessionID: string; text: string }) => void;
 }
+
+// v0.46.0 Phase 8: module-level Set tracking which sessions have received the
+// session-start directives (avoids re-firing on every system.transform call).
+const systemDirectivesSent = new Set<string>();
 
 // - Helpers
 
@@ -871,7 +876,8 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
       lastWarnAtMs: number;
       /** v0.45.0 Phase 7: timestamp of the last self-reflection prompt sent via session.prompt(). */
       lastReflectionAtMs?: number;
-      /** v0.29.0: hash of the last warn decision's reasoning. Combined with
+      /**
+
        *  lastWarnAtMs, two warns with the same hash within the cooldown
        *  window are suppressed. */
       lastWarnHash: string;
@@ -2663,6 +2669,44 @@ metricsCollector.inc("interventions_delivered");
         if (!mergedConfig.enabled) return;
         const sessionID = sysInput.sessionID;
         if (!sessionID) return;
+
+        // v0.46.0 Phase 8: inject session-start directives (recall + superpowers workflow)
+        // BEFORE the st check, so it fires on the first turn of a fresh session even
+        // before tool.execute.before has populated audit state.
+        if (!systemDirectivesSent.has(sessionID)) {
+          systemDirectivesSent.add(sessionID);
+          const skillNames = listBundledSkillNames(cwd);
+          const dirLines: string[] = [];
+          dirLines.push("");
+          dirLines.push("[omo-meta-governor session-start protocol]");
+          dirLines.push("");
+          dirLines.push("1. RECALL FIRST. Before you start any task, call `omo_recall`");
+          dirLines.push("   with relevant context from prior sessions. This surfaces");
+          dirLines.push("   decisions, violations, and lessons learned that affect this work.");
+          dirLines.push("");
+          dirLines.push("2. USE THE SUPERPOWERS WORKFLOW. Use the `using-superpowers` skill");
+          dirLines.push("   (or `omo_skill_find`) to select the right chore skill for the task:");
+          dirLines.push("");
+          dirLines.push("   - Brainstorming/ideation       -> `brainstorming`");
+          dirLines.push("   - Implementing code           -> `test-driven-development`");
+          dirLines.push("   - Debugging an issue          -> `systematic-debugging`");
+          dirLines.push("   - Reviewing code              -> `requesting-code-review` / `receiving-code-review`");
+          dirLines.push("   - Working in parallel         -> `dispatching-parallel-agents`");
+          dirLines.push("   - Working with git worktrees  -> `using-git-worktrees`");
+          dirLines.push("   - Multiple complex steps      -> `writing-plans` + `executing-plans`");
+          dirLines.push("   - Complex TDD workflow        -> `subagent-driven-development`");
+          dirLines.push("   - Wrapping up a feature        -> `finishing-a-development-branch`");
+          dirLines.push("   - Generating new skills       -> `writing-skills`");
+          dirLines.push("");
+          dirLines.push("3. AVAILABLE CHORE SKILLS (installed from bundled-skills/):");
+          for (const s of skillNames) {
+            dirLines.push(`   - ${s}`);
+          }
+          dirLines.push("");
+          dirLines.push("Read the SKILL.md of the selected skill before starting work.");
+          sysOutput.system.push(dirLines.join("\n"));
+        }
+
         const st = auditSessions.get(sessionID);
         if (!st) return;
 
@@ -2699,6 +2743,7 @@ metricsCollector.inc("interventions_delivered");
           lines.push("No violations or non-continue decisions in this session yet.");
           lines.push("Continue to use tools; the auditor will surface issues here.");
         }
+
 
         // Append (do not clobber) — OpenCode already populated system[] with
         // model-specific instructions; we add our audit block at the end.

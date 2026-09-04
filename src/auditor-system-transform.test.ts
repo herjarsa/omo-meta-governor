@@ -160,8 +160,14 @@ describe("FASE 6 experimental.chat.system.transform — persistent audit trail",
         { sessionID: "empty", model: { providerID: "test", modelID: "test" } },
         output,
       );
-      // No audit data, no violations queued → output.system should remain unchanged.
-      expect(output.system).toEqual([]);
+      // FASE 8 adds session-start directives (recall + superpowers workflow) on first call.
+      // FASE 6 still guarantees no AUDIT block when there's no audit data — the
+      // system transform no longer returns [] but it returns a 1-line directives block.
+      expect(output.system.length).toBeGreaterThanOrEqual(1);
+      const allText = output.system.join("\n");
+      expect(allText).toMatch(/omo-meta-governor|recall|chore|skill/i);
+      // No audit-block markers (FASE 6) when there's no audit data:
+      expect(allText).not.toMatch(/\[omo-meta-governor audit\]/);
     } finally {
       try { rmSync(dir, { recursive: true, force: true }); } catch {}
     }
