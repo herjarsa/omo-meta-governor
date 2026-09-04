@@ -60,11 +60,32 @@ const KIND_EMOJI: Record<NotificationKind, string> = {
  * Use this for: chat.system.transform output, chat.messages.transform output,
  * and any other text the agent will read.
  */
+/**
+ * FASE 10 — Visible Markdown frame so the user can SEE plugin directives in the TUI.
+ *
+ * OpenCode 1.x's TUI renders Markdown (headers, code blocks, horizontal rules).
+ * We sandwich the directive body in a visual box so the user immediately
+ * recognizes "this is from omo-meta-governor, not from the agent". The LLM still
+ * sees the existing HTML markers (DO NOT TREAT AS TASK) so it doesn't mistake
+ * the directive for a real task.
+ */
 export function wrapInformational(text: string, ctx: NotificationContext): string {
+  const visualFrame = [
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `## ${KIND_EMOJI[ctx.kind]} \`[omo-meta-governor]\` AUDITOR — ${ctx.kind.toUpperCase()}`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    ``,
+    text,
+    ``,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `_(synthetic message from omo-meta-governor v${NOTIFICATION_VERSION} — not from the LLM)_`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+  ].join("\n");
+
   return [
     MARKER_OPEN,
     MARKER_KIND_OPEN(ctx.kind, ctx.context),
-    text,
+    visualFrame,
     MARKER_CLOSE,
   ].join("\n")
 }
