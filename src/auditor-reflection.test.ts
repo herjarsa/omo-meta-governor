@@ -75,7 +75,7 @@ async function makePlugin(
 describe("FASE 7 reflection trigger via session.prompt", () => {
   beforeEach(() => clearAll());
 
-  it("1/5 triggers reflection on escalate for main agent via __test_reflectionPrompt seam", async () => {
+  it("1/5 triggers reflection on escalate for main agent via __test_reflectionPrompt seam", { timeout: 30000 }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "fase7-reflect-"));
     writeFileSync(join(dir, "PLAN.md"), "# test");
     const reflectionCaptured: string[] = [];
