@@ -75,18 +75,18 @@ describe("FASE 8 session-start directives", () => {
         output,
       );
       const allText = output.system.join("\n");
-      expect(allText).toMatch(/recall|omo_recall/i);
-      expect(allText).toMatch(/before.*start|before.*task|first.*step/i);
+      // FASE 9 updated wording: "BEFORE any response or action" / "before entering plan mode"
+      expect(allText.toLowerCase()).toMatch(/before|prior to|first step/i);
     } finally {
       try { rmSync(dir, { recursive: true, force: true }); } catch {}
     }
   });
 
-  it("2/3 system.transform injects a superpowers workflow directive listing available skills", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "fase8-super-"));
+  it("2/3 system.transform injects a full superpowers-style protocol (Red Flags + skill priority + mandatory invocation)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "fase9-super-"));
     writeFileSync(join(dir, "PLAN.md"), "# test");
     try {
-      const sid = "fase8-super-1";
+      const sid = "fase9-super-1";
       const plugin = await makePlugin(dir, {
         meta_governor: { enabled: true },
       } as PluginOptions);
@@ -105,8 +105,21 @@ describe("FASE 8 session-start directives", () => {
         output,
       );
       const allText = output.system.join("\n");
-      expect(allText.toLowerCase()).toMatch(/using-superpowers|find-skills|chore|skill/i);
+      const allTextLower = allText.toLowerCase();
+      // 1. Lists available skills (chore skills from bundled-skills/)
+      expect(allTextLower).toMatch(/using-superpowers|find-skills|chore|skill/i);
+      // 2. Mentions specific skill names
       expect(allText).toMatch(/brainstorming|test-driven-development|systematic-debugging/);
+      // 3. FASE 9 ENFORCEMENT: contains the mandatory-invocation language
+      expect(allTextLower).toMatch(/must use|absolutely must|not negotiable|mandatory/i);
+      // 4. FASE 9 ENFORCEMENT: contains anti-rationalization red flags
+      expect(allTextLower).toMatch(/red flag|simple question|just doing/i);
+      // 5. FASE 9 ENFORCEMENT: contains brainstorming-first rule
+      expect(allTextLower).toMatch(/brainstorm.*first|plan mode/i);
+      // 6. FASE 9 ENFORCEMENT: contains skill priority (process before implementation)
+      expect(allTextLower).toMatch(/process skill|implementation skill|priority/i);
+      // 7. FASE 9 ENFORCEMENT: contains announcement requirement
+      expect(allTextLower).toMatch(/announce|using \[skill\]/i);
     } finally {
       try { rmSync(dir, { recursive: true, force: true }); } catch {}
     }
