@@ -1,6 +1,46 @@
 
 ## [0.42.0] - 2026-08-31
 
+## [0.48.0] - 2026-09-04
+
+**Auditor Restoration FASE 10** - visible Markdown frame for plugin directives.
+
+### Added
+- **Markdown visual frame** wraps every plugin directive (skill priming, decision interventions, audit trail, etc.) so the user can clearly identify plugin-originated content in OpenCode's TUI. OpenCode's TUI renders Markdown headers and horizontal rules visibly:
+  ```
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ## [emoji] [omo-meta-governor] AUDITOR - <KIND>
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  [original directive body]
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  _(synthetic message from omo-meta-governor vv0.38.2 - not from the LLM)_
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ```
+
+- **Kind-specific emoji** per notification type:
+  - `graph-priming` -> search
+  - `skill-priming` -> target
+  - `intervention` -> warning
+  - `postwave` -> wave
+  - `enforcement` -> barrier
+  - `memory` -> thought
+
+### Implementation
+- Single function modification: `wrapInformational()` in `src/agent-notifications.ts`
+- The visual frame is placed BETWEEN the existing HTML markers so:
+  - The LLM still sees DO NOT TREAT AS TASK (semantic guard unchanged)
+  - The user sees the visual box in the TUI (new)
+  - Original directive text is preserved unchanged
+
+### Tests
+- New: `src/agent-notifications-visual.test.ts` (7 tests, TDD)
+- 1242 pass / 8 skip / 0 fail / 2932 expect() calls
+
+### Ship protocol compliance
+- AGENTS.md §1 (atomic commit): OK 1 atomic commit (#22).
+- AGENTS.md §2 (CI green required): OK All 3 platform jobs green.
+- AGENTS.md §5 (Documentation Update): OK CHANGELOG.md this entry.
+
 ## [0.47.0] - 2026-09-04
 
 **Auditor Restoration FASE 9** — full superpowers workflow enforcement.
