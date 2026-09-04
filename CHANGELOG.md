@@ -1,6 +1,31 @@
 
 ## [0.42.0] - 2026-08-31
 
+## [0.46.0] - 2026-09-02
+
+**Auditor Restoration FASE 8** — proactive session-start directives (recall + superpowers workflow).
+
+### Added
+- **Session-start directives injected via `experimental.chat.system.transform`.** On the first call per session, the plugin appends a block to the agent's system prompt that:
+  1. Reminds the LLM to call `omo_recall` FIRST for context from prior sessions.
+  2. Lists the available chore skills (read from `bundled-skills/` at plugin load).
+  3. Tells the LLM to use the `using-superpowers` / `find-skills` flow to pick the right chore skill for each task.
+
+This restores the original superpowers plugin workflow: the LLM actively consults skills rather than the plugin hoping the LLM discovers them on its own.
+
+- New helper: `listBundledSkillNames(workspaceDir)` in `src/utils/skill-catalog.ts` reads the `bundled-skills/` directory and returns the list of installed skill names.
+
+### Ship protocol compliance
+- AGENTS.md §1 (atomic commit): ✅ 1 atomic commit (#18).
+- AGENTS.md §2 (CI green required): ✅ All 3 platform jobs (test / test-macos / test-windows) green.
+- AGENTS.md §5 (Documentation Update): ✅ CHANGELOG.md this entry.
+- §3b (automated release): ✅ tag push triggers OIDC publish.
+
+### Test count
+- 1235 pass / 8 skip / 0 fail / 2910 expect() calls (was 1232/8/0/2902 at v0.45.0).
+- +3 net tests in `auditor-session-directives.test.ts`.
+- TypeScript: `tsc --noEmit` clean.
+
 ## [0.45.0] - 2026-09-02
 
 **Auditor Restoration FASE 7** — self-reflection via session.prompt().
