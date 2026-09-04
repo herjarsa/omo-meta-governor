@@ -1,6 +1,29 @@
 
 ## [0.42.0] - 2026-08-31
 
+## [0.47.0] - 2026-09-04
+
+**Auditor Restoration FASE 9** — full superpowers workflow enforcement.
+
+### Changed
+- **Session-start directive upgraded to match the original superpowers plugin's enforced workflow** (per `using-superpowers/SKILL.md`):
+  - **THE RULE** — Invoke skills BEFORE any response. Not negotiable.
+  - **ANNOUNCEMENT** — Required pattern: "Using [skill] to [purpose]"
+  - **SKILL PRIORITY** — Process skills first, implementation second (brainstorming → implementation, systematic-debugging → domain)
+  - **BRAINSTORMING-FIRST RULE** — Mandatory before plan mode
+  - **RED FLAGS table** — 9 anti-rationalization guardrails (e.g., "This is just a simple question", "I remember this skill", "I'll just do this one thing first")
+  - **FAILURE MODES table** — 5 recovery paths (skill not found, errors, overkill, tests failing, user overrides)
+  - **START PROTOCOL** — 4 numbered steps (recall → read SKILL.md → brainstorm if planning → announce and follow)
+
+### Tests
+- Updated: `src/auditor-session-directives.test.ts` (3 tests now check the full superpowers workflow)
+- 1235 pass / 8 skip / 0 fail / 2914 expect() calls
+
+### Ship protocol compliance
+- AGENTS.md §1 (atomic commit): ✅ 1 atomic commit (#20).
+- AGENTS.md §2 (CI green required): ✅ All 3 platform jobs green.
+- AGENTS.md §5 (Documentation Update): ✅ CHANGELOG.md this entry.
+
 ## [0.46.0] - 2026-09-02
 
 **Auditor Restoration FASE 8** — proactive session-start directives (recall + superpowers workflow).
