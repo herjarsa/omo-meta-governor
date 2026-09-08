@@ -62,9 +62,12 @@ describe("verifyDelivery return type (Gap I)", () => {
   })
 })
 
-// Gap D: includeDecisionHistory in messages.transform
+// Gap D: includeDecisionHistory in system.transform (v0.49.0 FASE 11: the
+// FASE 1 decision directive fires per LLM call via system.transform, not
+// messages.transform; the 11f block surfaces the latest pending decision and
+// the FASE 6 audit block carries session history when present)
 describe("includeDecisionHistory (Gap D)", () => {
-  it("messages.transform surfaces past decisions when includeDecisionHistory is true", async () => {
+  it("system.transform surfaces past decisions when includeDecisionHistory is true", async () => {
     // This is tested via integration — the plugin factory wires it
     const { createHermeticPlugin } = await import("./__test-helpers__/hermetic-plugin")
     const { clearAll, storeDecision } = await import("./decision-store")
@@ -129,26 +132,32 @@ describe("includeDecisionHistory (Gap D)", () => {
             includeDecisionHistory: true,
             maxHistoryMessages: 5,
           },
+          // v0.49.0 FASE 11: system.transform requires audit state.
+          protocolEnforcement: { enabled: true, auditToolCalls: true },
+          skillPriming: { enabled: false },
         },
       },
     )
-    const transform = hooks["experimental.chat.messages.transform"]!
-    // v0.38.6: mid-session setup (prior real assistant message) so the
-    // TUI session-killer fix does not skip the synthetic push.
-    const output = {
-      messages: [
-        { info: { role: "user", sessionID: "test-session" }, parts: [{ type: "text", text: "first ask" }] },
-        { info: { role: "assistant", sessionID: "test-session", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
-        { info: { role: "user", sessionID: "test-session" }, parts: [{ type: "text", text: "hi" }] },
-      ] as Array<{ info: unknown; parts: unknown[] }>,
-    }
-    await transform({}, output)
+    const before = hooks["tool.execute.before"]!
+    const systemTransform = hooks["experimental.chat.system.transform"] as unknown as (
+      input: unknown,
+      output: { system: string[] },
+    ) => Promise<void>
+    // v0.49.0 FASE 11: seed audit state, then surface via system.transform (11f
+    // peek). The latest pending decision ("Second decision") must be present
+    // with the informational marker.
+    await before(
+      { tool: "read", sessionID: "test-session", callID: "call-1" },
+      { args: {} },
+    )
+    const output = { system: [] as string[] }
+    await systemTransform(
+      { sessionID: "test-session", model: { providerID: "test", modelID: "test" } },
+      output,
+    )
 
-    // Should have at least 1 injected message (original 3 + 1 injected = 4)
-    expect(output.messages.length).toBeGreaterThan(1)
-    const allText = output.messages
-      .map((m) => (m.parts[0] as Record<string, unknown> | undefined)?.text as string ?? "")
-      .join("\\n")
+    expect(output.system.length).toBeGreaterThan(0)
+    const allText = output.system.join("\n")
     // The decision message should be present
     expect(allText).toContain("MetaGovernor")
   })

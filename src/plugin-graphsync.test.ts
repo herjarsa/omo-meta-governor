@@ -155,30 +155,53 @@ describe("graphSync init placement", () => {
       // inline override was disabling graphSync init, so the nudge never
       // fired. The factory arg's graphSync: { enabled: true } now wins and
       // graphSync init runs as the test intends.
-      meta_governor: { enabled: true },
+      // v0.49.0 FASE 11: the graph-tools-ready nudge fires via system.transform
+      // (11c), not messages.transform. The 11c block additionally requires a
+      // prior real intervention (interventionCount > 0), which hermetic seeds
+      // cannot produce deterministically — so this test pins the migration
+      // contract: no messages push, audit block still appended via system.
+      meta_governor: {
+        enabled: true,
+        skillPriming: { enabled: false },
+        protocolEnforcement: { enabled: true, auditToolCalls: true },
+      },
     })
-    const transform = hooks["experimental.chat.messages.transform"]!
+    const before = hooks["tool.execute.before"]!
+    const msgTransform = hooks["experimental.chat.messages.transform"]!
+    const sysTransform = hooks["experimental.chat.system.transform"] as unknown as (
+      input: unknown,
+      output: { system: string[] },
+    ) => Promise<void>
 
     // The background init resolves asynchronously — let the microtask run.
     await new Promise((r) => setTimeout(r, 10))
 
-    // v0.38.6: use mid-session setup (prior real assistant message) so the
-    // TUI session-killer fix does not skip the graph-tools-ready nudge.
+    // Seed audit state (system.transform requires it).
+    await before({ tool: "read", sessionID: "s-ready", callID: "call-1" }, { args: {} })
+
     const messages: Array<{ info: unknown; parts: unknown[] }> = [
       { info: { role: "user", sessionID: "s-ready" }, parts: [{ type: "text", text: "first ask" }] },
       { info: { role: "assistant", sessionID: "s-ready", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
       { info: { sessionID: "s-ready" }, parts: [{ type: "text", text: "hi" }] },
     ]
-    await transform({}, { messages })
+    await msgTransform({}, { messages })
     const nudges = messages.filter((m) =>
       JSON.stringify(m.parts).includes("omo_search"),
     )
-    expect(nudges.length).toBe(1)
+    expect(nudges.length).toBe(0)
 
-    // Once per session only.
-    await transform({}, { messages })
+    // Once per session only — a second messages.transform also pushes nothing.
+    await msgTransform({}, { messages })
     expect(
       messages.filter((m) => JSON.stringify(m.parts).includes("omo_search")).length,
-    ).toBe(1)
+    ).toBe(0)
+
+    // The audit block still appends via system.transform.
+    const sysOut = { system: [] as string[] }
+    await sysTransform(
+      { sessionID: "s-ready", model: { providerID: "test", modelID: "test" } },
+      sysOut,
+    )
+    expect(sysOut.system.join("\n")).toContain("[omo-meta-governor audit]")
   })
 })
