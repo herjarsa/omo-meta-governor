@@ -106,13 +106,18 @@ describe("FASE 6 experimental.chat.system.transform — persistent audit trail",
       await systemTransform(input, output);
 
       expect(output.system.length).toBeGreaterThan(0);
-      // Find a line that mentions the violation
+      // v0.49.0 FASE 11: violations surface in the 11e drain block (per-turn),
+      // while the FASE 6 audit block carries the "[omo-meta-governor audit]"
+      // header. They may live in different blocks — assert across all text.
+      const allText = output.system.join("\n");
+      expect(allText).toContain("[omo-meta-governor audit]");
+      expect(allText).toContain("no-type-suppression");
+      // The per-turn drain block carries the wrapInformational marker.
       const violationLine = output.system.find((line) =>
-        line.includes("@ts-ignore") && line.includes("as any"),
+        line.includes("protocol violations"),
       );
       expect(violationLine).toBeDefined();
-      expect(violationLine).toContain("[omo-meta-governor audit]");
-      expect(violationLine).toContain("no-type-suppression");
+      expect(violationLine).toContain("META-GOVERNOR INFORMATIONAL");
     } finally {
       try { rmSync(dir, { recursive: true, force: true }); } catch {}
     }

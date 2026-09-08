@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach } from "bun:test"
 import { createHermeticPlugin } from "./__test-helpers__/hermetic-plugin"
 import { clearAll, storeDecision } from "./decision-store"
 
-describe("v0.17.3 Gap D — decision history in messages.transform", () => {
+describe("v0.17.3 Gap D — decision history in system.transform", () => {
   beforeEach(() => clearAll())
 
   it("then includes prior interventions in text when includeDecisionHistory is true", async () => {
@@ -29,12 +29,22 @@ describe("v0.17.3 Gap D — decision history in messages.transform", () => {
             includeDecisionHistory: true,
             maxHistoryMessages: 5,
           },
+          // v0.49.0 FASE 11: system.transform requires audit state.
+          protocolEnforcement: { enabled: true, auditToolCalls: true },
+          skillPriming: { enabled: false },
         },
       },
     )
-    const transform = hooks["experimental.chat.messages.transform"]!
+    const before = hooks["tool.execute.before"]!
+    const systemTransform = hooks["experimental.chat.system.transform"] as unknown as (
+      input: unknown,
+      output: { system: string[] },
+    ) => Promise<void>
+    const sysIn = { sessionID: "ses-D-1", model: { providerID: "test", modelID: "test" } }
 
-    // First intervention: store warn decision + inject it (populates recentInterventionTexts)
+    // First intervention: store warn decision + surface it (11f peek).
+    // v0.49.0 FASE 11: seed audit state, then surface via system.transform.
+    await before({ tool: "read", sessionID: "ses-D-1", callID: "call-1" }, { args: {} })
     storeDecision("ses-D-1", {
       action: "escalate",
       message: "First warn: initial detection",
@@ -46,23 +56,13 @@ describe("v0.17.3 Gap D — decision history in messages.transform", () => {
         reasoning: "first",
       },
     })
-    // v0.38.6: mid-session setup (prior real assistant message) so the
-    // TUI session-killer fix does not skip the synthetic push.
-    const output1 = {
-      messages: [
-        { info: { role: "user", sessionID: "ses-D-1" }, parts: [{ type: "text", text: "first ask" }] },
-        { info: { role: "assistant", sessionID: "ses-D-1", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
-        { info: { role: "user", sessionID: "ses-D-1" }, parts: [{ type: "text", text: "step1" }] },
-      ],
-    } as any
-    await transform({}, output1)
-    const firstInjection = output1.messages
-      .map((m: any) => (m.parts[0] as Record<string, unknown> | undefined)?.text as string ?? "")
-      .find((t: string) => t.includes("MetaGovernor"))
-    expect(firstInjection).toBeDefined()
+    const sysOut1 = { system: [] as string[] }
+    await systemTransform(sysIn, sysOut1)
+    const firstInjection = sysOut1.system.join("\n")
+    expect(firstInjection).toContain("MetaGovernor")
     expect(firstInjection).toContain("First warn")
 
-    // Second intervention: store escalate decision + inject it (reads recentInterventionTexts)
+    // Second intervention: store escalate decision + surface it.
     storeDecision("ses-D-1", {
       action: "escalate",
       message: "Second: escalation triggered",
@@ -74,23 +74,14 @@ describe("v0.17.3 Gap D — decision history in messages.transform", () => {
         reasoning: "second",
       },
     })
-    // v0.38.6: mid-session setup.
-    const output2 = {
-      messages: [
-        { info: { role: "user", sessionID: "ses-D-1" }, parts: [{ type: "text", text: "first ask" }] },
-        { info: { role: "assistant", sessionID: "ses-D-1", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
-        { info: { role: "user", sessionID: "ses-D-1" }, parts: [{ type: "text", text: "step2" }] },
-      ],
-    } as any
-    await transform({}, output2)
-    const secondInjection = output2.messages
-      .map((m: any) => (m.parts[0] as Record<string, unknown> | undefined)?.text as string ?? "")
-      .find((t: string) => t.includes("MetaGovernor"))
-    expect(secondInjection).toBeDefined()
-    // Second injection should include the first in history
-    expect(secondInjection).toContain("Recent decisions")
-    expect(secondInjection).toContain("[escalate]")
-    expect(secondInjection).toContain("First warn")
+    const sysOut2 = { system: [] as string[] }
+    await systemTransform(sysIn, sysOut2)
+    const secondInjection = sysOut2.system.join("\n")
+    expect(secondInjection).toContain("MetaGovernor")
+    // v0.49.0 FASE 11: the 11f block surfaces the latest pending decision with
+    // the informational marker (the messages.transform "Recent decisions"
+    // history block was retired with the push site).
+    expect(secondInjection).toContain("META-GOVERNOR INFORMATIONAL")
     expect(secondInjection).toContain("Second: escalation")
   })
 
@@ -117,12 +108,22 @@ describe("v0.17.3 Gap D — decision history in messages.transform", () => {
             minActionForMessage: "escalate",
             includeDecisionHistory: false,
           },
+          // v0.49.0 FASE 11: system.transform requires audit state.
+          protocolEnforcement: { enabled: true, auditToolCalls: true },
+          skillPriming: { enabled: false },
         },
       },
     )
-    const transform = hooks["experimental.chat.messages.transform"]!
+    const before = hooks["tool.execute.before"]!
+    const systemTransform = hooks["experimental.chat.system.transform"] as unknown as (
+      input: unknown,
+      output: { system: string[] },
+    ) => Promise<void>
+    const sysIn = { sessionID: "ses-D-2", model: { providerID: "test", modelID: "test" } }
 
-    // First injection (populates recentInterventionTexts but won't be shown due to includeDecisionHistory=false)
+    // v0.49.0 FASE 11: seed audit state, then surface via system.transform.
+    await before({ tool: "read", sessionID: "ses-D-2", callID: "call-1" }, { args: {} })
+    // First injection
     storeDecision("ses-D-2", {
       action: "escalate",
       message: "Only decision",
@@ -134,16 +135,9 @@ describe("v0.17.3 Gap D — decision history in messages.transform", () => {
         reasoning: "test",
       },
     })
-    // v0.38.6: mid-session setup (prior real assistant message) so the
-    // TUI session-killer fix does not skip the synthetic push.
-    const output1 = {
-      messages: [
-        { info: { role: "user", sessionID: "ses-D-2" }, parts: [{ type: "text", text: "first ask" }] },
-        { info: { role: "assistant", sessionID: "ses-D-2", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
-        { info: { role: "user", sessionID: "ses-D-2" }, parts: [{ type: "text", text: "s1" }] },
-      ],
-    } as any
-    await transform({}, output1)
+    const sysOut1 = { system: [] as string[] }
+    await systemTransform(sysIn, sysOut1)
+    expect(sysOut1.system.join("\n")).toContain("Only decision")
 
     // Second injection
     storeDecision("ses-D-2", {
@@ -157,20 +151,12 @@ describe("v0.17.3 Gap D — decision history in messages.transform", () => {
         reasoning: "test2",
       },
     })
-    // v0.38.6: mid-session setup.
-    const output2 = {
-      messages: [
-        { info: { role: "user", sessionID: "ses-D-2" }, parts: [{ type: "text", text: "first ask" }] },
-        { info: { role: "assistant", sessionID: "ses-D-2", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
-        { info: { role: "user", sessionID: "ses-D-2" }, parts: [{ type: "text", text: "s2" }] },
-      ],
-    } as any
-    await transform({}, output2)
+    const sysOut2 = { system: [] as string[] }
+    await systemTransform(sysIn, sysOut2)
 
-    const secondInjection = output2.messages
-      .map((m: any) => (m.parts[0] as Record<string, unknown> | undefined)?.text as string ?? "")
-      .find((t: string) => t.includes("MetaGovernor"))
-    expect(secondInjection).toBeDefined()
+    const secondInjection = sysOut2.system.join("\n")
+    expect(secondInjection).toContain("MetaGovernor")
+    expect(secondInjection).toContain("Second decision")
     expect(secondInjection).not.toContain("Recent decisions")
   })
 })

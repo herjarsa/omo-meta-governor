@@ -142,6 +142,8 @@ describe("experimental.chat.messages.transform", () => {
       meta_governor: {
         enabled: true,
         intervention: { mode: "message", minActionForMessage: "warn" },
+        // v0.49.0 FASE 11: system.transform requires audit state.
+        protocolEnforcement: { enabled: true, auditToolCalls: true },
         // v0.20.0: user config enables skillPriming; disable it here so
         // this test asserts ONLY the decision-injection path.
         skillPriming: { enabled: false },
@@ -156,22 +158,28 @@ describe("experimental.chat.messages.transform", () => {
         graphSync: { enabled: false, autoInstall: false },
       })
       const hooks = await plugin(mockPluginInput, options)
-      const transform = hooks["experimental.chat.messages.transform"]!
+      const before = hooks["tool.execute.before"]!
+      const systemTransform = hooks["experimental.chat.system.transform"] as unknown as (
+        input: unknown,
+        output: { system: string[] },
+      ) => Promise<void>
 
-      // v0.10.0: messages.transform requires sessionID to scope injection.
-      // v0.38.6: use mid-session setup (prior real assistant message) so the
-      // TUI session-killer fix does not skip the synthetic push.
-      const output = {
-        messages: [
-          { info: { role: "user", sessionID: "test-session" }, parts: [{ type: "text", text: "first ask" }] },
-          { info: { role: "assistant", sessionID: "test-session", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
-          { info: { role: "user", sessionID: "test-session" }, parts: [{ type: "text", text: "hi" }] },
-        ] as Array<{ info: unknown;
-      parts: unknown[] }>,
-      }
-      await transform({}, output)
+      // v0.49.0 FASE 11: FASE 1 directives fire via system.transform (per LLM
+      // call), not messages.transform (compaction-only in OpenCode 1.x).
+      // Seed audit state, then assert the decision surfaces in system.
+      await before(
+        { tool: "read", sessionID: "test-session", callID: "call-1" },
+        { args: {} },
+      )
+      const output = { system: [] as string[] }
+      await systemTransform(
+        { sessionID: "test-session", model: { providerID: "test", modelID: "test" } },
+        output,
+      )
 
-      expect(output.messages.length).toBe(4) // 3 input + 1 synthetic user message injected for warn
+      const allText = output.system.join("\n")
+      expect(allText).toContain("Test warn message")
+      expect(allText).toContain("META-GOVERNOR INFORMATIONAL")
     })
 
     it("then does NOT inject for continue decisions", async () => {
@@ -251,6 +259,8 @@ describe("minActionForMessage threshold", () => {
       meta_governor: {
         enabled: true,
         intervention: { mode: "message", minActionForMessage: "escalate" },
+        // v0.49.0 FASE 11: system.transform requires audit state.
+        protocolEnforcement: { enabled: true, auditToolCalls: true },
         // v0.20.0: user config enables skillPriming; disable it here so
         // this test asserts ONLY the decision-injection path.
         skillPriming: { enabled: false },
@@ -268,22 +278,26 @@ describe("minActionForMessage threshold", () => {
         { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) },
       )
       const hooks = await plugin(mockPluginInput, options)
-      const transform = hooks["experimental.chat.messages.transform"]!
+      const before = hooks["tool.execute.before"]!
+      const systemTransform = hooks["experimental.chat.system.transform"] as unknown as (
+        input: unknown,
+        output: { system: string[] },
+      ) => Promise<void>
 
-      // v0.10.0: messages.transform requires sessionID to scope injection.
-      // v0.38.6: mid-session setup so the TUI session-killer fix does not skip the synthetic push.
-      const output = {
-        messages: [
-          { info: { role: "user", sessionID: "test-session" }, parts: [{ type: "text", text: "first ask" }] },
-          { info: { role: "assistant", sessionID: "test-session", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
-          { info: { role: "user", sessionID: "test-session" }, parts: [{ type: "text", text: "hi" }] },
-        ] as Array<{ info: unknown; parts: unknown[] }>,
-      }
-      await transform({}, output)
+      // v0.49.0 FASE 11: decisions surface via system.transform (11f), not messages.
+      await before(
+        { tool: "read", sessionID: "test-session", callID: "call-1" },
+        { args: {} },
+      )
+      const output = { system: [] as string[] }
+      await systemTransform(
+        { sessionID: "test-session", model: { providerID: "test", modelID: "test" } },
+        output,
+      )
 
-      expect(output.messages.length).toBe(4) // original 3 + injected 1
-      const part = output.messages[output.messages.length - 1]!.parts[0] as Record<string, unknown>
-      expect(part.text).toContain("Test stop message")
+      const allText = output.system.join("\n")
+      expect(allText).toContain("Test stop message")
+      expect(allText).toContain("META-GOVERNOR INFORMATIONAL")
     })
   })
 })
@@ -317,7 +331,10 @@ auditToolCalls: true,
       })
       const hooks = await plugin(mockPluginInput, options)
       const before = hooks["tool.execute.before"]!
-      const transform = hooks["experimental.chat.messages.transform"]!
+      const systemTransform = hooks["experimental.chat.system.transform"] as unknown as (
+        input: unknown,
+        output: { system: string[] },
+      ) => Promise<void>
 
       // Simulate a write tool call with forbidden patterns in args
       await before(
@@ -325,24 +342,17 @@ auditToolCalls: true,
         { args: { filePath: "/tmp/bad.ts", content: "// @ts-ignore\nconst x: any = 1 as any;" } }
       )
 
-      // Trigger messages.transform which should inject pending violations.
-      // v0.38.6: mid-session setup so the TUI session-killer fix does not skip the violation injection.
-      const output = {
-        messages: [
-          { info: { role: "user", sessionID: "test-audit-1" }, parts: [{ type: "text", text: "first ask" }] },
-          { info: { role: "assistant", sessionID: "test-audit-1", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
-          { info: { role: "user", sessionID: "test-audit-1" }, parts: [{ type: "text", text: "ok" }] },
-        ] as Array<{ info: unknown; parts: unknown[] }>,
-      }
-      await transform({}, output)
+      // v0.49.0 FASE 11: pending violations drain via system.transform (11e).
+      const output = { system: [] as string[] }
+      await systemTransform(
+        { sessionID: "test-audit-1", model: { providerID: "test", modelID: "test" } },
+        output,
+      )
 
       // v0.35.0 (audit fix): violations DO inject; the v0.31.6 "log-only" behavior was never landed in plugin.ts.
-      // They no longer inject via messages.transform (which required "continua" click).
       // Grave violations still inject; MEDIA is suppressed.
-      const allText = output.messages
-        .map((m) => (m.parts[0] as Record<string, unknown> | undefined)?.text as string ?? "")
-        .join("\n")
-      expect(allText).toContain("PROTOCOL VIOLATIONS")
+      const allText = output.system.join("\n")
+      expect(allText).toContain("protocol violations")
       expect(allText).toContain("no-type-suppression")
     })
 
@@ -353,28 +363,26 @@ auditToolCalls: true,
       })
       const hooks = await plugin(mockPluginInput, options)
       const before = hooks["tool.execute.before"]!
-      const transform = hooks["experimental.chat.messages.transform"]!
+      const systemTransform = hooks["experimental.chat.system.transform"] as unknown as (
+        input: unknown,
+        output: { system: string[] },
+      ) => Promise<void>
 
       await before(
         { tool: "write", sessionID: "test-audit-2", callID: "call-2" },
         { args: { filePath: "/tmp/empty-catch.ts", content: "try { throw 1 } catch(e) {}" } }
       )
 
-      // v0.38.6: mid-session setup so the TUI session-killer fix does not skip the violation injection.
-      const output = {
-        messages: [
-          { info: { role: "user", sessionID: "test-audit-2" }, parts: [{ type: "text", text: "first ask" }] },
-          { info: { role: "assistant", sessionID: "test-audit-2", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
-          { info: { role: "user", sessionID: "test-audit-2" }, parts: [{ type: "text", text: "ok" }] },
-        ] as Array<{ info: unknown; parts: unknown[] }>,
-      }
-      await transform({}, output)
+      // v0.49.0 FASE 11: pending violations drain via system.transform (11e).
+      const output = { system: [] as string[] }
+      await systemTransform(
+        { sessionID: "test-audit-2", model: { providerID: "test", modelID: "test" } },
+        output,
+      )
 
-      const allText = output.messages
-        .map((m) => (m.parts[0] as Record<string, unknown> | undefined)?.text as string ?? "")
-        .join("\n")
+      const allText = output.system.join("\n")
       // v0.35.0 (audit fix): violations DO inject; see note above.
-      expect(allText).toContain("PROTOCOL VIOLATIONS")
+      expect(allText).toContain("protocol violations")
       expect(allText).toContain("no-empty-catch")
     })
 

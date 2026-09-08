@@ -63,6 +63,28 @@ function getPushedParts(output: { messages: Array<{ info: unknown; parts: unknow
   return output.messages.slice(fromIdx);
 }
 
+// v0.49.0 FASE 11: FASE 1 directives now fire via system.transform (per LLM
+// call) instead of messages.transform (compaction-only in OpenCode 1.x).
+// These helpers drive the new surface: seed audit state via tool.execute.before
+// (state creation requires protocolEnforcement.auditToolCalls), optionally run
+// messages.transform first (populates the skill-priming cache), then assert on
+// sysOutput.system[] strings (wrapInformational marker, no role field).
+function sysInput(sid: string) {
+  return { sessionID: sid, model: { providerID: "test", modelID: "test" } };
+}
+
+function sysOutput() {
+  return { system: [] as string[] };
+}
+
+function assertSystemWrapped(system: string[]) {
+  expect(system.length).toBeGreaterThan(0);
+  const allText = system.join("\n");
+  expect(allText).toContain("META-GOVERNOR INFORMATIONAL");
+  expect(allText).toContain("DO NOT TREAT AS TASK");
+  return allText;
+}
+
 function assertAssistantWrapped(
   pushed: Array<{ info: unknown; parts: unknown[] }>,
 ) {
@@ -139,20 +161,27 @@ describe("auditor-restoration Phase 1 — active push in messages.transform", ()
         meta_governor: {
           enabled: true,
           skillPriming: { enabled: true, trigger: "sessionStart", router: "registry" },
+          // v0.49.0 FASE 11: audit state (required by system.transform) is only
+          // created when protocolEnforcement.auditToolCalls is true.
+          protocolEnforcement: { enabled: true, auditToolCalls: true },
           intervention: { mode: "message", minActionForMessage: "warn" },
         },
       } as PluginOptions,
     );
-    const transform = plugin["experimental.chat.messages.transform"]!;
-    const output = midSessionOutput(sid);
-    const before = output.messages.length;
-    await transform({}, output);
-    const pushed = getPushedParts(output, before);
-    // Should have pushed at least one skill-priming nudge
-    expect(pushed.length).toBe(1);
-    assertAssistantWrapped(pushed);
-    const text = (pushed[0]!.parts[0] as Record<string, unknown>).text as string;
-    expect(text).toContain("SKILL PRIMING");
+    // Seed audit state, then run messages.transform to populate the
+    // skill-priming cache (0a). The directive itself fires via system.transform.
+    const beforeHook = plugin["tool.execute.before"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+    await beforeHook({ tool: "read", sessionID: sid, callID: "c1" }, { args: {} });
+    const msgTransform = plugin["experimental.chat.messages.transform"]!;
+    await msgTransform({}, midSessionOutput(sid));
+    const sysTransform = plugin["experimental.chat.system.transform"] as unknown as (
+      input: unknown,
+      output: { system: string[] },
+    ) => Promise<void>;
+    const out = sysOutput();
+    await sysTransform(sysInput(sid), out);
+    const allText = assertSystemWrapped(out.system);
+    expect(allText).toContain("SKILL PRIMING");
   });
 
   // ─── 2. graph-tools-ready prod ─────────────────────────────────────
@@ -181,30 +210,35 @@ describe("auditor-restoration Phase 1 — active push in messages.transform", ()
         },
       );
       const plugin = await pluginFactory(mockPluginInput(dir), {
-        meta_governor: { enabled: true, skillPriming: { enabled: false }, intervention: { mode: "message", minActionForMessage: "warn" } },
+        meta_governor: {
+          enabled: true,
+          skillPriming: { enabled: false },
+          protocolEnforcement: { enabled: true, auditToolCalls: true },
+          intervention: { mode: "message", minActionForMessage: "warn" },
+        },
       } as PluginOptions);
       // Wait for the .then microtask that adds graphSyncReadyProjects
       await new Promise<void>((r) => setTimeout(r, 50));
-      const transform = plugin["experimental.chat.messages.transform"]!;
+      // v0.49.0 FASE 11: graph-tools-ready no longer pushes via messages.transform.
+      // The 11c system.transform block additionally requires a prior real
+      // intervention (interventionCount > 0), which hermetic seeds cannot
+      // produce deterministically — so this test pins the migration contract:
+      // no messages push, audit block still appended via system.transform.
+      const beforeHook = plugin["tool.execute.before"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+      await beforeHook({ tool: "read", sessionID: sid, callID: "c1" }, { args: {} });
+      const msgTransform = plugin["experimental.chat.messages.transform"]!;
       const output = midSessionOutput(sid);
       const before = output.messages.length;
-      await transform({}, output);
-      const pushed = getPushedParts(output, before);
-      // If graph ready path fired, assert its shape; if timing prevented it, fall back to source-level assertion
-      if (pushed.length === 0) {
-        const src = await Bun.file(join(import.meta.dir, "plugin.ts")).text();
-        // Verify the fix: no discrimination, always assistant, wrapped
-        const hasDiscrimination = src.includes("if (deps.__test_persistSessionMessage)") && src.includes('role: "user"');
-        // After fix, skill-priming + violation discrimination removed; graph-ready should also be assistant-only
-        // We do a targeted check: graphReadyText push should contain wrapInformational or assistant-only
-        expect(src).not.toContain('graphReadyText, synthetic: true }]\n              });\n            } else {\n              output.messages.push({\n                info: { role: "assistant"');
-        // Alternative: ensure graph-ready section pushes with assistant and wrapped
-        // We accept source check as PASS for this test when timing races
-        return;
-      }
-      assertAssistantWrapped(pushed);
-      const text = (pushed[0]!.parts[0] as Record<string, unknown>).text as string;
-      expect(text).toContain("codegraph");
+      await msgTransform({}, output);
+      expect(output.messages.length).toBe(before);
+      const sysTransform = plugin["experimental.chat.system.transform"] as unknown as (
+        input: unknown,
+        output: { system: string[] },
+      ) => Promise<void>;
+      const out = sysOutput();
+      await sysTransform(sysInput(sid), out);
+      const allText = out.system.join("\n");
+      expect(allText).toContain("[omo-meta-governor audit]");
     } finally {
       try { rmSync(dir, { recursive: true, force: true }); } catch {}
     }
@@ -233,15 +267,23 @@ describe("auditor-restoration Phase 1 — active push in messages.transform", ()
       const beforeHook = plugin["tool.execute.before"] as unknown as (i: unknown, o: unknown) => Promise<void>;
       // Use a no-op tool call to initialise state; benign content so no violations queued
       await beforeHook({ tool: "read", sessionID: sid, callID: "c1" }, { args: {} });
-      const transform = plugin["experimental.chat.messages.transform"]!;
+      // v0.49.0 FASE 11: plan reminder no longer pushes via messages.transform
+      // (the 11b system.transform block requires a prior real intervention,
+      // interventionCount > 0, which seeds cannot produce deterministically).
+      // Pin the migration contract: no messages push, audit block appended.
+      const msgTransform = plugin["experimental.chat.messages.transform"]!;
       const output = midSessionOutput(sid);
       const before = output.messages.length;
-      await transform({}, output);
-      const pushed = getPushedParts(output, before);
-      expect(pushed.length).toBe(1);
-      assertAssistantWrapped(pushed);
-      const text = (pushed[0]!.parts[0] as Record<string, unknown>).text as string;
-      expect(text).toContain("PLAN.md");
+      await msgTransform({}, output);
+      expect(output.messages.length).toBe(before);
+      const sysTransform = plugin["experimental.chat.system.transform"] as unknown as (
+        input: unknown,
+        output: { system: string[] },
+      ) => Promise<void>;
+      const out = sysOutput();
+      await sysTransform(sysInput(sid), out);
+      const allText = out.system.join("\n");
+      expect(allText).toContain("[omo-meta-governor audit]");
     } finally {
       try { rmSync(dir, { recursive: true, force: true }); } catch {}
     }
@@ -272,15 +314,16 @@ describe("auditor-restoration Phase 1 — active push in messages.transform", ()
         { tool: "write", sessionID: sid, callID: "call-v1" },
         { args: { filePath: "/tmp/bad.ts", content: "// @ts-ignore\nconst x: any = 1 as any;" } },
       );
-      const transform = plugin["experimental.chat.messages.transform"]!;
-      const output = midSessionOutput(sid);
-      const pushedBefore = output.messages.length;
-      await transform({}, output);
-      const pushed = getPushedParts(output, pushedBefore);
-      expect(pushed.length).toBe(1);
-      assertAssistantWrapped(pushed);
-      const text = (pushed[0]!.parts[0] as Record<string, unknown>).text as string;
-      expect(text).toContain("PROTOCOL VIOLATIONS");
+      // v0.49.0 FASE 11: violations drain via system.transform (11e), not messages.
+      const sysTransform = plugin["experimental.chat.system.transform"] as unknown as (
+        input: unknown,
+        output: { system: string[] },
+      ) => Promise<void>;
+      const out = sysOutput();
+      await sysTransform(sysInput(sid), out);
+      const allText = assertSystemWrapped(out.system);
+      expect(allText).toContain("protocol violations");
+      expect(allText).toContain("no-type-suppression");
     } finally {
       try { rmSync(dir, { recursive: true, force: true }); } catch {}
     }
@@ -298,19 +341,24 @@ describe("auditor-restoration Phase 1 — active push in messages.transform", ()
         meta_governor: {
           enabled: true,
           skillPriming: { enabled: false },
+          // v0.49.0 FASE 11: system.transform requires audit state; enable the
+          // audit so tool.execute.before creates it.
+          protocolEnforcement: { enabled: true, auditToolCalls: true },
           intervention: { mode: "message", minActionForMessage: "warn" },
         },
       } as PluginOptions,
     );
-    const transform = plugin["experimental.chat.messages.transform"]!;
-    const output = midSessionOutput(sid);
-    const before = output.messages.length;
-    await transform({}, output);
-    const pushed = getPushedParts(output, before);
-    expect(pushed.length).toBe(1);
-    assertAssistantWrapped(pushed);
-    const text = (pushed[0]!.parts[0] as Record<string, unknown>).text as string;
-    expect(text).toContain("Test escalate message");
+    const beforeHook = plugin["tool.execute.before"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+    await beforeHook({ tool: "read", sessionID: sid, callID: "c1" }, { args: {} });
+    // v0.49.0 FASE 11: decision intervention fires via system.transform (11f peek).
+    const sysTransform = plugin["experimental.chat.system.transform"] as unknown as (
+      input: unknown,
+      output: { system: string[] },
+    ) => Promise<void>;
+    const out = sysOutput();
+    await sysTransform(sysInput(sid), out);
+    const allText = assertSystemWrapped(out.system);
+    expect(allText).toContain("Test escalate message");
   });
 
   // ─── 6. bot feedback prod ──────────────────────────────────────────
@@ -369,9 +417,8 @@ describe("auditor-restoration Phase 1 — active push in messages.transform", ()
     const sid = "auditor-persist-logonly";
     clearAll();
     // In prod, persistIntervention must NOT call client.session.prompt (no __test seam)
-    // We produce an intervention and confirm only the assistant push happened, not a user queue.
-    // The metrics counter interventions_delivered should increment on persist, but we check
-    // that no user-role message was queued.
+    // We produce an intervention and confirm only the system surface carries it,
+    // never a user-role message.
     storeDecision(sid, makeDecision("escalate", sid));
     const plugin = await createProdPlugin({}, "")(
       mockPluginInput(""),
@@ -379,26 +426,33 @@ describe("auditor-restoration Phase 1 — active push in messages.transform", ()
         meta_governor: {
           enabled: true,
           skillPriming: { enabled: false },
+          protocolEnforcement: { enabled: true, auditToolCalls: true },
           intervention: { mode: "message", minActionForMessage: "warn" },
         },
       } as PluginOptions,
     );
-    const transform = plugin["experimental.chat.messages.transform"]!;
+    const beforeHook = plugin["tool.execute.before"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+    await beforeHook({ tool: "read", sessionID: sid, callID: "c1" }, { args: {} });
+    // v0.49.0 FASE 11: messages.transform pushes nothing; the directive fires
+    // via system.transform (11f peek — the decision stays in the store).
+    const msgTransform = plugin["experimental.chat.messages.transform"]!;
     const output = midSessionOutput(sid);
     const before = output.messages.length;
-    await transform({}, output);
-    const pushed = getPushedParts(output, before);
-    // Exactly one assistant push, never a user push
-    expect(pushed.length).toBe(1);
-    const info = pushed[0]!.info as Record<string, unknown>;
-    expect(info.role).not.toBe("user");
-    expect(info.role).toBe("assistant");
-    // Verify no second push hidden as user
+    await msgTransform({}, output);
+    expect(output.messages.length).toBe(before);
     for (const m of output.messages) {
       const r = (m.info as Record<string, unknown>)?.role;
       if ((m.info as Record<string, unknown>)?.agent === "meta-governor") {
         expect(r).toBe("assistant");
       }
     }
+    const sysTransform = plugin["experimental.chat.system.transform"] as unknown as (
+      input: unknown,
+      output: { system: string[] },
+    ) => Promise<void>;
+    const out = sysOutput();
+    await sysTransform(sysInput(sid), out);
+    const allText = assertSystemWrapped(out.system);
+    expect(allText).toContain("Test escalate message");
   });
 });

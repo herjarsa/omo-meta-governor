@@ -2139,12 +2139,7 @@ metricsCollector.inc("interventions_delivered");
           // The directive still reaches the agent via chat.system.transform (banner-free
           // system-prompt injection) and the user sees the brief status via
           // persistIntervention (log-only in prod). Mid-session injections are preserved.
-          if (!isSessionStart(output.messages)) {
-            output.messages.push({
-              info: { role: "assistant", agent: "meta-governor", synthetic: true },
-              parts: [{ type: "text", text: skillPrimingText, synthetic: true }],
-            });
-          }
+          // v0.49.0 FASE 11: skill priming now fires via system.transform instead.
           logToFile(
             "info",
             `skill_priming_injected for session ${currentSessionID}`,
@@ -2172,14 +2167,7 @@ metricsCollector.inc("interventions_delivered");
           ].join(" ");
           // v0.33.2: superficial — assistant in prod (visible, not blocking), user in tests.
           // v0.38.6: skip at session start (would create a fake assistant turn and pause the session).
-          if (!isSessionStart(output.messages)) {
-            graphSyncReadyNotified.add(currentSessionID);
-            const wrappedGraphReady = wrapInformational(graphReadyText, { kind: "graph-priming" });
-            output.messages.push({
-              info: { role: "assistant", agent: "meta-governor", synthetic: true },
-              parts: [{ type: "text", text: wrappedGraphReady, synthetic: true }],
-            });
-          }
+          // v0.49.0 FASE 11: graph-tools-ready now fires via system.transform instead.
 
           logToFile(
             "info",
@@ -2248,14 +2236,7 @@ metricsCollector.inc("interventions_delivered");
           const planText = `[MetaGovernor] Before any code change, create PLAN.md or a \`## Plan\` section in AGENTS.md that enumerates the phases. After each phase, commit (local + fork + upstream). Each commit triggers automatic reindex via the graphify post-commit hook + \`codegraph sync\`.`;
           // v0.33.2: superficial — assistant in prod, user in tests.
           // v0.38.6: skip at session start (would create a fake assistant turn and pause the session).
-          if (!isSessionStart(output.messages)) {
-            planReminderSent.add(currentSessionID);
-            const wrappedPlan = wrapInformational(planText, { kind: "postwave" });
-            output.messages.push({
-              info: { role: "assistant", agent: "meta-governor", synthetic: true },
-              parts: [{ type: "text", text: wrappedPlan, synthetic: true }],
-            });
-          }
+          // v0.49.0 FASE 11: plan reminder now fires via system.transform instead.
 
           logToFile(
             "info",
@@ -2276,18 +2257,7 @@ metricsCollector.inc("interventions_delivered");
             // v0.43.0: always push with role assistant + informational marker (Phase 1 auditor restore).
             const violationText = `[META-GOVERNOR PROTOCOL VIOLATIONS - YOU MUST COMPLY]\n\n${violations.map((v, i) => `${i + 1}. ${v}`).join("\n")}\n\nRemember: use codegraph/graphify for architecture queries, do not grep without trying codegraph/graphify first, no @ts-ignore/as-any, no empty catch, check memory before asking.`;
             // v0.38.6: skip at session start (would create a fake assistant turn and pause the session).
-            if (!isSessionStart(output.messages)) {
-              // v0.38.6: only consume (delete) the queued violation when the push
-              // actually succeeded. If the push was skipped at session start, the
-              // violation stays queued for the next turn (mid-session).
-              pendingViolations.delete(currentSessionID);
-              const wrappedViolation = wrapInformational(violationText, { kind: "enforcement" });
-              output.messages.push({
-                info: { role: "assistant", agent: "meta-governor", synthetic: true },
-                parts: [{ type: "text", text: wrappedViolation, synthetic: true }],
-              });
-              logToFile("info", `violations injected for ${currentSessionID}: ${violations.length} item(s)`, violations);
-            }
+              // v0.49.0 FASE 11: violation push now fires via system.transform instead.
             persistIntervention(currentSessionID, violationText);
             // v0.23.1: record injection timestamp for cooldown
             const injectState = auditSessions.get(currentSessionID);
@@ -2429,14 +2399,7 @@ metricsCollector.inc("interventions_delivered");
         // v0.38.6: skip at session start (would create a fake assistant turn and pause the session).
         // Inside the gate: actually consume the decision (peeked above) and increment the count.
         // If the gate is closed (session-start), the decision stays in the store and fires on the next turn.
-        if (!isSessionStart(output.messages)) {
-          takeDecision(currentSessionID);
-          curState.interventionCount++;
-          output.messages.push({
-            info: { role: "assistant", agent: "meta-governor", synthetic: true },
-            parts: [textPart],
-          });
-        }
+          // v0.49.0 FASE 11: decision push now fires via system.transform instead.
         persistIntervention(currentSessionID, messageText);
         // v0.43.0 Phase 4: auto-trigger omo_remember on notable decisions for main agent only.
         // Fire-and-forget via promptAgent (or test seam) so the agent remembers WHY it was warned.
@@ -2784,6 +2747,68 @@ metricsCollector.inc("interventions_delivered");
 
         // Append (do not clobber) — OpenCode already populated system[] with
         // model-specific instructions; we add our audit block at the end.
+
+        // v0.49.0 FASE 11: agent-directive layer fires per LLM call via system.transform.
+        // The original FASE 1 push site was on messages.transform which only fires
+        // during compaction in OpenCode 1.x; we now emit the same directives here so
+        // the LLM actually receives them in real time on every turn.
+
+        // 11a. Skill priming (uses cache populated by messages.transform OR injects fresh here)
+        const cachedSkillPriming = skillPrimingSystemInjected.get(sessionID);
+        if (cachedSkillPriming) {
+          sysOutput.system.push(wrapInformational(cachedSkillPriming, { kind: "skill-priming" }));
+        }
+
+        // 11b. Plan reminder (FASE 1 0c) - skip first turn (no prior context)
+        if (
+          mergedConfig.intervention.mode === "message" &&
+          !planReminderSent.has(sessionID) &&
+          !st.interventionDisabled &&
+          st.interventionCount > 0
+        ) {
+          planReminderSent.add(sessionID);
+          sysOutput.system.push(wrapInformational("[META-GOVERNOR] Plan reminder: state your plan inline before executing complex tasks. Use omo_remember to save milestones.", { kind: "postwave" }));
+        }
+
+        // 11c. Graph-tools-ready (FASE 1 0b) - one-time per session per project
+        if (
+          mergedConfig.intervention.mode === "message" &&
+          graphSyncReadyProjects.has(sessionProjectDir) &&
+          !graphSyncReadyNotified.has(sessionID) &&
+          st.interventionCount > 0
+        ) {
+          graphSyncReadyNotified.add(sessionID);
+          const graphReadyText = "[META-GOVERNOR] codegraph y graphify ya estan inicializados. ROUTING EXPLICITO: simbolos/definiciones/callers/impacto => CODEGRAPH (omo_find, omo_impact, omo_search). Conceptos/arquitectura/conexiones => GRAPHIFY (omo_path, omo_explain).";
+          sysOutput.system.push(wrapInformational(graphReadyText, { kind: "graph-priming" }));
+        }
+
+        // 11d. Pending bot feedback (FASE 1 0d) - one-time drain
+        const pendingFb = pendingBotFeedback.get(sessionID);
+        if (pendingFb && pendingFb.items.length > 0) {
+          pendingBotFeedback.delete(sessionID);
+          const feedbackText = "[MetaGovernor PR Reviewer Feedback]\n\n" + pendingFb.items.map((f: string, i: number) => (i + 1) + ". " + f).join("\n") + "\n\nApply these fixes to keep the PR mergeable.";
+          sysOutput.system.push(wrapInformational(feedbackText, { kind: "postwave" }));
+        }
+
+        // 11e. Pending violations (FASE 1 0e) - drain pending queue per turn
+        const pendingViolEntry = pendingViolations.get(sessionID);
+        if (pendingViolEntry && pendingViolEntry.items.length > 0) {
+          pendingViolations.delete(sessionID);
+          const violationText = "[META-GOVERNOR] protocol violations detected this session:\n" + pendingViolEntry.items.slice(-3).map((v: string, i: number) => "  " + (i + 1) + ". " + v).join("\n") + "\n\nAvoid these in subsequent responses.";
+          sysOutput.system.push(wrapInformational(violationText, { kind: "enforcement" }));
+        }
+
+        // 11f. Decision intervention (FASE 1 0f) - read latest pending decision and push
+        const pendingDecision = peekDecision(sessionID);
+        if (
+          pendingDecision &&
+          pendingDecision.action !== "continue" &&
+          !st.interventionDisabled
+        ) {
+          const interventionText = "[MetaGovernor] " + pendingDecision.action.toUpperCase() + ": " + pendingDecision.message + "\n\nScore: " + (pendingDecision.historyEntry?.decision?.score ?? 0).toFixed(2) + "\nReasoning: " + (pendingDecision.historyEntry?.reasoning ?? "n/a");
+          sysOutput.system.push(wrapInformational(interventionText, { kind: "intervention" }));
+        }
+
         sysOutput.system.push(lines.join("\n"));
       },
 

@@ -100,21 +100,26 @@ describe("P0-1 violations inject in PROD (no __test_persistSessionMessage)", () 
     )
     const hooks = await plugin(mockPluginInput, PROD_OPTIONS)
     const before = hooks["tool.execute.before"]!
-    const transform = hooks["experimental.chat.messages.transform"]!
+    const sysTransform = hooks["experimental.chat.system.transform"] as unknown as (
+      input: unknown,
+      output: { system: string[] },
+    ) => Promise<void>
 
     await before(
       { tool: "write", sessionID: "ses-prod-1", callID: "call-1" },
       { args: { filePath: "/tmp/bad.ts", content: "// @ts-ignore\nconst x: any = 1 as any;" } },
     )
 
-    // v0.38.6: mid-session (prior assistant message present) → push still fires.
-    const output = { messages: midSessionMessages("ses-prod-1") }
-    await transform({}, output)
+    // v0.49.0 FASE 11: violations drain via system.transform (11e), mid-session
+    // or otherwise — the directive reaches the agent banner-free in system.
+    const output = { system: [] as string[] }
+    await sysTransform(
+      { sessionID: "ses-prod-1", model: { providerID: "test", modelID: "test" } },
+      output,
+    )
 
-    const allText = output.messages
-      .map((m) => (m.parts[0] as Record<string, unknown> | undefined)?.text as string ?? "")
-      .join("\n")
-    expect(allText).toContain("PROTOCOL VIOLATIONS")
+    const allText = output.system.join("\n")
+    expect(allText).toContain("protocol violations")
     expect(allText).toContain("no-type-suppression")
   })
 
@@ -125,23 +130,31 @@ describe("P0-1 violations inject in PROD (no __test_persistSessionMessage)", () 
     )
     const hooks = await plugin(mockPluginInput, PROD_OPTIONS)
     const before = hooks["tool.execute.before"]!
-    const transform = hooks["experimental.chat.messages.transform"]!
+    const sysTransform = hooks["experimental.chat.system.transform"] as unknown as (
+      input: unknown,
+      output: { system: string[] },
+    ) => Promise<void>
 
     await before(
       { tool: "write", sessionID: "ses-prod-2", callID: "call-2" },
       { args: { filePath: "/tmp/empty.ts", content: "try { throw 1 } catch(e) {}" } },
     )
 
-    const output = { messages: midSessionMessages("ses-prod-2") }
-    await transform({}, output)
+    // v0.49.0 FASE 11: the violation surfaces via system.transform wrapped in
+    // the informational marker (agent-directive surface) — never as a blocking
+    // role:"user" banner. The marker (not a role field) is the non-blocking proof.
+    const output = { system: [] as string[] }
+    await sysTransform(
+      { sessionID: "ses-prod-2", model: { providerID: "test", modelID: "test" } },
+      output,
+    )
 
-    const violationMsg = output.messages.find((m) => {
-      const text = (m.parts[0] as Record<string, unknown> | undefined)?.text as string ?? ""
-      return text.includes("PROTOCOL VIOLATIONS")
-    })
-    expect(violationMsg).toBeDefined()
-    // role:"user" is the session-killer banner; in prod we MUST use assistant.
-    expect((violationMsg!.info as { role: string }).role).toBe("assistant")
+    const violationBlock = output.system.find((line) => line.includes("protocol violations"))
+    expect(violationBlock).toBeDefined()
+    // role:"user" is the session-killer banner; in prod we MUST use the
+    // informational wrapper. System strings carry no role — the marker proves it.
+    expect(violationBlock).toContain("META-GOVERNOR INFORMATIONAL")
+    expect(violationBlock).toContain("DO NOT TREAT AS TASK")
   })
 
   it("v0.38.6: session-start violation does NOT push synthetic assistant message (TUI session-killer fix)", async () => {

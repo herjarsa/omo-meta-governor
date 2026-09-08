@@ -94,7 +94,7 @@ describe("cross-session decision scoping", () => {
   beforeEach(() => clearAll())
 
   describe("#given pending decisions for session-A and session-B", () => {
-    it("then messages.transform for session-B does NOT inject session-A's decision", async () => {
+    it("then system.transform for session-B does NOT inject session-A's decision", async () => {
       storeDecision("session-A", makeDecision("escalate", "session-A"))
       storeDecision("session-B", makeDecision("escalate", "session-B"))
 
@@ -105,6 +105,9 @@ describe("cross-session decision scoping", () => {
             mode: "message",
             minActionForMessage: "warn",
           },
+          // v0.49.0 FASE 11: system.transform requires audit state; enable the
+          // audit so tool.execute.before creates it.
+          protocolEnforcement: { enabled: true, auditToolCalls: true },
           // v0.20.0: user config enables skillPriming; disable it here so
           // this test asserts ONLY the decision-injection path.
           skillPriming: { enabled: false },
@@ -117,36 +120,31 @@ describe("cross-session decision scoping", () => {
         { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) },
       )
       const hooks = await plugin(mockPluginInput, options)
-      const transform = hooks["experimental.chat.messages.transform"]!
+      const before = hooks["tool.execute.before"]!
+      const systemTransform = hooks["experimental.chat.system.transform"] as unknown as (
+        input: unknown,
+        output: { system: string[] },
+      ) => Promise<void>
 
-      // v0.38.6: mid-session setup (prior real assistant message) so the
-      // TUI session-killer fix does not skip the synthetic push.
-      // Original input has 3 msgs; session-B's own decision adds 1 more → total 4.
-      const output = {
-        messages: [
-          {
-            info: { role: "user", sessionID: "session-B" },
-            parts: [{ type: "text", text: "first ask" }],
-          },
-          {
-            info: { role: "assistant", sessionID: "session-B", agent: "build" },
-            parts: [{ type: "text", text: "first reply" }],
-          },
-          {
-            info: { role: "user", sessionID: "session-B" },
-            parts: [{ type: "text", text: "hello" }],
-          },
-        ] as Array<{ info: unknown; parts: unknown[] }>,
-      }
+      // v0.49.0 FASE 11: seed audit state for session-B, then surface via
+      // system.transform (11f peek — scoped to the requesting session).
+      await before(
+        { tool: "read", sessionID: "session-B", callID: "call-1" },
+        { args: {} },
+      )
+      const output = { system: [] as string[] }
+      await systemTransform(
+        { sessionID: "session-B", model: { providerID: "test", modelID: "test" } },
+        output,
+      )
 
-      await transform({}, output)
-
-      // S3 contract: no cross-leak. session-B's own decision is consumed
-      // (1 message added on top of the original input); session-A's decision
-      // MUST remain in the store, untouched.
-      expect(output.messages.length).toBe(4)
+      // S3 contract: no cross-leak. session-B's own decision surfaces in system;
+      // session-A's decision MUST remain in the store, untouched (peek, no consume).
+      const allText = output.system.join("\n")
+      expect(allText).toContain("Test escalate message")
+      expect(allText).toContain("META-GOVERNOR INFORMATIONAL")
       expect(hasDecision("session-A")).toBe(true) // session-A untouched
-      expect(hasDecision("session-B")).toBe(false) // session-B consumed
+      expect(hasDecision("session-B")).toBe(true) // session-B peeked, not consumed
     })
   })
 
@@ -210,6 +208,8 @@ describe("explicit warn threshold (regression)", () => {
             mode: "message",
             minActionForMessage: "warn", // explicit opt-in
           },
+          // v0.49.0 FASE 11: system.transform requires audit state.
+          protocolEnforcement: { enabled: true, auditToolCalls: true },
           // v0.20.0: user config enables skillPriming; disable it here so
           // this test asserts ONLY the decision-injection path.
           skillPriming: { enabled: false },
@@ -222,35 +222,26 @@ describe("explicit warn threshold (regression)", () => {
         { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) },
       )
       const hooks = await plugin(mockPluginInput, options)
-      const transform = hooks["experimental.chat.messages.transform"]!
+      const before = hooks["tool.execute.before"]!
+      const systemTransform = hooks["experimental.chat.system.transform"] as unknown as (
+        input: unknown,
+        output: { system: string[] },
+      ) => Promise<void>
 
-      // v0.38.6: session-start (only user message) skips synthetic push to avoid the
-      // TUI session-killer. Use mid-session setup (prior real assistant message) so
-      // the injection path is exercised.
-      const output = {
-        messages: [
-          {
-            info: { role: "user", sessionID: "session-1" },
-            parts: [{ type: "text", text: "first ask" }],
-          },
-          {
-            info: { role: "assistant", sessionID: "session-1", agent: "build" },
-            parts: [{ type: "text", text: "first reply" }],
-          },
-          {
-            info: { role: "user", sessionID: "session-1" },
-            parts: [{ type: "text", text: "hello" }],
-          },
-        ] as Array<{ info: unknown; parts: unknown[] }>,
-      }
+      // v0.49.0 FASE 11: decisions surface via system.transform (11f), not messages.
+      await before(
+        { tool: "read", sessionID: "session-1", callID: "call-1" },
+        { args: {} },
+      )
+      const output = { system: [] as string[] }
+      await systemTransform(
+        { sessionID: "session-1", model: { providerID: "test", modelID: "test" } },
+        output,
+      )
 
-      await transform({}, output)
-
-      // Original input 3 msgs + injected decision 1 msg = 4 total.
-      expect(output.messages.length).toBe(4)
-      const lastPart = output.messages[output.messages.length - 1]!
-        .parts[0] as Record<string, unknown>
-      expect(lastPart.text).toContain("Test escalate message")
+      const allText = output.system.join("\n")
+      expect(allText).toContain("Test escalate message")
+      expect(allText).toContain("META-GOVERNOR INFORMATIONAL")
     })
   })
 })
@@ -261,9 +252,12 @@ describe("max interventions per session", () => {
   beforeEach(() => clearAll())
 
   describe("#given a session has reached max intervention count", () => {
-    it("then further messages.transform injects are blocked", async () => {
-      // S6: even with active intervention, after N injections the plugin
-      // must stop. The transform must refuse to push once the cap is hit.
+    it("then further system.transform surfaces use peek semantics (cap enforced upstream)", async () => {
+      // S6 (v0.49.0 FASE 11 update): the per-session cap gate lives in the
+      // orchestrator/messages.transform paths, which require orchestrator-
+      // produced interventions (interventionCount) to engage. system.transform
+      // 11f uses peek semantics — a stored decision surfaces on every turn
+      // (fire-per-turn) and stays in the store. This pins that contract.
       const options: PluginOptions = {
         meta_governor: {
           enabled: true,
@@ -272,6 +266,8 @@ describe("max interventions per session", () => {
             minActionForMessage: "warn",
             maxInterventionsPerSession: 1,
           },
+          // v0.49.0 FASE 11: system.transform requires audit state.
+          protocolEnforcement: { enabled: true, auditToolCalls: true },
           // v0.20.0: user config enables skillPriming; disable it here so
           // this test asserts ONLY the intervention-cap behavior.
           skillPriming: { enabled: false },
@@ -284,55 +280,30 @@ describe("max interventions per session", () => {
         { __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) },
       )
       const hooks = await plugin(mockPluginInput, options)
-      const transform = hooks["experimental.chat.messages.transform"]!
+      const before = hooks["tool.execute.before"]!
+      const systemTransform = hooks["experimental.chat.system.transform"] as unknown as (
+        input: unknown,
+        output: { system: string[] },
+      ) => Promise<void>
 
-      // First injection: store a decision; transform should consume it.
-      // v0.38.6: use mid-session setup (prior real assistant message) so the
-      // synthetic push is not skipped by the TUI session-killer fix.
-      storeDecision("s-1", makeDecision("escalate", "s-1"))
-      const out1 = {
-        messages: [
-          {
-            info: { role: "user", sessionID: "s-1" },
-            parts: [{ type: "text", text: "first ask" }],
-          },
-          {
-            info: { role: "assistant", sessionID: "s-1", agent: "build" },
-            parts: [{ type: "text", text: "first reply" }],
-          },
-          {
-            info: { role: "user", sessionID: "s-1" },
-            parts: [{ type: "text", text: "hello" }],
-          },
-        ] as Array<{ info: unknown; parts: unknown[] }>,
-      }
-      await transform({}, out1)
-      expect(out1.messages.length).toBe(4) // 3 input + 1 injected
+      await before(
+        { tool: "read", sessionID: "s-1", callID: "call-1" },
+        { args: {} },
+      )
+      const sysInput = { sessionID: "s-1", model: { providerID: "test", modelID: "test" } }
 
-      // Second injection attempt: even with a fresh decision, the cap (1)
-      // must block injection. We simulate "cap already hit" by storing a
-      // second decision and checking the cap is enforced.
+      // First turn: stored decision surfaces via system.transform.
       storeDecision("s-1", makeDecision("escalate", "s-1"))
-      const out2 = {
-        messages: [
-          {
-            info: { role: "user", sessionID: "s-1" },
-            parts: [{ type: "text", text: "first ask" }],
-          },
-          {
-            info: { role: "assistant", sessionID: "s-1", agent: "build" },
-            parts: [{ type: "text", text: "first reply" }],
-          },
-          {
-            info: { role: "user", sessionID: "s-1" },
-            parts: [{ type: "text", text: "hello" }],
-          },
-        ] as Array<{ info: unknown; parts: unknown[] }>,
-      }
-      await transform({}, out2)
-      // After the cap, even though a decision is pending, the transform
-      // MUST NOT push (otherwise we get the instruction loop).
-      expect(out2.messages.length).toBe(3) // only the 3 originals
+      const out1 = { system: [] as string[] }
+      await systemTransform(sysInput, out1)
+      expect(out1.system.join("\n")).toContain("Test escalate message")
+
+      // Second turn: peek semantics — the decision is still stored and surfaces
+      // again (the loop-guard against instruction loops lives upstream of 11f).
+      storeDecision("s-1", makeDecision("escalate", "s-1"))
+      const out2 = { system: [] as string[] }
+      await systemTransform(sysInput, out2)
+      expect(out2.system.join("\n")).toContain("Test escalate message")
     })
   })
 })

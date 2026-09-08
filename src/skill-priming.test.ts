@@ -59,6 +59,9 @@ function makeOptions(skillPriming: SkillPrimingOpts): PluginOptions {
       // gate suppresses every other message injection (plan reminder,
       // violations, decisions), so message counts stay deterministic.
       intervention: { mode: "silent" },
+      // v0.49.0 FASE 11: system.transform requires audit state, which
+      // tool.execute.before only creates when auditToolCalls is true.
+      protocolEnforcement: { enabled: true, auditToolCalls: true },
       skillPriming,
     },
   }
@@ -71,6 +74,39 @@ async function makeTransform(skillPriming: SkillPrimingOpts) {
   )
   const hooks = await plugin(mockPluginInput, makeOptions(skillPriming))
   return hooks["experimental.chat.messages.transform"]!
+}
+
+// v0.49.0 FASE 11: FASE 1 directives fire via system.transform (per LLM call).
+// Returns the seeded hooks plus a sysAssert helper: seeds audit state via
+// tool.execute.before, runs messages.transform (populates the skill cache),
+// then fires system.transform and returns the joined system text.
+async function makeSystemHooks(skillPriming: SkillPrimingOpts) {
+  const plugin = createHermeticPlugin(
+    { graphSync: { enabled: false, autoInstall: false } },
+    { backends: stubBackends as never, writeBackend: stubWrite as never, __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) },
+  )
+  const hooks = await plugin(mockPluginInput, makeOptions(skillPriming))
+  const before = hooks["tool.execute.before"]!
+  const msgTransform = hooks["experimental.chat.messages.transform"]!
+  const sysTransform = hooks["experimental.chat.system.transform"] as unknown as (
+    input: unknown,
+    output: { system: string[] },
+  ) => Promise<void>
+  return { before, msgTransform, sysTransform }
+}
+
+function sysInput(sid: string) {
+  return { sessionID: sid, model: { providerID: "test", modelID: "test" } }
+}
+
+function midSessionOutput(sid: string) {
+  return {
+    messages: [
+      { info: { role: "user", sessionID: sid }, parts: [{ type: "text", text: "first ask" }] },
+      { info: { role: "assistant", sessionID: sid, agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
+      { info: { role: "user", sessionID: sid }, parts: [{ type: "text", text: "hi" }] },
+    ] as Array<{ info: unknown; parts: unknown[] }>,
+  }
 }
 
 function transformOutput(sessionID = "s1") {
@@ -190,36 +226,29 @@ describe("experimental.chat.messages.transform — skill priming", () => {
   })
 
   it("sessionStart → injects once (test push), then never again for the session", async () => {
-    const transform = await makeTransform({ enabled: true, trigger: "sessionStart", router: "both" })
-    // v0.38.6: mid-session setup (prior real assistant message) so the
-    // TUI session-killer fix does not skip the synthetic push.
-    const output = {
-      messages: [
-        { info: { role: "user", sessionID: "s1" }, parts: [{ type: "text", text: "first ask" }] },
-        { info: { role: "assistant", sessionID: "s1", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
-        { info: { role: "user", sessionID: "s1" }, parts: [{ type: "text", text: "hi" }] },
-      ] as Array<{ info: unknown; parts: unknown[] }>,
-    }
-    await transform({}, output)
+    const { before, msgTransform, sysTransform } = await makeSystemHooks({ enabled: true, trigger: "sessionStart", router: "both" })
+    // v0.49.0 FASE 11: seed audit state, populate the skill cache via
+    // messages.transform, assert the directive surfaces via system.transform.
+    await before({ tool: "read", sessionID: "s1", callID: "c1" }, { args: {} })
+    const output = midSessionOutput("s1")
+    await msgTransform({}, output)
+    // messages.transform itself pushes nothing (FASE 11 migration).
+    expect(output.messages.length).toBe(3)
 
-    // v0.33.1: in prod the directive goes via chat.system.transform (banner-free); the test-only push to
-    // output.messages only fires when __test_persistSessionMessage is set (it is, via makeTransform).
-    expect(output.messages.length).toBe(4)
-    const msg = output.messages[3]!
-    // v0.43.0 Phase 1: push always uses role:assistant (banner-killer mitigation;
-    // the prior __test_persistSessionMessage→role:user discrimination is removed).
-    expect((msg.info as Record<string, unknown>).role).toBe("assistant")
-    expect((msg.info as Record<string, unknown>).agent).toBe("meta-governor")
-    const part = msg.parts[0] as Record<string, unknown>
-    expect(part.type).toBe("text")
-    expect(part.text).toContain("[SKILL PRIMING]")
-    expect(part.text).toContain("omo_skill_find")
-    expect(part.synthetic).toBe(true)
+    const sysOut = { system: [] as string[] }
+    await sysTransform(sysInput("s1"), sysOut)
+    const text = sysOut.system.join("\n")
+    expect(text).toContain("[SKILL PRIMING]")
+    expect(text).toContain("omo_skill_find")
+    expect(text).toContain("META-GOVERNOR INFORMATIONAL")
 
-    // Second transform call for the same session: no new injection.
-    const output2 = transformOutput()
-    await transform({}, output2)
-    expect(output2.messages.length).toBe(1)
+    // v0.49.0 FASE 11: system.transform fires per LLM call (fire-per-turn),
+    // so the cached directive surfaces again on the next turn — the
+    // once-per-session dedupe lives in messages.transform's cache population,
+    // not in the system surface.
+    const sysOut2 = { system: [] as string[] }
+    await sysTransform(sysInput("s1"), sysOut2)
+    expect(sysOut2.system.join("\n")).toContain("[SKILL PRIMING]")
   })
 
   it("firstImplement → no injection before implementation, fires after a write tool", async () => {
@@ -228,13 +257,23 @@ describe("experimental.chat.messages.transform — skill priming", () => {
       { backends: stubBackends as never, writeBackend: stubWrite as never, __test_persistSessionMessage: async () => ({ ok: true, messageID: null, error: null, durationMs: 0 }) },
     )
     const hooks = await plugin(mockPluginInput, makeOptions({ enabled: true, trigger: "firstImplement", router: "both" }))
+    const before = hooks["tool.execute.before"]!
     const transform = hooks["experimental.chat.messages.transform"]!
     const after = hooks["tool.execute.after"]!
+    const sysTransform = hooks["experimental.chat.system.transform"] as unknown as (
+      input: unknown,
+      output: { system: string[] },
+    ) => Promise<void>
+
+    // v0.49.0 FASE 11: seed audit state; assert on the system surface.
+    await before({ tool: "read", sessionID: "s2", callID: "c0" }, { args: {} })
 
     // No state yet → no priming (session-start; push is skipped anyway).
     const output = transformOutput("s2")
     await transform({}, output)
-    expect(allText(output)).not.toContain("[SKILL PRIMING]")
+    const sysBefore = { system: [] as string[] }
+    await sysTransform(sysInput("s2"), sysBefore)
+    expect(sysBefore.system.join("\n")).not.toContain("[SKILL PRIMING]")
 
     // First write tool call → recentToolCalls gains "write".
     await after(
@@ -245,43 +284,38 @@ describe("experimental.chat.messages.transform — skill priming", () => {
     // Next transform call: v0.38.6 mid-session setup (after the write tool call,
     // the agent has already produced an assistant message containing the tool call,
     // so the prior-real-assistant condition holds).
-    const output2 = {
-      messages: [
-        { info: { role: "user", sessionID: "s2" }, parts: [{ type: "text", text: "first ask" }] },
-        { info: { role: "assistant", sessionID: "s2", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
-        { info: { role: "user", sessionID: "s2" }, parts: [{ type: "text", text: "hi" }] },
-      ] as Array<{ info: unknown; parts: unknown[] }>,
-    }
+    // v0.49.0 FASE 11: the directive surfaces via system.transform.
+    const output2 = midSessionOutput("s2")
     await transform({}, output2)
-    expect(allText(output2)).toContain("[SKILL PRIMING]")
+    const sysAfter = { system: [] as string[] }
+    await sysTransform(sysInput("s2"), sysAfter)
+    expect(sysAfter.system.join("\n")).toContain("[SKILL PRIMING]")
   })
 
   it("router aas (aliased to registry) → skill-hub wording; router superpowers → superpowers wording", async () => {
-    const t1 = await makeTransform({ enabled: true, trigger: "sessionStart", router: "aas" })
-    // v0.38.6: mid-session setup so the synthetic push fires.
-    const o1 = {
-      messages: [
-        { info: { role: "user", sessionID: "s3" }, parts: [{ type: "text", text: "first ask" }] },
-        { info: { role: "assistant", sessionID: "s3", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
-        { info: { role: "user", sessionID: "s3" }, parts: [{ type: "text", text: "hi" }] },
-      ] as Array<{ info: unknown; parts: unknown[] }>,
-    }
-    await t1({}, o1)
-    const text1 = allText(o1)
+    // v0.49.0 FASE 11: seed audit state, populate cache via messages.transform,
+    // assert wording on the system surface. Assertions run on the SECOND
+    // system.transform call: the first call also carries the FASE 8
+    // session-start directives block (which itself mentions "superpowers"),
+    // so wording negatives are only meaningful once that one-shot block is spent.
+    const h1 = await makeSystemHooks({ enabled: true, trigger: "sessionStart", router: "aas" })
+    await h1.before({ tool: "read", sessionID: "s3", callID: "c1" }, { args: {} })
+    await h1.msgTransform({}, midSessionOutput("s3"))
+    await h1.sysTransform(sysInput("s3"), { system: [] as string[] })
+    const so1 = { system: [] as string[] }
+    await h1.sysTransform(sysInput("s3"), so1)
+    const text1 = so1.system.join("\n")
     expect(text1).toContain("omo_skill_find")
     expect(text1).not.toContain("superpowers")
     expect(text1).not.toContain("aas search_skills")
 
-    const t2 = await makeTransform({ enabled: true, trigger: "sessionStart", router: "superpowers" })
-    const o2 = {
-      messages: [
-        { info: { role: "user", sessionID: "s4" }, parts: [{ type: "text", text: "first ask" }] },
-        { info: { role: "assistant", sessionID: "s4", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
-        { info: { role: "user", sessionID: "s4" }, parts: [{ type: "text", text: "hi" }] },
-      ] as Array<{ info: unknown; parts: unknown[] }>,
-    }
-    await t2({}, o2)
-    const text2 = allText(o2)
+    const h2 = await makeSystemHooks({ enabled: true, trigger: "sessionStart", router: "superpowers" })
+    await h2.before({ tool: "read", sessionID: "s4", callID: "c1" }, { args: {} })
+    await h2.msgTransform({}, midSessionOutput("s4"))
+    await h2.sysTransform(sysInput("s4"), { system: [] as string[] })
+    const so2 = { system: [] as string[] }
+    await h2.sysTransform(sysInput("s4"), so2)
+    const text2 = so2.system.join("\n")
     expect(text2).toContain("superpowers")
     expect(text2).not.toContain("omo_skill_find")
     expect(text2).not.toContain("aas search_skills")

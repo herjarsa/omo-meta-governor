@@ -130,7 +130,16 @@ describe("v0.38.6 session-start priming nudge does not kill the session", () => 
       HERMETIC_DEPS,
     );
     const hooks = await plugin(mockPluginInput, PROD_OPTIONS);
-    const transform = hooks["experimental.chat.messages.transform"]!;
+    const before = hooks["tool.execute.before"]!;
+    const msgTransform = hooks["experimental.chat.messages.transform"]!;
+    const sysTransform = hooks["experimental.chat.system.transform"] as unknown as (
+      input: unknown,
+      output: { system: string[] },
+    ) => Promise<void>;
+    // v0.49.0 FASE 11: seed audit state (system.transform requires it), populate
+    // the skill cache via messages.transform, assert the directive surfaces via
+    // system.transform with the informational marker.
+    await before({ tool: "read", sessionID: "ses-mid-1", callID: "call-1" }, { args: {} });
     // Mid-session conversation: prior real assistant message exists.
     // The TUI is in "running mode" so the synthetic injection is safe.
     const output = {
@@ -140,12 +149,18 @@ describe("v0.38.6 session-start priming nudge does not kill the session", () => 
         { info: { role: "user", sessionID: "ses-mid-1" }, parts: [{ type: "text", text: "second ask" }] },
       ] as Array<{ info: unknown; parts: unknown[] }>,
     };
-    await transform({}, output);
+    await msgTransform({}, output);
 
-    // Mid-session: the existing behavior must be preserved — synthetic assistant
-    // messages can still be pushed because they don't pause the session.
-    const synth = output.messages.filter(isSyntheticAssistantMessage);
-    expect(synth.length).toBeGreaterThanOrEqual(1);
+    // Mid-session: the existing behavior must be preserved — the directive
+    // reaches the agent via the system surface (FASE 11 migration).
+    const sysOut = { system: [] as string[] };
+    await sysTransform(
+      { sessionID: "ses-mid-1", model: { providerID: "test", modelID: "test" } },
+      sysOut,
+    );
+    const allText = sysOut.system.join("\n");
+    expect(allText).toContain("[SKILL PRIMING]");
+    expect(allText).toContain("META-GOVERNOR INFORMATIONAL");
   });
 
   it("session-start violation injection does NOT push synthetic assistant message", async () => {
@@ -183,7 +198,10 @@ describe("v0.38.6 session-start priming nudge does not kill the session", () => 
     );
     const hooks = await plugin(mockPluginInput, PROD_OPTIONS);
     const before = hooks["tool.execute.before"]!;
-    const transform = hooks["experimental.chat.messages.transform"]!;
+    const sysTransform = hooks["experimental.chat.system.transform"] as unknown as (
+      input: unknown,
+      output: { system: string[] },
+    ) => Promise<void>;
 
     // Trigger a violation AFTER the agent has produced its first response.
     await before(
@@ -191,23 +209,20 @@ describe("v0.38.6 session-start priming nudge does not kill the session", () => 
       { args: { filePath: "/tmp/bad.ts", content: "// @ts-ignore\nconst x: any = 1 as any;" } },
     );
 
-    // Mid-session transform — prior real assistant message exists.
-    const output = {
-      messages: [
-        { info: { role: "user", sessionID: "ses-mid-viol-1" }, parts: [{ type: "text", text: "first ask" }] },
-        { info: { role: "assistant", sessionID: "ses-mid-viol-1", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
-        { info: { role: "user", sessionID: "ses-mid-viol-1" }, parts: [{ type: "text", text: "do it" }] },
-      ] as Array<{ info: unknown; parts: unknown[] }>,
-    };
-    await transform({}, output);
+    // v0.49.0 FASE 11: violation injection surfaces via system.transform (11e
+    // drain), no longer via messages.transform.
+    const sysOut = { system: [] as string[] };
+    await sysTransform(
+      { sessionID: "ses-mid-viol-1", model: { providerID: "test", modelID: "test" } },
+      sysOut,
+    );
 
-    // Mid-session: violation injection must STILL surface as a synthetic assistant
-    // message (existing behavior). Verified by prod-violations-inject.test.ts too.
-    const violMsg = output.messages.find((m) => {
-      const text = (m.parts[0] as Record<string, unknown> | undefined)?.text as string ?? "";
-      return text.includes("PROTOCOL VIOLATIONS");
-    });
-    expect(violMsg).toBeDefined();
+    // Mid-session: violation injection must STILL surface (existing behavior).
+    // Verified by prod-violations-inject.test.ts too.
+    const allText = sysOut.system.join("\n");
+    expect(allText).toContain("protocol violations");
+    expect(allText).toContain("no-type-suppression");
+    expect(allText).toContain("META-GOVERNOR INFORMATIONAL");
   });
 
   it("session-start decision intervention: decision is preserved (peek, not consumed) for re-fire on next turn", async () => {
@@ -253,7 +268,7 @@ describe("v0.38.6 session-start priming nudge does not kill the session", () => 
     expect(hasDecision("ses-start-dec-1")).toBe(true);
   });
 
-  it("mid-session decision intervention: decision IS consumed and pushed", async () => {
+  it("mid-session decision intervention surfaces via system.transform (peek, not consumed)", async () => {
     const { storeDecision, hasDecision, clearAll } = await import("./decision-store");
     clearAll();
     storeDecision("ses-mid-dec-1", {
@@ -277,24 +292,25 @@ describe("v0.38.6 session-start priming nudge does not kill the session", () => 
       HERMETIC_DEPS,
     );
     const hooks = await plugin(mockPluginInput, PROD_OPTIONS);
-    const transform = hooks["experimental.chat.messages.transform"]!;
+    const before = hooks["tool.execute.before"]!;
+    const sysTransform = hooks["experimental.chat.system.transform"] as unknown as (
+      input: unknown,
+      output: { system: string[] },
+    ) => Promise<void>;
 
-    // Mid-session setup.
-    const output = {
-      messages: [
-        { info: { role: "user", sessionID: "ses-mid-dec-1" }, parts: [{ type: "text", text: "first ask" }] },
-        { info: { role: "assistant", sessionID: "ses-mid-dec-1", agent: "build" }, parts: [{ type: "text", text: "first reply" }] },
-        { info: { role: "user", sessionID: "ses-mid-dec-1" }, parts: [{ type: "text", text: "hi" }] },
-      ] as Array<{ info: unknown; parts: unknown[] }>,
-    };
-    await transform({}, output);
+    // v0.49.0 FASE 11: seed audit state, then surface via system.transform
+    // (11f peek — the decision stays stored and fires every turn).
+    await before({ tool: "read", sessionID: "ses-mid-dec-1", callID: "call-1" }, { args: {} });
+    const sysOut = { system: [] as string[] };
+    await sysTransform(
+      { sessionID: "ses-mid-dec-1", model: { providerID: "test", modelID: "test" } },
+      sysOut,
+    );
 
-    // Mid-session: decision consumed and pushed.
-    expect(hasDecision("ses-mid-dec-1")).toBe(false);
-    const decMsg = output.messages.find((m) => {
-      const text = (m.parts[0] as Record<string, unknown> | undefined)?.text as string ?? "";
-      return text.includes("Test escalate message");
-    });
-    expect(decMsg).toBeDefined();
+    // Mid-session: decision surfaces in system and remains stored (peek).
+    expect(hasDecision("ses-mid-dec-1")).toBe(true);
+    const allText = sysOut.system.join("\n");
+    expect(allText).toContain("Test escalate message");
+    expect(allText).toContain("META-GOVERNOR INFORMATIONAL");
   });
 });
