@@ -1,4 +1,25 @@
 
+
+## [0.49.0] - 2026-09-08
+
+**Auditor Restoration FASE 11** - Move FASE 1 push sites from messages.transform to system.transform.
+
+### Added
+- **FASE 11 system.transform delivery** - All FASE 1 directives (skill priming, plan reminder, graph-tools-ready, violations, decision intervention) now fire via `experimental.chat.system.transform` which runs per LLM call (agent.ts:381), ensuring directives reach the agent on every turn.
+
+### Changed
+- Removed 5 `output.messages.push()` calls from `messages.transform` (FASE 1 push sites)
+- Added FASE 11 block (11a-11f) to `system.transform` before the FASE 6 audit trail
+- Updated 25 existing tests to verify system.transform instead of messages.transform
+
+### Fixed
+- `AuditState.worktree` → use `sessionProjectDir` from closure scope
+- `st.protocolViolations` → use `pendingViolations.get(sessionID)?.items`
+
+### Tests
+- 1252 pass, 8 skip, 0 fail (was 1227/8/25)
+- New test file: `src/auditor-restoration-system.test.ts` (4 tests)
+
 ## [0.42.0] - 2026-08-31
 
 ## [0.48.0] - 2026-09-04
