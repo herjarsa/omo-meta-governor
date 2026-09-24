@@ -243,6 +243,8 @@ export function defaultClosedLoopConfig(): ClosedLoopConfig {
     // v0.17.2: saveLessons default true. Set to false to disable lesson writes
     // while keeping decision records.
     saveLessons: true,
+    // v0.49.1: auto-remember anti-loop guard (enabled + 5min cooldown + dedupe).
+    autoRemember: { enabled: true, cooldownMs: 300_000, dedupe: true },
   }
 }
 

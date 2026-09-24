@@ -104,6 +104,14 @@ export function generateSchema(): JsonSchema {
           maxLessonsPerSession: { type: "integer", description: "v0.18.0: hard cap on lessons per session. Was silently dropped pre-v0.18.0.", default: 20, minimum: 0 },
           saveDecisions: { type: "boolean", description: "Whether to save decision records.", default: true },
           saveLessons: { type: "boolean", description: "Whether to save lessons.", default: true },
+          autoRemember: {
+            type: "object", description: "v0.49.1: anti-loop guard for the Phase 4 auto-remember prompt (warn/escalate/stop → agentmemory_memory_save).", additionalProperties: false,
+            properties: {
+              enabled: { type: "boolean", description: "Master switch for the auto-remember prompt. Set false to disable it entirely.", default: true },
+              cooldownMs: { type: "number", description: "Min ms between two auto-remember fires in the same session.", default: 300000, minimum: 0 },
+              dedupe: { type: "boolean", description: "When true, identical content is never re-queued in the same session.", default: true },
+            },
+          },
         },
       },
       modelOverride: {

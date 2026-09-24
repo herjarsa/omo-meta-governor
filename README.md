@@ -602,6 +602,9 @@ All configuration lives under the `meta_governor` key in
 |-------|------|---------|-------------|
 | `saveDecisions` | boolean | `true` | Whether to save decision records. |
 | `saveLessons` | boolean | `true` | Whether to save lessons. |
+| `autoRemember.enabled` | boolean | `true` | v0.49.1: kill-switch for the Phase 4 auto-remember prompt (warn/escalate/stop → agentmemory_memory_save). Set `false` to disable it entirely. |
+| `autoRemember.cooldownMs` | number | `300000` | v0.49.1: min ms between two auto-remember fires in the same session. |
+| `autoRemember.dedupe` | boolean | `true` | v0.49.1: identical content is never re-queued in the same session. |
 
 ### `modelOverride`
 

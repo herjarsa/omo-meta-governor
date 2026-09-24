@@ -159,4 +159,95 @@ describe("FASE 4 auto-remember — omo_remember on warn/escalate/stop for main a
       try { rmSync(dir, { recursive: true, force: true }); } catch {}
     }
   });
+
+  it("4/6 identical warn twice in a row fires only ONCE (dedupe guard v0.49.1)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "auto-remember-dedupe-"));
+    writeFileSync(join(dir, "PLAN.md"), "# test");
+    let autoRememberCalls: unknown[] = [];
+    try {
+      clearAll();
+      const sid = "auto-remember-dedupe";
+      const plugin = await createMetaGovernorPlugin(
+        { graphSync: { enabled: false }, cliAnything: { enabled: false } },
+        createHermeticExtra({
+          __test_isMainSession: () => true,
+          __test_autoRemember: (payload: unknown) => { autoRememberCalls.push(payload); },
+        }),
+      )(mockPluginInput(dir), {
+        meta_governor: { enabled: true, skillPriming: { enabled: false }, intervention: { mode: "message", minActionForMessage: "warn" } },
+      } as PluginOptions);
+      const transform = plugin["experimental.chat.messages.transform"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+      storeDecision(sid, makeDecision("warn", sid));
+      await transform({}, midSessionOutput(sid));
+      storeDecision(sid, makeDecision("warn", sid));
+      await transform({}, midSessionOutput(sid));
+      expect(autoRememberCalls.length).toBe(1);
+    } finally {
+      try { rmSync(dir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("5/6 second warn inside cooldown is suppressed (cooldown guard v0.49.1)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "auto-remember-cooldown-"));
+    writeFileSync(join(dir, "PLAN.md"), "# test");
+    let autoRememberCalls: unknown[] = [];
+    try {
+      clearAll();
+      const sid = "auto-remember-cooldown";
+      const plugin = await createMetaGovernorPlugin(
+        { graphSync: { enabled: false }, cliAnything: { enabled: false } },
+        createHermeticExtra({
+          __test_isMainSession: () => true,
+          __test_autoRemember: (payload: unknown) => { autoRememberCalls.push(payload); },
+        }),
+      )(mockPluginInput(dir), {
+        meta_governor: {
+          enabled: true,
+          skillPriming: { enabled: false },
+          intervention: { mode: "message", minActionForMessage: "warn" },
+          closedLoop: { autoRemember: { enabled: true, cooldownMs: 600_000, dedupe: false } },
+        },
+      } as PluginOptions);
+      const transform = plugin["experimental.chat.messages.transform"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+      storeDecision(sid, makeDecision("warn", sid));
+      await transform({}, midSessionOutput(sid));
+      const second = makeDecision("warn", sid);
+      (second as unknown as { message: string }).message = "[MetaGovernor] Test warn message DIFFERENT for cooldown";
+      storeDecision(sid, second);
+      await transform({}, midSessionOutput(sid));
+      expect(autoRememberCalls.length).toBe(1);
+    } finally {
+      try { rmSync(dir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("6/6 autoRemember.enabled=false never fires (kill-switch v0.49.1)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "auto-remember-off-"));
+    writeFileSync(join(dir, "PLAN.md"), "# test");
+    let autoRememberCalls: unknown[] = [];
+    try {
+      clearAll();
+      const sid = "auto-remember-off";
+      storeDecision(sid, makeDecision("warn", sid));
+      const plugin = await createMetaGovernorPlugin(
+        { graphSync: { enabled: false }, cliAnything: { enabled: false } },
+        createHermeticExtra({
+          __test_isMainSession: () => true,
+          __test_autoRemember: (payload: unknown) => { autoRememberCalls.push(payload); },
+        }),
+      )(mockPluginInput(dir), {
+        meta_governor: {
+          enabled: true,
+          skillPriming: { enabled: false },
+          intervention: { mode: "message", minActionForMessage: "warn" },
+          closedLoop: { autoRemember: { enabled: false } },
+        },
+      } as PluginOptions);
+      const transform = plugin["experimental.chat.messages.transform"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+      await transform({}, midSessionOutput(sid));
+      expect(autoRememberCalls.length).toBe(0);
+    } finally {
+      try { rmSync(dir, { recursive: true, force: true }); } catch {}
+    }
+  });
 });

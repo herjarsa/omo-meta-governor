@@ -1,5 +1,21 @@
 
 
+## [0.49.1] - 2026-09-24
+
+**Auto-remember anti-loop guard** - fixes the user-reported 23/09/2026 infinite loop where a persistent `warn` (e.g. `Score -0.375: No progress detected` while reading) re-queued the identical `agentmemory_memory_save` promptAgent every turn.
+
+### Added
+- `closedLoop.autoRemember` config block: `{ enabled (default true), cooldownMs (default 300000), dedupe (default true) }` — projected in `config.ts`, typed in `types.ts`, schematized in `generate-schema.ts` + `assets/omo-meta-governor.schema.json`, documented in `README.md`.
+- Per-session `autoRememberLastHash` + `autoRememberLastAtMs` maps in `plugin.ts`: identical content is never re-queued (dedupe), different content respects the cooldown, `enabled:false` is a full kill-switch.
+
+### Tests
+- `src/auto-remember.test.ts` 3 → 6 tests: identical warn twice fires once (dedupe), different warn inside cooldown suppressed (cooldown, `dedupe:false` + `cooldownMs:600000`), `enabled:false` never fires.
+
+### Ship protocol compliance
+- ✅ `bun run typecheck` clean
+- ✅ `bun test src/auto-remember.test.ts` 6 pass
+- ✅ schema-sync + config tests pass
+
 ## [0.49.0] - 2026-09-08
 
 **Auditor Restoration FASE 11** - Move FASE 1 push sites from messages.transform to system.transform.

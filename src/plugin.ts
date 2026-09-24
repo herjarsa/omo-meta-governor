@@ -954,6 +954,9 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
     const graphPrimingSent = new Set<string>();
 
     const implementationToolsSeen = new Set<string>();
+    // v0.49.1: auto-remember anti-loop guard — per-session last hash + timestamp.
+    const autoRememberLastHash = new Map<string, string>();
+    const autoRememberLastAtMs = new Map<string, number>();
     // v0.21.0 (post-wave W6): per-session post-wave gate state, tracked
     // independently of the audit state (the audit state only exists when
     // protocolEnforcement.auditToolCalls is enabled, but the wave-gate must
@@ -2403,10 +2406,30 @@ metricsCollector.inc("interventions_delivered");
         persistIntervention(currentSessionID, messageText);
         // v0.43.0 Phase 4: auto-trigger omo_remember on notable decisions for main agent only.
         // Fire-and-forget via promptAgent (or test seam) so the agent remembers WHY it was warned.
+        // v0.49.1: anti-loop guard — closedLoop.autoRemember { enabled, cooldownMs, dedupe }.
+        // Without this, a persistent warn (e.g. "no progress" while reading) re-queues the
+        // identical promptAgent every turn (user-reported 23/09/2026 auto-remember loop).
         try {
           const notable = decision.action === "warn" || decision.action === "escalate" || decision.action === "stop";
           if (notable && isMainSession(currentSessionID) && !isSessionStart(output.messages)) {
+            const arCfg = mergedConfig.closedLoop?.autoRemember ?? {};
+            if (arCfg.enabled === false) {
+              logToFile("info", `auto-remember skipped (disabled) for ${currentSessionID}`);
+            } else {
             const rememberContent = `MetaGovernor ${decision.action}: ${decision.message} (reasoning: ${decision.historyEntry?.reasoning ?? decision.message})`;
+            const rememberHash = simpleHash(rememberContent);
+            const nowMs = Date.now();
+            const lastHash = autoRememberLastHash.get(currentSessionID);
+            const lastAt = autoRememberLastAtMs.get(currentSessionID) ?? 0;
+            const cooldownMs = arCfg.cooldownMs ?? 300_000;
+            const dedupe = arCfg.dedupe !== false;
+            if (dedupe && lastHash === rememberHash) {
+              logToFile("info", `auto-remember deduped for ${currentSessionID}: identical content`);
+            } else if (cooldownMs > 0 && nowMs - lastAt < cooldownMs) {
+              logToFile("info", `auto-remember cooldown for ${currentSessionID}: ${nowMs - lastAt}ms < ${cooldownMs}ms`);
+            } else {
+            autoRememberLastHash.set(currentSessionID, rememberHash);
+            autoRememberLastAtMs.set(currentSessionID, nowMs);
             const rememberPromptText =
               `Please call the \`agentmemory_memory_save\` MCP tool with EXACTLY these args:\n\n` +
               "```json\n" +
@@ -2425,6 +2448,8 @@ metricsCollector.inc("interventions_delivered");
               }, 0);
             }
             logToFile("info", `auto-remember queued for ${currentSessionID}: ${decision.action}`);
+            }
+            }
           }
                 } catch {}
 

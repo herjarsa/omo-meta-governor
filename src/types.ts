@@ -249,6 +249,20 @@ export type TokenRecommendation = "compact-now" | "no-action";
  */
 
 /**
+ * v0.49.1: auto-remember (warn/escalate/stop → agentmemory_memory_save)
+ * anti-loop guard. Without this, a persistent warn (e.g. "no progress"
+ * while reading) re-queues the identical promptAgent every turn.
+ */
+export interface AutoRememberConfig {
+  /** Master switch for the Phase 4 auto-remember prompt. Default true. */
+  readonly enabled?: boolean;
+  /** Min ms between two auto-remember fires in the same session. Default 300000 (5 min). */
+  readonly cooldownMs?: number;
+  /** When true, identical content is never re-queued in the same session. Default true. */
+  readonly dedupe?: boolean;
+}
+
+/**
  * Configuration for the closed-loop learning system.
  */
 export interface ClosedLoopConfig {
@@ -263,6 +277,8 @@ export interface ClosedLoopConfig {
   /** v0.17.2: whether to save lessons. Default true. Independent of saveDecisions
    *  so users can disable lessons while keeping decision records, or vice versa. */
   readonly saveLessons?: boolean;
+  /** v0.49.1: anti-loop guard for the Phase 4 auto-remember prompt. */
+  readonly autoRemember?: AutoRememberConfig;
 }
 
 /**

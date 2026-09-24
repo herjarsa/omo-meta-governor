@@ -80,6 +80,12 @@ export interface MetaGovernorPluginConfig {
     maxLessonsPerSession?: number
     saveDecisions?: boolean
     saveLessons?: boolean
+    /** v0.49.1: anti-loop guard for the Phase 4 auto-remember prompt. */
+    autoRemember?: {
+      enabled?: boolean
+      cooldownMs?: number
+      dedupe?: boolean
+    }
   }
 
   /** Model override for MetaGovernor internal LLM usage. */
@@ -427,6 +433,15 @@ export function loadOrchestratorConfig(
         : {}),
       ...(full.closedLoop?.saveLessons !== undefined
         ? { saveLessons: full.closedLoop.saveLessons }
+        : {}),
+      // v0.49.1: project autoRemember guard (enabled + cooldownMs + dedupe).
+      ...(full.closedLoop?.autoRemember !== undefined
+        ? {
+            autoRemember: {
+              ...baseClosedLoop.autoRemember,
+              ...full.closedLoop.autoRemember,
+            },
+          }
         : {}),
     },
     // v0.18.0: project all decision fields, including message templates.
