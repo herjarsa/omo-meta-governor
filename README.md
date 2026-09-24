@@ -53,6 +53,19 @@ Add as a plugin in your OpenCode config (`~/.config/opencode/opencode.jsonc`):
 }
 ```
 
+### OpenCode V2 compat (v0.50.0+, dual V1+V2)
+
+One package serves both runtimes. V1 (`1.18.x`, `plugin` key) uses the classic
+function entrypoint; V2 (OpenChamber v2 / opencode v2, `plugins` key) uses the
+bridged `setup()` (same scoring, decisions, tools, session-start protocol).
+No config change needed — `omo-meta-governor.jsonc` is read identically, and the
+V1 `plugin` config key is normalized automatically by V2.
+
+V2 limitations (no V2 hook equivalent per the official migration guide, logged
+at setup, V1-only for now): `command.execute.before` command-filter,
+`experimental.provider.small_model` override, `experimental.compaction.autocontinue`
+overflow loop guard.
+
 ### Plugin configuration (`omo-meta-governor.jsonc`)
 
 The plugin reads its detailed configuration from `omo-meta-governor.jsonc`
@@ -646,9 +659,9 @@ All configuration lives under the `meta_governor` key in
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | boolean | `false` | Master switch. |
+| `enabled` | boolean | `true` | Master switch (v0.33.1+: defaults on). |
 | `trigger` | enum | `'firstImplement'` | `'sessionStart'` (first transform) or `'firstImplement'` (once write-like tool observed). |
-| `router` | enum | `'both'` | `'aas'` \| `'superpowers'` \| `'both'`. |
+| `router` | enum | `'registry'` | `'registry'` (skill-hub, standalone) \| `'superpowers'` \| `'both'`. v0.50.0: `"both"`/`"superpowers"` delegate via `task(load_skills=[...])` and require the superpowers plugin installed separately — without it only the registry half (`omo_skill_find/get/add`) operates. `'aas'` is deprecated, aliased to `'registry'`. |
 
 ### `graphSync`
 

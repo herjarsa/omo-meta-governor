@@ -1,5 +1,7 @@
 ﻿import { createMetaGovernorPlugin } from "./plugin"
 import type { Hooks, PluginInput, PluginOptions } from "@opencode-ai/plugin"
+import { Plugin as V2Plugin } from "@opencode/plugin"
+import { createV2Setup } from "./v2/setup.js"
 
 /**
  * @herjarsa/omo-meta-governor — Self-judging agent orchestration layer.
@@ -44,6 +46,21 @@ function omoMetaGovernor(input: PluginInput, options?: PluginOptions): Promise<H
 }
 ;(omoMetaGovernor as unknown as { id: string; server: typeof omoMetaGovernor }).id = "omo-meta-governor"
 ;(omoMetaGovernor as unknown as { id: string; server: typeof omoMetaGovernor }).server = omoMetaGovernor
+
+// ─── V2 bridge (opencode v2 / @opencode/plugin) ───
+// Export-shape decision: FUNCTION-ATTACH (not object-spread). The v0.19.6
+// loader contract requires `typeof defaultExport === "function"` for the
+// opencode 1.18.16 `uk()` iteration path — a plain-object default
+// (`{...v2def, server}`) would only satisfy the PluginModule `.server`
+// branch and risks tripping `uk()` on the inner `setup` function value.
+// Attaching `.setup` to the proven function export keeps BOTH loader paths
+// green (callable + `.server`) while exposing the V2 `{id, setup}` surface
+// (functions are objects — the V2 host reads `.setup`/`.id` off it).
+// NOTE: `createV2Setup()` already returns the full V2 plugin object
+// `{id, setup}` (not a bare setup fn), so it goes straight through
+// `V2Plugin.define` — do NOT wrap it as `{id, setup: createV2Setup()}`.
+const v2def = V2Plugin.define(createV2Setup())
+;(omoMetaGovernor as unknown as { setup: typeof v2def.setup }).setup = v2def.setup
 
 export default omoMetaGovernor
 

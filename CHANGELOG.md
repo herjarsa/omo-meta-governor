@@ -1,5 +1,46 @@
 
 
+## [0.50.0] - 2026-09-24
+
+**Dual V1+V2 support (OpenChamber v2 / opencode v2 compat)** — V1 plugin impls do not
+run in V2 (official breaking change). One package now serves both runtimes; V2 path
+absorbs the three v0.49.1 gaps (bootstrap wiring, dead `skillNames`, router docs).
+
+### Added
+- `src/v2/` bridge (promise flavour, `@opencode/plugin@2.0.16` pinned dep): `v1-input.ts`
+  (V1 input/options from `ctx.location`/`ctx.options`), `session-client.ts`
+  (`OpencodeClientLike` over `ctx.session.prompt` with shape fallback, never throws),
+  `hook-bridge.ts` (every V1 hook → V2 registration: tool before/after, both
+  transforms → one `session.hook("context")` with string↔SystemPart adapter,
+  compacting, permission.evaluate, tool.definition via list+update), `setup.ts`
+  (factory → session-client override → bridge → tools → cleanup).
+- `src/v2-tools.ts`: all 37 `omo_*` tools via `ctx.tool.transform` editor.add
+  (zod→JSON Schema via `z.toJSONSchema`, per-tool guard, `{content, metadata}` result map).
+- `src/index.ts`: dual default export (function-attach: callable V1 + `.id`/`.server`/`.setup`);
+  smoke-tested (`typeof server/setup === "function"`).
+- `bootstrapChoreSkills` wired into the factory (fire-and-forget, tarball-guarded);
+  `skills-bootstrap.test.ts` unskipped (4 pass).
+- `src/v2-bridge.test.ts` (4 tests: registration coverage, block rethrow + live args,
+  SystemPart wrapping, after-hook no-throw).
+
+### Changed
+- Removed dead `skillNames = listBundledSkillNames(cwd)` (+ import) in `plugin.ts`.
+- README documents `router: "both"` requires the separate superpowers plugin install
+  (registry half works standalone); default stays `"registry"`.
+
+### Known V2 limitations (no V2 equivalent per official guide, logged at setup)
+- `command.execute.before` (commandFilter governance), `experimental.provider.small_model`
+  override, `experimental.compaction.autocontinue` (overflow loop guard) stay V1-only.
+
+### Tests
+- Full suite: 1263 + new (v2-bridge 4, bootstrap 4 unskipped) — see CI.
+- New test files: `src/v2-bridge.test.ts` (4 tests).
+
+### Ship protocol compliance
+- ✅ `bun run typecheck` clean
+- ✅ targeted suites green (v2-bridge 4, bootstrap 4, auto-remember 6)
+- ✅ Oracle review + CI green required before publish (tag-push OIDC flow)
+
 ## [0.49.1] - 2026-09-24
 
 **Auto-remember anti-loop guard** - fixes the user-reported 23/09/2026 infinite loop where a persistent `warn` (e.g. `Score -0.375: No progress detected` while reading) re-queued the identical `agentmemory_memory_save` promptAgent every turn.

@@ -229,7 +229,8 @@ describe("installProcessExitHandlers (v0.30 zombie fix)", () => {
     // Third call too
     const third = killOrphanedToolProcesses()
     expect(third).toBeGreaterThanOrEqual(0)
-  })
+  }, 30_000) // v0.50.0: 3 real process-table sweeps (tasklist on Windows) exceed
+  // bun's 5s default under full-suite load (flaked at 5041/5338ms twice).
 })
 
 

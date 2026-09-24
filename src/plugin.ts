@@ -111,13 +111,14 @@ import { GraphRetrieval, getDefaultGraphRetrieval, configureDefaultGraphRetrieva
 import { AuditStateCache } from "./audit-state-cache";
 import { TtlBoundedMap } from "./utils/ttl-bounded-map";
 import { isSessionStart } from "./utils/session-start";
-import { listBundledSkillNames } from "./utils/skill-catalog";
 import { wrapInformational } from "./agent-notifications";
+import { bootstrapChoreSkills } from "./skills-bootstrap.js";
 
 import { DEFAULT_VERSION } from "./metrics";
-import { statSync, readFileSync } from "node:fs";
+import { statSync, readFileSync, existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { execSync, execFileSync } from "node:child_process";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import {
   loadProtocol,
   buildSystemInjection,
@@ -675,6 +676,26 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
           // best-effort
         }
       })
+    }
+    // v0.50.0: chore-skills bootstrap — extract bundled skills to the global
+    // skills dir on first run / plugin upgrade. Fire-and-forget and
+    // best-effort: never blocks the factory, never throws. The existsSync
+    // guard keeps hermetic tests (which resolve the tarball next to src/,
+    // where no tarball exists) side-effect free.
+    try {
+      const distDir = dirname(fileURLToPath(import.meta.url));
+      const tarballPath = join(distDir, "skills", "chore.tar.gz");
+      if (existsSync(tarballPath)) {
+        void bootstrapChoreSkills({
+          globalDir: join(homedir(), ".agents", "skills"),
+          tarballPath,
+          pluginVersion: DEFAULT_VERSION,
+        }).catch((err) => {
+          logToFile("warn", `chore-skills bootstrap failed: ${String(err)}`);
+        });
+      }
+    } catch (err) {
+      logToFile("warn", `chore-skills bootstrap failed: ${String(err)}`);
     }
     // v0.35.0 (Tier 3): declared up here so `dispose` can close it even when
     // the plugin is disabled (the early-return for !enabled would otherwise
@@ -2663,7 +2684,6 @@ metricsCollector.inc("interventions_delivered");
         // before tool.execute.before has populated audit state.
         if (!systemDirectivesSent.has(sessionID)) {
           systemDirectivesSent.add(sessionID);
-          const skillNames = listBundledSkillNames(cwd);
           const dirLines: string[] = [];
           dirLines.push("");
           dirLines.push("[omo-meta-governor session-start protocol v0.47.0 - superpowers workflow]");

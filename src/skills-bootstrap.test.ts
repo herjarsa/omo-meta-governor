@@ -27,7 +27,9 @@ async function makeChoreTarball(tarballDir: string, slug: string, body: string):
 // but did not fix the tar root cause.
 // TODO(#skills-bootstrap-windows): investigate realpathSync or
 // alternative extraction to handle 8.3 short-name paths.
-describe.skip("bootstrapChoreSkills", () => {
+// v0.50.0: re-enabled (was describe.skip) — suite passes 4/4 locally incl.
+// Windows. If the bsdtar RUNNER~1 flake recurs on CI, re-skip and reopen.
+describe("bootstrapChoreSkills", () => {
   let tmpRoot: string
   let globalDir: string
   let tarballDir: string
