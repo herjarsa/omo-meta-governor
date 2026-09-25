@@ -41,7 +41,7 @@ export interface GuardedOptions {
  */
 function killDescendants(pid: number): void {
   try {
-    const out = spawnSync("pgrep", ["-P", String(pid)], { encoding: "utf8" })
+    const out = spawnSync("pgrep", ["-P", String(pid)], { encoding: "utf8", windowsHide: true })
     for (const line of out.stdout.trim().split(/\s+/)) {
       const child = Number(line)
       if (!child) continue
@@ -66,7 +66,7 @@ export function killProcessTree(pid: number): void {
   if (!pid || pid <= 0) return
   try {
     if (process.platform === "win32") {
-      spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" })
+      spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true })
     } else {
       try {
         process.kill(-pid, "SIGKILL")
@@ -279,7 +279,7 @@ export function killOrphanedToolProcesses(): number {
     if (process.platform === "win32") {
       for (const name of ["graphify.exe", "codegraph.exe"]) {
         try {
-          spawnSync("taskkill", ["/IM", name, "/F"], { stdio: "ignore" })
+          spawnSync("taskkill", ["/IM", name, "/F"], { stdio: "ignore", windowsHide: true })
         } catch {
           // not found is fine
         }
@@ -292,7 +292,8 @@ export function killOrphanedToolProcesses(): number {
             "-Command",
             "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'OMO_MG_WATCH|OMO_MG_SPAWN' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
           ],
-          { stdio: "ignore" },
+          // v0.50.2: windowsHide so no console window flashes on Windows.
+          { stdio: "ignore", windowsHide: true },
         )
         if (ps.status === 0) count = 1
       } catch {
@@ -301,13 +302,13 @@ export function killOrphanedToolProcesses(): number {
     } else {
       for (const name of ["graphify", "codegraph"]) {
         try {
-          spawnSync("pkill", ["-x", name], { stdio: "ignore" })
+          spawnSync("pkill", ["-x", name], { stdio: "ignore", windowsHide: true })
         } catch {
           // not found is fine
         }
       }
       try {
-        spawnSync("pkill", ["-f", "OMO_MG_WATCH|OMO_MG_SPAWN"], { stdio: "ignore" })
+        spawnSync("pkill", ["-f", "OMO_MG_WATCH|OMO_MG_SPAWN"], { stdio: "ignore", windowsHide: true })
       } catch {
         // best-effort
       }

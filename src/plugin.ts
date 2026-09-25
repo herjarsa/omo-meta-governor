@@ -435,6 +435,8 @@ export function createMetaGovernorPlugin(
           timeout: 5000,
           encoding: "utf-8",
           stdio: ["pipe", "pipe", "pipe"],
+          // v0.50.2: windowsHide so no console window flashes on Windows.
+          windowsHide: true,
         }).trim() || null;
         if (latest) {
           try {
@@ -3424,7 +3426,9 @@ export function resolveRepoMode(
       cwd: projectDir,
       stdio: "pipe",
       timeout: 10_000,
-    });
+      // v0.50.2: windowsHide so no console window flashes on Windows.
+      windowsHide: true,
+    } as Parameters<typeof execSync>[1]);
     const parsed = JSON.parse(String(out)) as {
       isFork?: boolean;
       parent?: { owner?: { login?: string }; name?: string } | null;

@@ -1,5 +1,28 @@
 
 
+## [0.50.2] - 2026-09-25
+
+**No console-window flash on Windows** — every child_process spawn site in
+shipped runtime code now passes `windowsHide: true`. Previously `tar` (skills
+bootstrap, new in v0.50.0 wiring), `npm view` (stale-cache check), `gh repo view`,
+pip/npx probes, `taskkill`/`pgrep`/`powershell` sweeps and the graph watch-loop
+spawns could pop black console windows on each invocation.
+
+### Fixed
+- `src/skills-bootstrap.ts`, `src/plugin.ts` (npm view + resolveRepoMode),
+  `src/cli-anything-sync.ts`, `src/cli-anything.ts`, `src/proc-guard.ts` (4 sites),
+  `src/graph-sync.ts` (watch-loop spawns): added `windowsHide: true`.
+  Sites already covered (runGuardedSync, git/gh probes) unchanged.
+
+### Tests
+- New `src/no-console-flash.test.ts`: static scan asserting every spawn site
+  carries `windowsHide` (caught 4 extra sites during development).
+- Full suite: see CI.
+
+### Ship protocol compliance
+- ✅ `bun run typecheck` clean
+- ✅ targeted suites green + full suite green required (tag-push OIDC flow)
+
 ## [0.50.1] - 2026-09-25
 
 **V2 entrypoint fix (object-spread dual shape)** — v0.50.0 loaded in the V2

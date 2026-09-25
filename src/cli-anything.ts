@@ -90,6 +90,8 @@ const defaultRunner: Runner = (cmd, opts) => {
     timeout: opts?.timeoutMs ?? 10_000,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    // v0.50.2: windowsHide so no console window flashes on Windows.
+    windowsHide: true,
   })
   return result.toString()
 }

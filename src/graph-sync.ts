@@ -388,6 +388,8 @@ function startWatch(projectDir: string, tool: "codegraph" | "graphify"): void {
           stdio: "ignore",
           detached: true,
           shell: false,
+          // v0.50.2: windowsHide so no console window flashes on Windows.
+          windowsHide: true,
           env: { ...process.env, OMO_MG_SPAWN: "1" },
         },
       )
@@ -397,6 +399,8 @@ function startWatch(projectDir: string, tool: "codegraph" | "graphify"): void {
         stdio: "ignore",
         detached: true,
         shell: false,  // v0.23.1: prevent cmd.exe window on Windows
+        // v0.50.2: windowsHide so no console window flashes on Windows.
+        windowsHide: true,
         env: { ...process.env, OMO_MG_SPAWN: "1" },
       })
     }

@@ -94,7 +94,8 @@ export async function bootstrapChoreSkills(opts: {
 
   try {
     // Use execFileSync (no shell) to avoid shell injection via paths.
-    execFileSync("tar", ["-xzf", opts.tarballPath, "-C", stageDir], { stdio: ["ignore", "ignore", "pipe"] })
+    // v0.50.2: windowsHide so the tar console window never flashes on Windows.
+    execFileSync("tar", ["-xzf", opts.tarballPath, "-C", stageDir], { stdio: ["ignore", "ignore", "pipe"], windowsHide: true })
   } catch (err) {
     console.warn(`[skills-bootstrap] tarball extraction failed: ${(err as Error).message}`)
     await cleanStageSafe(stageDir)
