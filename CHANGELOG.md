@@ -1,5 +1,30 @@
 
 
+## [0.50.1] - 2026-09-25
+
+**V2 entrypoint fix (object-spread dual shape)** — v0.50.0 loaded in the V2
+host (top-level log present) but `setup()` never fired: the V2 host does not
+invoke `.setup` off a function export. The default export is now the documented
+dual object `{ id, setup, server }`.
+
+### Changed
+- `src/index.ts`: function-attach → object-spread. V1 PluginModule path
+  (`server`, supported since 1.18.29) unchanged in behavior; V1 <1.18.29
+  function-only loaders no longer supported (accepted tradeoff).
+- `src/v2/setup.ts`: `v2_setup_start` entry marker (proves the host invoked
+  setup vs merely importing), factory call guarded with `v2_setup_factory_failed`
+  error log (was silent rejection), `v2_setup_ready` with registration counts.
+- `src/plugin.test.ts` + `src/index.test.ts`: loader-contract tests updated
+  from callable-default to dual-object contract (incl. dist bundle assertion).
+
+### Tests
+- Targeted: index (6) + plugin (37 incl. dist contract) + v2 suites (8) green.
+- Full suite: see CI.
+
+### Ship protocol compliance
+- ✅ `bun run typecheck` clean
+- ✅ Oracle review (2nd re-review: APROBADO) + CI green required (tag-push OIDC flow)
+
 ## [0.50.0] - 2026-09-24
 
 **Dual V1+V2 support (OpenChamber v2 / opencode v2 compat)** — V1 plugin impls do not

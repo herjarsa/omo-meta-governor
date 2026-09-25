@@ -727,11 +727,12 @@ describe("serve-mode plugin init contract (v0.38.5)", () => {
     expect(typeof plugin.name).toBe("string")
   })
 
-  it("then the plugin module exposes a callable default export (opencode loader contract)", async () => {
-    // Per the @opencode-ai/plugin npm package loader, the entry point
-    // must export a callable that returns the plugin factory. This is
-    // the shape OpenCode Desktop's `opencode serve` expects when
-    // importing `npm:@herjarsa/omo-meta-governor`.
+  it("then the plugin module exposes a dual V1+V2 default export (opencode loader contract)", async () => {
+    // v0.50.1: object-spread dual shape (per the official V1→V2 migration
+    // guide). The entry point must export a plain object `{ id, setup,
+    // server }`: the V2 host reads `.setup`, V1 (>=1.18.29, PluginModule
+    // path) reads `.server`. The v0.50.0 function-attach shape kept V1
+    // green but the V2 host never invoked `.setup` off a function export.
     //
     // We import the bundled entry from dist/index.js (built artifact)
     // — if the build contract breaks, this test fails. Skip if dist
@@ -747,8 +748,11 @@ describe("serve-mode plugin init contract (v0.38.5)", () => {
     const entry = require(distPath)
     // The entry can be either `entry.default` (ESM-style default) or
     // the entry itself (CJS-style).
-    const callable = entry.default ?? entry
-    expect(typeof callable).toBe("function")
+    const dual = entry.default ?? entry
+    expect(typeof dual).toBe("object")
+    expect((dual as { id: unknown }).id).toBe("omo-meta-governor")
+    expect(typeof (dual as { server: unknown }).server).toBe("function")
+    expect(typeof (dual as { setup: unknown }).setup).toBe("function")
   })
 })
 

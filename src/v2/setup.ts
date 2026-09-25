@@ -46,10 +46,29 @@ export function createV2Setup(
   return {
     id: "omo-meta-governor",
     setup: async (ctx: V2Context): Promise<V2PluginNs.Cleanup | void> => {
+      // v0.50.1: entry marker — proves the V2 host actually invoked setup()
+      // (vs merely importing the module, which only emits the top-level
+      // "plugin loaded" line). If this line never appears, the host does not
+      // recognize the entrypoint shape.
+      logToFile("info", "v2_setup_start", {
+        directory: (ctx as unknown as { location?: { directory?: unknown } })
+          ?.location?.directory ?? null,
+      });
       const v1Input = buildV1Input(ctx);
       const v1Options = resolveV1Options(ctx);
       const factory = createMetaGovernorPlugin(config, deps);
-      const hooks = await factory(v1Input, v1Options);
+      let hooks: Awaited<ReturnType<typeof factory>>;
+      try {
+        hooks = await factory(v1Input, v1Options);
+      } catch (err: unknown) {
+        // v0.50.1: the factory call was previously unguarded — a throw here
+        // rejected setup() silently (no hooks, no log). Now visible.
+        logToFile("error", "v2_setup_factory_failed", {
+          message: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack?.slice(0, 800) : undefined,
+        });
+        throw err;
+      }
 
       // Step 3: install the V2 session adapter (overrides the null client the
       // factory saw — the factory's own setSessionClient(null) is a no-op for
@@ -95,6 +114,9 @@ export function createV2Setup(
       }
 
       // Step 5: teardown — V2 registrations first, then the V1 dispose hook.
+      logToFile("info", "v2_setup_ready", {
+        hookRegistrations: registrations.length,
+      });
       return async (): Promise<void> => {
         for (const reg of registrations) {
           try {

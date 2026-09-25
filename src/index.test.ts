@@ -1,20 +1,19 @@
 /**
- * Regression tests for the dual-shape default export (v0.19.4).
+ * Regression tests for the default export shape (v0.19.4, v0.50.0, v0.50.1).
  *
  * Background: opencode 1.18.16 npm-package plugins load the module but
  * don't reliably invoke the factory under `opencode serve`. Some
  * opencode builds call `default(input, options)` (Plugin function path);
- * others read `module.server(input, options)` (PluginModule path). The
- * v0.19.4 fix makes the default export satisfy BOTH shapes
- * simultaneously:
+ * others read `module.server(input, options)` (PluginModule path).
  *
- *   const _plugin = createMetaGovernorPlugin()
- *   _plugin.id = "omo-meta-governor"
- *   _plugin.server = _plugin
- *   export default _plugin
+ * v0.50.1: object-spread dual shape (per the official V1→V2 migration
+ * guide) — the default export is a PLAIN OBJECT `{ id, setup, server }`:
+ * the V2 host reads `.setup`, V1 (>=1.18.29) reads `.server`. The v0.50.0
+ * function-attach shape kept V1 green but the V2 host never invoked
+ * `.setup` off a function export (import ran, setup never fired).
  *
  * These tests lock down that contract so future refactors of src/index.ts
- * can't silently regress the opencode serve invocation path.
+ * can't silently regress either invocation path.
  */
 import { describe, expect, test } from "bun:test"
 import pluginModule from "./index"
@@ -29,13 +28,17 @@ const fakeRunCliAnythingSync = (async () => ({
   alreadyInitialized: true,
 })) as unknown as NonNullable<MetaGovernorPluginDeps["__test_runCliAnythingSync"]>
 
-describe("default export (v0.19.4 dual-shape)", () => {
-  test("is a callable function (Plugin path)", () => {
-    expect(typeof pluginModule).toBe("function")
+describe("default export (v0.50.1 object-spread dual-shape)", () => {
+  test("is a plain object (V2 host shape), not a function", () => {
+    expect(typeof pluginModule).toBe("object")
   })
 
-  test("has .server pointing to itself (PluginModule path)", () => {
-    expect((pluginModule as unknown as { server: unknown }).server).toBe(pluginModule)
+  test("has .server function (V1 PluginModule path)", () => {
+    expect(typeof (pluginModule as unknown as { server: unknown }).server).toBe("function")
+  })
+
+  test("has .setup function (V2 host path)", () => {
+    expect(typeof (pluginModule as unknown as { setup: unknown }).setup).toBe("function")
   })
 
   test("has .id matching the plugin name", () => {
@@ -50,8 +53,14 @@ describe("named exports still work", () => {
     expect(typeof createMetaGovernorPlugin).toBe("function")
   })
 
-  test("calling the default fires the factory and returns hooks", async () => {
-    const hooks = await pluginModule(
+  test("calling .server fires the factory and returns hooks", async () => {
+    const server = (pluginModule as unknown as {
+      server: (
+        input: never,
+        options?: never,
+      ) => Promise<Record<string, unknown>>
+    }).server
+    const hooks = await server(
       { client: null, project: null, directory: "", worktree: "", experimental_workspace: { register: () => {} }, serverUrl: new URL("http://localhost"), $: null } as never,
       // Hermetic: the plugin defaults to enabled=false WITHOUT a user config
       // file (~/.config/opencode/omo-meta-governor.jsonc) — CI has none, so

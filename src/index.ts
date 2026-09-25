@@ -27,42 +27,42 @@ import { createV2Setup } from "./v2/setup.js"
  * `DEFAULT_PROTOCOL_PATH` string, non-callable dual-shape instances), so
  * the loader always tripped on the first invalid one.
  *
- * The entry now exports exactly ONE runtime symbol: a callable function
- * that also carries `.id` and `.server` (pointing at itself), satisfying
- * both loader paths — `lV(...,"server","detect")` (PluginModule) and
- * `uk()` iteration (Plugin function) — with a single registration.
+ * v0.50.1 dual shape (object-spread, per the official V1→V2 migration
+ * guide): the entry exports exactly ONE runtime symbol — a plain object
+ * `{ id, setup, server }`. The V2 host reads `.id`/`.setup`; the V1 loader
+ * (`PluginModule` branch, supported since 1.18.29) reads `.server`.
+ * `uk()` iteration only sees the single `default` export, which is an
+ * object with a callable `.server`, so it passes. The previous
+ * function-attach shape (v0.50.0) kept V1 green on all versions but the V2
+ * host never called `.setup` off a function export — the plugin imported
+ * (top-level "loaded" log) yet stayed dead. Object-spread is the documented
+ * dual shape; V1 <1.18.29 (function-only loaders) is no longer supported.
  * All utility exports moved to the "./lib" subpath.
  */
 const _plugin = createMetaGovernorPlugin()
 
 /**
- * Plugin function shape: `default(input, options) => Hooks`.
- * Also acts as PluginModule shape via the `.server` self-reference.
+ * V1 server shape: `(input, options) => Hooks` (PluginModule.server).
+ * Invokes the factory with the loader-provided input so the returned
+ * value is the HOOKS object (tool.execute.after, ...), not the factory.
  */
-function omoMetaGovernor(input: PluginInput, options?: PluginOptions): Promise<Hooks> {
-  // Invoke the factory with the loader-provided input so the returned
-  // value is the HOOKS object (tool.execute.after, ...), not the factory.
+function omoMetaGovernorServer(input: PluginInput, options?: PluginOptions): Promise<Hooks> {
   return _plugin(input, options)
 }
-;(omoMetaGovernor as unknown as { id: string; server: typeof omoMetaGovernor }).id = "omo-meta-governor"
-;(omoMetaGovernor as unknown as { id: string; server: typeof omoMetaGovernor }).server = omoMetaGovernor
 
-// ─── V2 bridge (opencode v2 / @opencode/plugin) ───
-// Export-shape decision: FUNCTION-ATTACH (not object-spread). The v0.19.6
-// loader contract requires `typeof defaultExport === "function"` for the
-// opencode 1.18.16 `uk()` iteration path — a plain-object default
-// (`{...v2def, server}`) would only satisfy the PluginModule `.server`
-// branch and risks tripping `uk()` on the inner `setup` function value.
-// Attaching `.setup` to the proven function export keeps BOTH loader paths
-// green (callable + `.server`) while exposing the V2 `{id, setup}` surface
-// (functions are objects — the V2 host reads `.setup`/`.id` off it).
+// ─── Dual V1+V2 default export (opencode v2 / @opencode/plugin) ───
 // NOTE: `createV2Setup()` already returns the full V2 plugin object
 // `{id, setup}` (not a bare setup fn), so it goes straight through
 // `V2Plugin.define` — do NOT wrap it as `{id, setup: createV2Setup()}`.
 const v2def = V2Plugin.define(createV2Setup())
-;(omoMetaGovernor as unknown as { setup: typeof v2def.setup }).setup = v2def.setup
 
-export default omoMetaGovernor
+const omoMetaGovernorDual = {
+  ...v2def,
+  id: "omo-meta-governor",
+  server: omoMetaGovernorServer,
+}
+
+export default omoMetaGovernorDual
 
 // ─── Type-only re-exports (erased at runtime — safe for the loader) ───
 export type {

@@ -151,5 +151,7 @@ describe("P2-1 rawCliAnything precedence: options > file", () => {
     expect(called).not.toBeNull()
     expect(called!.autoInstall).toBe(true)
     expect(called!.autoUpgrade).toBe(true)
-  })
+  }, 30_000) // v0.50.1: same 5s-flake family as the sibling test — the
+  // 5000ms runner wait plus factory overhead exceeds bun's default timeout
+  // under full-suite load (flaked at 5010ms).
 })
