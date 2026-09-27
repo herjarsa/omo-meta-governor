@@ -1,6 +1,6 @@
 
 
-## [Unreleased] - 2026-09-27
+## [0.51.0] - 2026-09-27
 
 **Conscience fix — opt-in high-value memories only, anti-spam** — the plugin now acts as the agent's conscience (what to do, where to go, mistakes, high-value memories) instead of dumping AgentMemory garbage on every `warn`.
 
