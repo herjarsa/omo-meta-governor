@@ -107,9 +107,18 @@ export function generateSchema(): JsonSchema {
           autoRemember: {
             type: "object", description: "v0.49.1: anti-loop guard for the Phase 4 auto-remember prompt (warn/escalate/stop → agentmemory_memory_save).", additionalProperties: false,
             properties: {
-              enabled: { type: "boolean", description: "Master switch for the auto-remember prompt. Set false to disable it entirely.", default: true },
+              enabled: { type: "boolean", description: "Master switch for the auto-remember prompt. Set false to disable it entirely. Default false (opt-in, conscience fix).", default: false },
               cooldownMs: { type: "number", description: "Min ms between two auto-remember fires in the same session.", default: 300000, minimum: 0 },
               dedupe: { type: "boolean", description: "When true, identical content is never re-queued in the same session.", default: true },
+            },
+          },
+          conscience: {
+            type: "object", description: "Conscience memory persistence (opt-in, default disabled). Mirrors ConscienceConfig in src/types.ts.", additionalProperties: false,
+            properties: {
+              enabled: { type: "boolean", description: "Master switch for conscience memory persistence. Default false (opt-in).", default: false },
+              maxMemoriesPerSession: { type: "integer", description: "Max conscience memories per session.", default: 5, minimum: 0 },
+              toolRoute: { type: "string", description: "Tool route for conscience writes.", enum: ["omo_remember"], default: "omo_remember" },
+              requireNovelty: { type: "boolean", description: "When true, only novel content is persisted. Default true.", default: true },
             },
           },
         },

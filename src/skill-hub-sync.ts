@@ -145,6 +145,8 @@ export class SkillHubSync {
     const result: SkillHubDepsResult = { skillsTouched: 0, depsWritten: 0, invalidGroups: 0 }
     if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return result
     const byType = raw as Record<string, unknown>
+    // v0.50.x (conscience-fix T9 audit): function-local — created per
+    // ingestDeps() call, never retained. Bounded by input group count.
     const perSkill = new Map<string, Array<{ depType: string; depName: string }>>()
     for (const [depType, groups] of Object.entries(byType)) {
       if (depType.length === 0 || typeof groups !== "object" || groups === null || Array.isArray(groups)) {

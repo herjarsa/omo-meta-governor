@@ -45,7 +45,43 @@ export class TtlBoundedMap<K, V> {
     this.map.delete(key)
   }
 
+  clear(): void {
+    this.map.clear()
+  }
+
   get size(): number {
     return this.map.size
+  }
+
+  /**
+   * v0.50.x (conscience-fix T9): iteration + clear support so module-level
+   * per-session stores (decision-store, graph-sync watch tables) can migrate
+   * off raw Maps without logic changes. Expired entries are purged first;
+   * iteration is over a snapshot so delete-during-loop stays safe.
+   */
+  private purgeExpired(): void {
+    const now = Date.now()
+    for (const [k, e] of this.map) {
+      if (now >= e.expiresAtMs) this.map.delete(k)
+    }
+  }
+
+  keys(): IterableIterator<K> {
+    this.purgeExpired()
+    return [...this.map.keys()][Symbol.iterator]()
+  }
+
+  values(): IterableIterator<V> {
+    this.purgeExpired()
+    return [...this.map.values()].map((e) => e.value)[Symbol.iterator]()
+  }
+
+  entries(): IterableIterator<[K, V]> {
+    this.purgeExpired()
+    return [...this.map.entries()].map(([k, e]): [K, V] => [k, e.value])[Symbol.iterator]()
+  }
+
+  [Symbol.iterator](): IterableIterator<[K, V]> {
+    return this.entries()
   }
 }

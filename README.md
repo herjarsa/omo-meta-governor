@@ -615,9 +615,13 @@ All configuration lives under the `meta_governor` key in
 |-------|------|---------|-------------|
 | `saveDecisions` | boolean | `true` | Whether to save decision records. |
 | `saveLessons` | boolean | `true` | Whether to save lessons. |
-| `autoRemember.enabled` | boolean | `true` | v0.49.1: kill-switch for the Phase 4 auto-remember prompt (warn/escalate/stop → agentmemory_memory_save). Set `false` to disable it entirely. |
-| `autoRemember.cooldownMs` | number | `300000` | v0.49.1: min ms between two auto-remember fires in the same session. |
-| `autoRemember.dedupe` | boolean | `true` | v0.49.1: identical content is never re-queued in the same session. |
+| `autoRemember.enabled` | boolean | `false` | Opt-in kill-switch for the auto-remember prompt (escalate/stop only → `omo_remember`). Conscience fix 2026-09-27: default flipped `true` → `false`; `warn` no longer triggers. |
+| `autoRemember.cooldownMs` | number | `300000` | Min ms between two auto-remember fires in the same session. |
+| `autoRemember.dedupe` | boolean | `true` | Identical content (stable key: action + evidence sources + deviation categories, score floats excluded) is never re-queued in the same session. |
+| `conscience.enabled` | boolean | `false` | Master switch for conscience memory persistence (opt-in). |
+| `conscience.maxMemoriesPerSession` | integer | `5` | Max conscience memories persisted per session. |
+| `conscience.toolRoute` | enum | `omo_remember` | Tool route for conscience writes (`omo_remember` only). |
+| `conscience.requireNovelty` | boolean | `true` | When true, only novel structured content (`mistake`, `whatToDo`, `whereToGo`, `toolRoute`) is persisted; raw dumps forbidden. |
 
 ### `modelOverride`
 

@@ -26,6 +26,7 @@ import { runGuarded } from "./proc-guard"
 import { statSync, existsSync } from "node:fs"
 import { join } from "node:path"
 import { getMCPClient } from "./mcp-client"
+import { TtlBoundedMap } from "./utils/ttl-bounded-map"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -159,7 +160,11 @@ export class GraphRetrieval {
   private readonly timeoutMs: number
   private readonly cacheTtlMs: number
   private readonly maxEntriesPerSession: number
-  private readonly cache: Map<string, SessionCache> = new Map()
+  // v0.50.x (conscience-fix T9 / D11): was unbounded per-session Map — now
+  // TtlBoundedMap (1000 sessions, 24h TTL) per postWaveSessions precedent.
+  // The inner per-session entries map stays a plain Map: bounded by
+  // maxEntriesPerSession (default 10, LRU-evicted in cacheContext) + cacheTtlMs.
+  private readonly cache: TtlBoundedMap<string, SessionCache> = new TtlBoundedMap(1000, 24 * 60 * 60 * 1000)
   /** v0.25.0: routing preference. Mutable — configureDefaultGraphRetrieval updates it. */
   private preferredTool: GraphToolPreference
   /** v0.30.0: MCP call timeout. */

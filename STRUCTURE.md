@@ -134,6 +134,8 @@ All source files live flat in `src/` — no subdirectories. Files are organized 
 | `multiphase-gap.test.ts` | Multi-phase plan signal detection |
 | `e2e.test.ts` | End-to-end plugin lifecycle |
 | `integration.test.ts` | Cross-module integration |
+| `auto-remember.test.ts` | Auto-remember opt-in contract (escalate/stop-only, cooldown, dedupe) |
+| `conscience-spam.test.ts` | Conscience anti-spam QA (7 scenarios: spam-storm, warn-never, disabled-never, marker, structured-content, stable-dedupe-key, TtlBoundedMap eviction) |
 
 ## Key File Locations
 

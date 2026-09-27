@@ -13,6 +13,7 @@
  * paralysis-override signal consumed by scoring-engine.
  */
 import type { DecisionHandlerOutput } from "./types"
+import { TtlBoundedMap } from "./utils/ttl-bounded-map"
 
 // v0.34.2: per-session history (capped) for paralysis-override signal.
 // Previously the store kept only the LAST decision per session; the
@@ -21,8 +22,12 @@ import type { DecisionHandlerOutput } from "./types"
 // list that countConsecutiveStops(decision-handler.ts:216) reads.
 const MAX_HISTORY = 20
 
-const store = new Map<string, DecisionHandlerOutput>()
-const history = new Map<string, DecisionHandlerOutput["historyEntry"][]>()
+// v0.50.x (conscience-fix T9 / D11): was unbounded per-session Maps — a
+// long-running server accumulated one entry per session forever. Now
+// TtlBoundedMap: 1000-session cap (oldest evicted first) + 24h TTL,
+// following the postWaveSessions precedent (plugin.ts).
+const store = new TtlBoundedMap<string, DecisionHandlerOutput>(1000, 24 * 60 * 60 * 1000)
+const history = new TtlBoundedMap<string, DecisionHandlerOutput["historyEntry"][]>(1000, 24 * 60 * 60 * 1000)
 
 /**
  * Store a decision for a session.

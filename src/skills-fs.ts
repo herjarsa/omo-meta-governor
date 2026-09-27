@@ -68,6 +68,8 @@ export function parseSkillFrontmatter(content: string): ParsedSkillFrontmatter {
 }
 
 export async function scanSkillsDir(dir: string): Promise<Map<string, ParsedSkillFrontmatter>> {
+  // v0.50.x (conscience-fix T9 audit): function-local — created per
+  // scanSkillsDir() call, never retained. Bounded by dir entry count.
   const out = new Map<string, ParsedSkillFrontmatter>()
   let entries: import("node:fs").Dirent[]
   try {

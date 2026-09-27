@@ -7,6 +7,8 @@
 
 export function reciprocalRankFusion(lists: readonly (readonly string[])[], k = 60): string[] {
   if (lists.length === 0) return []
+  // v0.50.x (conscience-fix T9 audit): function-local temporaries — created
+  // per reciprocalRankFusion() call, never retained. Bounded by input size.
   const scores = new Map<string, number>()
   const firstSeen = new Map<string, number>()
   let order = 0

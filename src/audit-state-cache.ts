@@ -36,6 +36,9 @@ interface CacheEntry<V> {
 }
 
 export class AuditStateCache<V> {
+  // v0.50.x (conscience-fix T9 audit): INTENTIONALLY a plain Map — already
+  // bounded: maxEntries (default 100, LRU-evicted in set()) + per-entry TTL
+  // (default 1h, lazily evicted in get()). Not per-session-unbounded.
   private readonly store = new Map<string, CacheEntry<V>>()
   private readonly maxEntries: number
   private readonly ttlMs: number

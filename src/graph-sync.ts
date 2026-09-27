@@ -21,6 +21,7 @@ import { resolve, join } from "node:path"
 import { constants } from "node:fs"
 import { oldPluginPaths, newPluginPaths, migrateOldToNew } from "./utils/migrate"
 import { killProcessTree, trackPid, untrackPid, runGuardedSync, runGuarded, killOrphanedToolProcesses } from "./proc-guard"
+import { TtlBoundedMap } from "./utils/ttl-bounded-map"
   try {
   migrateOldToNew({ oldPaths: oldPluginPaths(), newPaths: newPluginPaths() })
   } catch {
@@ -145,7 +146,10 @@ export function resetInitializedProjects(): void {
 
 // ─── Session tracking (for watch lifecycle) ────────────────────────
 
-const sessionCounts = new Map<string, number>()
+// v0.50.x (conscience-fix T9 / D11): was unbounded per-projectDir Map —
+// now TtlBoundedMap (1000 projects, 24h TTL) per postWaveSessions precedent.
+// Zero-count entries are deleted in untrackSession so idle projects drop out.
+const sessionCounts = new TtlBoundedMap<string, number>(1000, 24 * 60 * 60 * 1000)
 
 let orphanSweepDone = false
 
@@ -347,6 +351,11 @@ interface WatchProcess {
   tool: "codegraph" | "graphify"
 }
 
+// v0.50.x (conscience-fix T9 audit): INTENTIONALLY a plain Map — keyed by
+// `${projectDir}:${tool}` (<=2 entries per project), NOT per-session, so it
+// cannot grow with session volume. Must NOT become TTL-evicted: evicting an
+// entry without killing its child process would orphan it. Lifecycle is
+// managed explicitly via startWatch/stopWatches + the child exit handler.
 const activeWatchProcesses = new Map<string, WatchProcess>()
 
 function startWatch(projectDir: string, tool: "codegraph" | "graphify"): void {

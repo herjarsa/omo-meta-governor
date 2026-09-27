@@ -1,11 +1,30 @@
 /**
- * FASE 4 — Auto-trigger omo_remember on notable decisions (v0.43.0)
+ * Conscience auto-remember — omo_remember on escalate|stop for main agent only (v0.50.x).
  *
- * Verifies that when a non-trivial decision (warn|escalate|stop) fires for
- * the main agent, the plugin queues an agentmemory_memory_save directive.
- * continue → no remember, subagent → no remember.
+ * NEW CONTRACT (Wave 0 RED, per .omo/plans/conscience-fix.md):
+ * - Trigger = `escalate|stop` ONLY. `warn` NEVER fires (D1 — warn is high-volume
+ *   noise; conscience fires only on notable decisions). `continue` never fires.
+ * - Main session only: subagent decisions never fire (avoid memory bloat).
+ * - Delivery instructs `omo_remember` (D6), NEVER raw `agentmemory_memory_save`
+ *   verbatim instruction. Prompt carries structured lesson fields (D4):
+ *   { mistake, whatToDo, whereToGo, toolRoute, score, files }.
+ * - Guards: dedupe identical escalate twice -> 1 write; cooldown (600s) second
+ *   distinct escalate inside window -> 1 write; enabled:false -> 0 writes (D2 opt-in).
  *
- * TDD: these tests MUST be RED before the fix and GREEN after.
+ * OLD-vs-NEW mapping (old expectations deleted by design, NOT regressions):
+ * | # | OLD (v0.43.0/v0.49.1)                          | NEW (conscience)                              |
+ * |---|------------------------------------------------|-----------------------------------------------|
+ * | 1 | warn MAIN -> 1 call (agentmemory_memory_save)  | warn MAIN -> 0 calls (D1 warn removal)        |
+ * | 2 | continue -> 0                                  | continue -> 0 (unchanged)                     |
+ * | 3 | warn SUBAGENT -> 0                             | escalate SUBAGENT -> 0 (same rule, new action)|
+ * | 4 | identical warn x2 -> 1 (dedupe)                | identical escalate x2 -> 1 (stable key, D5)   |
+ * | 5 | distinct warn x2 in cooldown -> 1              | distinct escalate x2 in 600s -> 1 (cooldown)  |
+ * | 6 | warn + enabled:false -> 0                      | escalate + enabled:false -> 0 (same kill-switch)|
+ * | 7 | (did not exist)                                | escalate MAIN -> 1 structured omo_remember    |
+ * | 8 | (did not exist)                                | stop MAIN -> 1 structured omo_remember        |
+ *
+ * TDD: these tests MUST be RED before the fix (old prod code: warn still fires,
+ * structured fields missing, agentmemory_memory_save verbatim present) and GREEN after.
  */
 import { describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -73,48 +92,54 @@ function createHermeticExtra(deps: Record<string, unknown> = {}) {
   } as never;
 }
 
-describe("FASE 4 auto-remember — omo_remember on warn/escalate/stop for main agent", () => {
-  it("1/3 warn decision for MAIN agent queues auto-remember (agentmemory_memory_save)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "auto-remember-warn-"));
+type RememberCall = { sessionID: string; decision: DecisionHandlerOutput; promptText: string };
+
+function baseOptionsWithIntervention(extra?: Record<string, unknown>): PluginOptions {
+  return {
+    meta_governor: {
+      enabled: true,
+      skillPriming: { enabled: false },
+      intervention: { mode: "message", minActionForMessage: "warn" },
+      closedLoop: { autoRemember: { enabled: true } },
+      ...extra,
+    },
+  } as PluginOptions;
+}
+
+describe("conscience auto-remember — escalate|stop fire for main agent only (structured omo_remember)", () => {
+  it("1/8 warn for MAIN agent NEVER fires (D1 removal by design) [ses_q_warn_never]", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "auto-remember-warn-never-"));
     writeFileSync(join(dir, "PLAN.md"), "# test");
-    let autoRememberCalls: Array<{ sessionID: string; decision: DecisionHandlerOutput; promptText: string }> = [];
+    const autoRememberCalls: RememberCall[] = [];
     try {
       clearAll();
-      const sid = "auto-remember-warn-main";
+      const sid = "ses_q_warn_never";
       storeDecision(sid, makeDecision("warn", sid));
       const plugin = await createMetaGovernorPlugin(
         { graphSync: { enabled: false }, cliAnything: { enabled: false } },
         createHermeticExtra({
           __test_isMainSession: () => true,
-          __test_autoRemember: (payload: { sessionID: string; decision: DecisionHandlerOutput; promptText: string }) => {
+          __test_autoRemember: (payload: RememberCall) => {
             autoRememberCalls.push(payload);
           },
         }),
-      )(mockPluginInput(dir), {
-        meta_governor: { enabled: true, skillPriming: { enabled: false }, intervention: { mode: "message", minActionForMessage: "warn" } },
-      } as PluginOptions);
+      )(mockPluginInput(dir), baseOptionsWithIntervention());
       const transform = plugin["experimental.chat.messages.transform"] as unknown as (i: unknown, o: unknown) => Promise<void>;
-      const output = midSessionOutput(sid);
-      await transform({}, output);
-      // allow synchronous DI path to have fired (no need for setTimeout wait — test seam is sync)
-      expect(autoRememberCalls.length).toBe(1);
-      expect(autoRememberCalls[0]!.sessionID).toBe(sid);
-      expect(autoRememberCalls[0]!.decision.action).toBe("warn");
-      const txt = autoRememberCalls[0]!.promptText;
-      expect(txt).toContain("agentmemory_memory_save");
-      expect(txt).toContain("warn");
+      await transform({}, midSessionOutput(sid));
+      // D1: warn NEVER queues auto-remember even when explicitly enabled.
+      expect(autoRememberCalls.length).toBe(0);
     } finally {
       try { rmSync(dir, { recursive: true, force: true }); } catch {}
     }
   });
 
-  it("2/3 continue decision does NOT queue auto-remember", async () => {
+  it("2/8 continue decision does NOT queue auto-remember", async () => {
     const dir = mkdtempSync(join(tmpdir(), "auto-remember-continue-"));
     writeFileSync(join(dir, "PLAN.md"), "# test");
-    let autoRememberCalls: unknown[] = [];
+    const autoRememberCalls: unknown[] = [];
     try {
       clearAll();
-      const sid = "auto-remember-continue";
+      const sid = "ses_q_continue_never";
       storeDecision(sid, makeDecision("continue", sid));
       const plugin = await createMetaGovernorPlugin(
         { graphSync: { enabled: false }, cliAnything: { enabled: false } },
@@ -122,64 +147,56 @@ describe("FASE 4 auto-remember — omo_remember on warn/escalate/stop for main a
           __test_isMainSession: () => true,
           __test_autoRemember: (payload: unknown) => { autoRememberCalls.push(payload); },
         }),
-      )(mockPluginInput(dir), {
-        meta_governor: { enabled: true, skillPriming: { enabled: false }, intervention: { mode: "message", minActionForMessage: "warn" } },
-      } as PluginOptions);
+      )(mockPluginInput(dir), baseOptionsWithIntervention());
       const transform = plugin["experimental.chat.messages.transform"] as unknown as (i: unknown, o: unknown) => Promise<void>;
-      const output = midSessionOutput(sid);
-      await transform({}, output);
+      await transform({}, midSessionOutput(sid));
       expect(autoRememberCalls.length).toBe(0);
     } finally {
       try { rmSync(dir, { recursive: true, force: true }); } catch {}
     }
   });
 
-  it("3/3 warn decision for SUBAGENT does NOT queue auto-remember (avoid bloat)", async () => {
+  it("3/8 escalate for SUBAGENT does NOT queue auto-remember (avoid bloat)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "auto-remember-sub-"));
     writeFileSync(join(dir, "PLAN.md"), "# test");
-    let autoRememberCalls: unknown[] = [];
+    const autoRememberCalls: unknown[] = [];
     try {
       clearAll();
-      const sid = "auto-remember-warn-sub";
-      storeDecision(sid, makeDecision("warn", sid));
+      const sid = "ses_q_subagent_never";
+      storeDecision(sid, makeDecision("escalate", sid));
       const plugin = await createMetaGovernorPlugin(
         { graphSync: { enabled: false }, cliAnything: { enabled: false } },
         createHermeticExtra({
           __test_isMainSession: () => false,
           __test_autoRemember: (payload: unknown) => { autoRememberCalls.push(payload); },
         }),
-      )(mockPluginInput(dir), {
-        meta_governor: { enabled: true, skillPriming: { enabled: false }, intervention: { mode: "message", minActionForMessage: "warn" } },
-      } as PluginOptions);
+      )(mockPluginInput(dir), baseOptionsWithIntervention());
       const transform = plugin["experimental.chat.messages.transform"] as unknown as (i: unknown, o: unknown) => Promise<void>;
-      const output = midSessionOutput(sid);
-      await transform({}, output);
+      await transform({}, midSessionOutput(sid));
       expect(autoRememberCalls.length).toBe(0);
     } finally {
       try { rmSync(dir, { recursive: true, force: true }); } catch {}
     }
   });
 
-  it("4/6 identical warn twice in a row fires only ONCE (dedupe guard v0.49.1)", async () => {
+  it("4/8 identical escalate twice in a row fires only ONCE (dedupe guard)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "auto-remember-dedupe-"));
     writeFileSync(join(dir, "PLAN.md"), "# test");
-    let autoRememberCalls: unknown[] = [];
+    const autoRememberCalls: unknown[] = [];
     try {
       clearAll();
-      const sid = "auto-remember-dedupe";
+      const sid = "ses_q_dedupe_escalate";
       const plugin = await createMetaGovernorPlugin(
         { graphSync: { enabled: false }, cliAnything: { enabled: false } },
         createHermeticExtra({
           __test_isMainSession: () => true,
           __test_autoRemember: (payload: unknown) => { autoRememberCalls.push(payload); },
         }),
-      )(mockPluginInput(dir), {
-        meta_governor: { enabled: true, skillPriming: { enabled: false }, intervention: { mode: "message", minActionForMessage: "warn" } },
-      } as PluginOptions);
+      )(mockPluginInput(dir), baseOptionsWithIntervention());
       const transform = plugin["experimental.chat.messages.transform"] as unknown as (i: unknown, o: unknown) => Promise<void>;
-      storeDecision(sid, makeDecision("warn", sid));
+      storeDecision(sid, makeDecision("escalate", sid));
       await transform({}, midSessionOutput(sid));
-      storeDecision(sid, makeDecision("warn", sid));
+      storeDecision(sid, makeDecision("escalate", sid));
       await transform({}, midSessionOutput(sid));
       expect(autoRememberCalls.length).toBe(1);
     } finally {
@@ -187,13 +204,13 @@ describe("FASE 4 auto-remember — omo_remember on warn/escalate/stop for main a
     }
   });
 
-  it("5/6 second warn inside cooldown is suppressed (cooldown guard v0.49.1)", async () => {
+  it("5/8 second DISTINCT escalate inside 600s cooldown is suppressed", async () => {
     const dir = mkdtempSync(join(tmpdir(), "auto-remember-cooldown-"));
     writeFileSync(join(dir, "PLAN.md"), "# test");
-    let autoRememberCalls: unknown[] = [];
+    const autoRememberCalls: unknown[] = [];
     try {
       clearAll();
-      const sid = "auto-remember-cooldown";
+      const sid = "ses_q_cooldown_escalate";
       const plugin = await createMetaGovernorPlugin(
         { graphSync: { enabled: false }, cliAnything: { enabled: false } },
         createHermeticExtra({
@@ -209,10 +226,10 @@ describe("FASE 4 auto-remember — omo_remember on warn/escalate/stop for main a
         },
       } as PluginOptions);
       const transform = plugin["experimental.chat.messages.transform"] as unknown as (i: unknown, o: unknown) => Promise<void>;
-      storeDecision(sid, makeDecision("warn", sid));
+      storeDecision(sid, makeDecision("escalate", sid));
       await transform({}, midSessionOutput(sid));
-      const second = makeDecision("warn", sid);
-      (second as unknown as { message: string }).message = "[MetaGovernor] Test warn message DIFFERENT for cooldown";
+      const second = makeDecision("escalate", sid);
+      (second as unknown as { message: string }).message = "[MetaGovernor] Test escalate message DIFFERENT for cooldown";
       storeDecision(sid, second);
       await transform({}, midSessionOutput(sid));
       expect(autoRememberCalls.length).toBe(1);
@@ -221,14 +238,14 @@ describe("FASE 4 auto-remember — omo_remember on warn/escalate/stop for main a
     }
   });
 
-  it("6/6 autoRemember.enabled=false never fires (kill-switch v0.49.1)", async () => {
+  it("6/8 autoRemember.enabled=false never fires even on escalate (kill-switch)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "auto-remember-off-"));
     writeFileSync(join(dir, "PLAN.md"), "# test");
-    let autoRememberCalls: unknown[] = [];
+    const autoRememberCalls: unknown[] = [];
     try {
       clearAll();
-      const sid = "auto-remember-off";
-      storeDecision(sid, makeDecision("warn", sid));
+      const sid = "ses_q_disabled_never";
+      storeDecision(sid, makeDecision("escalate", sid));
       const plugin = await createMetaGovernorPlugin(
         { graphSync: { enabled: false }, cliAnything: { enabled: false } },
         createHermeticExtra({
@@ -246,6 +263,78 @@ describe("FASE 4 auto-remember — omo_remember on warn/escalate/stop for main a
       const transform = plugin["experimental.chat.messages.transform"] as unknown as (i: unknown, o: unknown) => Promise<void>;
       await transform({}, midSessionOutput(sid));
       expect(autoRememberCalls.length).toBe(0);
+    } finally {
+      try { rmSync(dir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("7/8 escalate for MAIN agent queues STRUCTURED omo_remember (D4+D6) [ses_q_escalate_main]", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "auto-remember-escalate-main-"));
+    writeFileSync(join(dir, "PLAN.md"), "# test");
+    const autoRememberCalls: RememberCall[] = [];
+    try {
+      clearAll();
+      const sid = "ses_q_escalate_main";
+      storeDecision(sid, makeDecision("escalate", sid));
+      const plugin = await createMetaGovernorPlugin(
+        { graphSync: { enabled: false }, cliAnything: { enabled: false } },
+        createHermeticExtra({
+          __test_isMainSession: () => true,
+          __test_autoRemember: (payload: RememberCall) => {
+            autoRememberCalls.push(payload);
+          },
+        }),
+      )(mockPluginInput(dir), baseOptionsWithIntervention());
+      const transform = plugin["experimental.chat.messages.transform"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+      await transform({}, midSessionOutput(sid));
+      expect(autoRememberCalls.length).toBe(1);
+      expect(autoRememberCalls[0]!.sessionID).toBe(sid);
+      expect(autoRememberCalls[0]!.decision.action).toBe("escalate");
+      const txt = autoRememberCalls[0]!.promptText;
+      // D6: route via omo_remember, never raw agentmemory_memory_save verbatim.
+      expect(txt).toContain("omo_remember");
+      expect(txt).not.toContain("agentmemory_memory_save");
+      // D4: structured lesson fields required.
+      expect(txt).toContain("mistake");
+      expect(txt).toContain("whatToDo");
+      expect(txt).toContain("whereToGo");
+      expect(txt).toContain("toolRoute");
+    } finally {
+      try { rmSync(dir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it("8/8 stop for MAIN agent queues STRUCTURED omo_remember (D4+D6) [ses_q_stop_main]", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "auto-remember-stop-main-"));
+    writeFileSync(join(dir, "PLAN.md"), "# test");
+    const autoRememberCalls: RememberCall[] = [];
+    try {
+      clearAll();
+      const sid = "ses_q_stop_main";
+      storeDecision(sid, makeDecision("stop", sid));
+      const plugin = await createMetaGovernorPlugin(
+        { graphSync: { enabled: false }, cliAnything: { enabled: false } },
+        createHermeticExtra({
+          __test_isMainSession: () => true,
+          __test_autoRemember: (payload: RememberCall) => {
+            autoRememberCalls.push(payload);
+          },
+        }),
+      )(mockPluginInput(dir), baseOptionsWithIntervention());
+      const transform = plugin["experimental.chat.messages.transform"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+      await transform({}, midSessionOutput(sid));
+      expect(autoRememberCalls.length).toBe(1);
+      expect(autoRememberCalls[0]!.sessionID).toBe(sid);
+      expect(autoRememberCalls[0]!.decision.action).toBe("stop");
+      const txt = autoRememberCalls[0]!.promptText;
+      // D6: route via omo_remember, never raw agentmemory_memory_save verbatim.
+      expect(txt).toContain("omo_remember");
+      expect(txt).not.toContain("agentmemory_memory_save");
+      // D4: structured lesson fields required.
+      expect(txt).toContain("mistake");
+      expect(txt).toContain("whatToDo");
+      expect(txt).toContain("whereToGo");
+      expect(txt).toContain("toolRoute");
     } finally {
       try { rmSync(dir, { recursive: true, force: true }); } catch {}
     }

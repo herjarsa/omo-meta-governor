@@ -1,5 +1,42 @@
 
 
+## [Unreleased] - 2026-09-27
+
+**Conscience fix — opt-in high-value memories only, anti-spam** — the plugin now acts as the agent's conscience (what to do, where to go, mistakes, high-value memories) instead of dumping AgentMemory garbage on every `warn`.
+
+### Changed
+- `closedLoop.autoRemember.enabled` default flips `true` → **`false`** (opt-in). Existing users relying on implicit auto-remember must now set `enabled:true` explicitly.
+- Auto-remember trigger is `escalate|stop` ONLY — `warn` removed (high-volume noise; conscience fires only on notable decisions).
+- Raw ``MetaGovernor ${action}: ${message}`` dump forbidden — remember content is structured `{mistake, whatToDo, whereToGo, toolRoute, score, files}` via `buildLessonContent`/`extractConcepts`.
+- Delivery instructs **`omo_remember`** (Zod-validated, `verifyDelivery`), never raw `agentmemory_memory_save` verbatim.
+- `escalate`/`stop` fan-out (intervention + reflection + remember + Oracle) consolidated into a single digest honoring `oracle.frequency`; `system.transform` 6–7 pushes collapsed into one capped digest.
+- `scoring.oracleFrequency` is derived-from-`oracle.frequency` only (no user knob); config canonical under `closedLoop.autoRemember` + `closedLoop.conscience`.
+
+### Added
+- `shouldPersistConscienceMemory()` single value-gate in `src/closed-loop-learning.ts` (action ∈ {escalate, stop} + enabled + saveLessons + severity threshold + novelty + session cap); all 3 memory paths funnel through it.
+- `conscienceDedupeKey()` — stable dedupe key from action + evidence sources + deviation categories (score floats excluded).
+- `buildConscienceMemoryContent()` — structured lesson content builder.
+- `closedLoop.conscience` config block: `{ enabled (default false), maxMemoriesPerSession (default 5), toolRoute (omo_remember), requireNovelty (default true) }` — typed in `types.ts`, projected in `config.ts`, schematized in `generate-schema.ts` + `assets/omo-meta-governor.schema.json`, documented in `README.md`.
+- Per-session guards migrated to `TtlBoundedMap` (autoRememberLastHash/LastAtMs, skillPrimingSystemInjected, decision-store maps).
+- New `src/conscience-spam.test.ts`: 7 QA scenarios (spam-storm writes≤1, warn-never, disabled-never, marker present, structured content, score-jitter dedupe, reflection throttle).
+
+### Fixed
+- AgentMemory garbage spam: `warn`-triggered raw dumps on every turn ended (opt-in + escalate|stop-only + structured content).
+- Score-jitter dedupe leak: float in dedupe key defeated dedupe (stable-fields key fixes).
+- 4× escalate/stop fan-out (intervention + reflection + remember + Oracle each firing separately).
+- 6–7× `system.push` per-turn prompt bloat (single capped digest).
+- Unbounded per-session maps (TtlBoundedMap migration).
+
+### Tests
+- `src/auto-remember.test.ts` rewritten to new contract (warn NEVER fires; escalate/stop fire for main session); `src/conscience-spam.test.ts` new (7 QA).
+- Targeted: `bun test src/auto-remember.test.ts src/conscience-spam.test.ts` green.
+- Full suite: see CI.
+
+### Ship protocol compliance
+- ✅ `bun run typecheck` clean
+- ✅ targeted suites green + full suite green required (tag-push OIDC flow)
+- ✅ Oracle review gate required (Tier 2: 3+ files + core logic + schema)
+
 ## [0.50.2] - 2026-09-25
 
 **No console-window flash on Windows** — every child_process spawn site in

@@ -38,7 +38,14 @@ export type DeliveryStatus = "pending" | "delivered" | "expired"
 const DEFAULT_TTL_MS = 10_000
 
 export class PendingDeliveryRegistry {
+  // v0.50.x (conscience-fix T9 audit): INTENTIONALLY a plain Map — entries
+  // carry per-item TTLs (default 10s) and cleanup() purges expired entries on
+  // every register/mark/await, plus register() caps size at MAX_ENTRIES
+  // (oldest evicted first). Kept as Map (not TtlBoundedMap) because
+  // markDelivered/clearSession/cleanup iterate entries with per-item TTL
+  // semantics TtlBoundedMap cannot express.
   private readonly entries = new Map<string, PendingDelivery>()
+  private static readonly MAX_ENTRIES = 1000
   /** When mcpArgs match is disabled (no mcpArgs available on observed call) */
   private deliveredCount = 0
   private expiredCount = 0
@@ -53,6 +60,10 @@ export class PendingDeliveryRegistry {
     ttlMs?: number
   }): string {
     this.cleanup()
+    if (this.entries.size >= PendingDeliveryRegistry.MAX_ENTRIES) {
+      const oldest = this.entries.keys().next().value
+      if (oldest !== undefined) this.entries.delete(oldest)
+    }
     const id = `deliv-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
     const argsHash = hashArgs(input.mcpArgs)
     this.entries.set(id, {

@@ -66,8 +66,10 @@ export interface MetaGovernorPluginConfig {
     /** v0.18.0: was silently dropped by loadOrchestratorConfig */
     defaultEscalationTarget?: "oracle" | "user"
     /**
-     * v0.38.4 Option D: Oracle invocation frequency. Derived from
-     * `oracle.frequency` (canonical) — exposed here only as a fallback.
+     * v0.38.4 Option D: Oracle invocation frequency.
+     * @deprecated READ-ONLY fallback — do not set. Canonical knob is
+     * `oracle.frequency`; this field is read only for back-compat with
+     * pre-v0.38.4 configs and is ignored when `oracle.frequency` is set.
      * Users should set `oracle.frequency` in opencode.jsonc, not this field.
      */
     oracleFrequency?: "per-stop" | "final-only" | "off"
@@ -85,6 +87,19 @@ export interface MetaGovernorPluginConfig {
       enabled?: boolean
       cooldownMs?: number
       dedupe?: boolean
+    }
+    /**
+     * v0.50.0 (D10): conscience memory gate config. Canonical source for
+     * high-value memory persistence (escalate|stop only, value-gated).
+     * NOTE: typed structurally (not ConscienceConfig) so config.ts
+     * typechecks regardless of T1 landing order — shapes must match
+     * ClosedLoopConfig.conscience once T1 lands.
+     */
+    conscience?: {
+      enabled?: boolean
+      maxMemoriesPerSession?: number
+      toolRoute?: "omo_remember"
+      requireNovelty?: boolean
     }
   }
 
@@ -405,10 +420,11 @@ export function loadOrchestratorConfig(
       ...(full.scoring?.defaultEscalationTarget !== undefined
         ? { defaultEscalationTarget: full.scoring.defaultEscalationTarget }
         : {}),
-      // v0.38.4 Option D: Oracle invocation frequency. Canonical source is
-      // `oracle.frequency` (user-facing); `scoring.oracleFrequency` is derived
-      // to avoid dual-knob config drift. Fallback order: oracle.frequency
-      // -> scoring.oracleFrequency -> "per-stop".
+      // v0.38.4 Option D (reaffirmed v0.50.0 D10): Oracle invocation
+      // frequency is DERIVED from `oracle.frequency` (canonical).
+      // `scoring.oracleFrequency` is a deprecated read-only fallback for
+      // pre-v0.38.4 configs — never a user knob. Fallback order:
+      // oracle.frequency -> scoring.oracleFrequency (deprecated) -> "per-stop".
       oracleFrequency:
         full.oracle?.frequency ??
         full.scoring?.oracleFrequency ??
@@ -434,16 +450,38 @@ export function loadOrchestratorConfig(
       ...(full.closedLoop?.saveLessons !== undefined
         ? { saveLessons: full.closedLoop.saveLessons }
         : {}),
-      // v0.49.1: project autoRemember guard (enabled + cooldownMs + dedupe).
-      ...(full.closedLoop?.autoRemember !== undefined
-        ? {
-            autoRemember: {
-              ...baseClosedLoop.autoRemember,
-              ...full.closedLoop.autoRemember,
-            },
-          }
-        : {}),
-    },
+      // v0.50.0 (D2): autoRemember canonical defaults — OPT-IN.
+      // baseClosedLoop still defaults enabled:true (owned by T4); the
+      // projection overrides to false so unset config never enables memory
+      // writes. Explicit enabled:true is still honored. cooldownMs/dedupe
+      // fall back to base (300_000 / true).
+      autoRemember: {
+        ...baseClosedLoop.autoRemember,
+        ...full.closedLoop?.autoRemember,
+        enabled: full.closedLoop?.autoRemember?.enabled ?? false,
+        cooldownMs:
+          full.closedLoop?.autoRemember?.cooldownMs ??
+          baseClosedLoop.autoRemember?.cooldownMs ??
+          300_000,
+        dedupe:
+          full.closedLoop?.autoRemember?.dedupe ??
+          baseClosedLoop.autoRemember?.dedupe ??
+          true,
+      },
+      // v0.50.0 (D10): conscience passthrough with opt-in defaults.
+      // maxMemoriesPerSession has no default — passthrough only.
+      conscience: {
+        enabled: full.closedLoop?.conscience?.enabled ?? false,
+        ...(full.closedLoop?.conscience?.maxMemoriesPerSession !== undefined
+          ? { maxMemoriesPerSession: full.closedLoop.conscience.maxMemoriesPerSession }
+          : {}),
+        toolRoute: full.closedLoop?.conscience?.toolRoute ?? "omo_remember",
+        requireNovelty: full.closedLoop?.conscience?.requireNovelty ?? true,
+      },
+    // Cast: ClosedLoopConfig.conscience lands in parallel T1 — the cast keeps
+    // this compiling before/after without drift. Safe to drop once T1's
+    // ConscienceConfig is the declared field type (shapes already match).
+    } as OrchestratorConfig["closedLoop"],
     // v0.18.0: project all decision fields, including message templates.
     decision: {
       ...baseDecision,

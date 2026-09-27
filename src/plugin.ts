@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import type {
   AgentmemoryWriteBackend,
   DecisionHandlerOutput,
+  Deviation,
   MemoryBackends,
   MetaGovernorInput,
   MetaGovernorOutput,
@@ -84,7 +85,7 @@ import {
 } from "./session-bridge";
 import type { PromptResult } from "./session-bridge";
 import { PendingDeliveryRegistry } from "./delivery-registry";
-import { setPendingDeliveryRegistry } from "./custom-tools";
+import { setPendingDeliveryRegistry, verifyDelivery } from "./custom-tools";
 import { LOG_PATH, logToFile } from "./file-logger";
 import {
   buildOracleRule,
@@ -111,7 +112,8 @@ import { GraphRetrieval, getDefaultGraphRetrieval, configureDefaultGraphRetrieva
 import { AuditStateCache } from "./audit-state-cache";
 import { TtlBoundedMap } from "./utils/ttl-bounded-map";
 import { isSessionStart } from "./utils/session-start";
-import { wrapInformational } from "./agent-notifications";
+import { wrapInformational, buildUserStatus } from "./agent-notifications";
+import { shouldPersistConscienceMemory, conscienceDedupeKey, buildConscienceMemoryContent } from "./closed-loop-learning";
 import { bootstrapChoreSkills } from "./skills-bootstrap.js";
 
 import { DEFAULT_VERSION } from "./metrics";
@@ -965,7 +967,9 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
     const skillPrimingSent = new Set<string>();
     // v0.33.1: skill-priming directive cached per-session for chat.system.transform injection.
     // Set when messages.transform fires the priming nudge; read by system.transform to push to output.system.
-    const skillPrimingSystemInjected = new Map<string, string>();
+    // v0.50.x (conscience-fix T9 / D11): was unbounded per-session Map — now
+    // TtlBoundedMap (1000 sessions, 24h TTL) per postWaveSessions precedent.
+    const skillPrimingSystemInjected = new TtlBoundedMap<string, string>(1000, 24 * 60 * 60 * 1000);
     // v0.34.0: per-session tracking for omo_skill_find invocations.
     // Used by tool.execute.before gate when enforceMode='block'.
     const skillFindCalled = new Set<string>();
@@ -978,8 +982,10 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
 
     const implementationToolsSeen = new Set<string>();
     // v0.49.1: auto-remember anti-loop guard — per-session last hash + timestamp.
-    const autoRememberLastHash = new Map<string, string>();
-    const autoRememberLastAtMs = new Map<string, number>();
+    // v0.50.x (conscience-fix T9 / D11): was unbounded per-session Maps — now
+    // TtlBoundedMap (1000 sessions, 24h TTL) per postWaveSessions precedent.
+    const autoRememberLastHash = new TtlBoundedMap<string, string>(1000, 24 * 60 * 60 * 1000);
+    const autoRememberLastAtMs = new TtlBoundedMap<string, number>(1000, 24 * 60 * 60 * 1000);
     // v0.21.0 (post-wave W6): per-session post-wave gate state, tracked
     // independently of the audit state (the audit state only exists when
     // protocolEnforcement.auditToolCalls is enabled, but the wave-gate must
@@ -2199,7 +2205,7 @@ metricsCollector.inc("interventions_delivered");
             "info",
             `graph_tools_ready_injected for session ${currentSessionID}`,
           );
-          persistIntervention(currentSessionID, graphReadyText);
+          persistIntervention(currentSessionID, buildGraphPrimingUserStatus());
         }
 
         // v0.31.1: drain pendingBotFeedback BEFORE the mode gate so the
@@ -2230,7 +2236,7 @@ metricsCollector.inc("interventions_delivered");
               "info",
               `injected ${feedback.length} bot feedback line(s) to model for session ${currentSessionID}`,
             );
-            persistIntervention(currentSessionID, feedbackText);
+            persistIntervention(currentSessionID, buildUserStatus("postwave", `PR feedback: ${feedback.length} item(s) queued — detail in agent context.`));
           }
         }
 
@@ -2268,7 +2274,7 @@ metricsCollector.inc("interventions_delivered");
             "info",
             `plan_reminder_injected for session ${currentSessionID}`,
           );
-          persistIntervention(currentSessionID, planText);
+          persistIntervention(currentSessionID, buildUserStatus("postwave", "Plan reminder: state your plan inline before complex tasks."));
         }
 
 
@@ -2284,7 +2290,7 @@ metricsCollector.inc("interventions_delivered");
             const violationText = `[META-GOVERNOR PROTOCOL VIOLATIONS - YOU MUST COMPLY]\n\n${violations.map((v, i) => `${i + 1}. ${v}`).join("\n")}\n\nRemember: use codegraph/graphify for architecture queries, do not grep without trying codegraph/graphify first, no @ts-ignore/as-any, no empty catch, check memory before asking.`;
             // v0.38.6: skip at session start (would create a fake assistant turn and pause the session).
               // v0.49.0 FASE 11: violation push now fires via system.transform instead.
-            persistIntervention(currentSessionID, violationText);
+            persistIntervention(currentSessionID, buildUserStatus("enforcement", `Protocol violations: ${violations.length} detected — detail in agent context.`));
             // v0.23.1: record injection timestamp for cooldown
             const injectState = auditSessions.get(currentSessionID);
             if (injectState) {
@@ -2411,6 +2417,18 @@ metricsCollector.inc("interventions_delivered");
           ].slice(-dedupedMax);
         }
 
+        // v0.50.x (D8/T6): Oracle section honors oracle.frequency. Scoring already
+        // nulls shouldEscalateTo when frequency suppresses mid-work escalation
+        // (per-stop: only stop carries a target; final-only/off: never mid-work).
+        // The final-gate (DONE signal) invokes Oracle separately regardless.
+        const digestOracleTarget = decision.historyEntry?.decision?.shouldEscalateTo ?? null;
+        if (digestOracleTarget) {
+          const digestFrequency = mergedConfig.scoring?.oracleFrequency ?? "per-stop";
+          messageText += `\n\n[Oracle routing: frequency=${digestFrequency}] Escalate to ${digestOracleTarget} before proceeding.`;
+        }
+        // v0.50.x (D8/T6): single escalate/stop digest — intervention + history +
+        // Oracle section above; reflection + remember fan out via their seams below
+        // but share this digest's frequency/reflection gating.
         const wrappedDecision = wrapInformational(messageText, { kind: "intervention" });
         const textPart = {
           type: "text",
@@ -2426,61 +2444,136 @@ metricsCollector.inc("interventions_delivered");
         // Inside the gate: actually consume the decision (peeked above) and increment the count.
         // If the gate is closed (session-start), the decision stays in the store and fires on the next turn.
           // v0.49.0 FASE 11: decision push now fires via system.transform instead.
-        persistIntervention(currentSessionID, messageText);
+        // v0.50.x (D7/D8): single digest TUI status — brief (<200 chars), marker-free,
+        // no actionable instructions. Full digest reaches the agent via system.transform.
+        persistIntervention(currentSessionID, buildUserStatus("intervention", `${decision.action} (score ${(decision.historyEntry?.decision?.score ?? 0).toFixed(2)}): ${(decision.historyEntry?.reasoning ?? decision.message).slice(0, 110)}`));
         // v0.43.0 Phase 4: auto-trigger omo_remember on notable decisions for main agent only.
         // Fire-and-forget via promptAgent (or test seam) so the agent remembers WHY it was warned.
         // v0.49.1: anti-loop guard — closedLoop.autoRemember { enabled, cooldownMs, dedupe }.
         // Without this, a persistent warn (e.g. "no progress" while reading) re-queues the
         // identical promptAgent every turn (user-reported 23/09/2026 auto-remember loop).
         try {
-          const notable = decision.action === "warn" || decision.action === "escalate" || decision.action === "stop";
+          // v0.50.x conscience fix (D1): trigger = escalate|stop ONLY — warn never persists.
+          const notable = decision.action === "escalate" || decision.action === "stop";
           if (notable && isMainSession(currentSessionID) && !isSessionStart(output.messages)) {
             const arCfg = mergedConfig.closedLoop?.autoRemember ?? {};
-            if (arCfg.enabled === false) {
+            // Oracle note 2 precedence: closedLoop.conscience is an additional opt-in
+            // clarification only. Read from RAW user config � merged config always
+            // projects conscience.enabled=false by default, so merged cannot distinguish
+            // explicit-off from unset. Explicit conscience.enabled===false skips writes;
+            // otherwise (undefined, or enabled!==false) fall back to autoRemember.enabled.
+            const rawConscience = (rawConfig as { closedLoop?: { conscience?: { enabled?: boolean } } }).closedLoop?.conscience;
+            if (rawConscience !== undefined && rawConscience.enabled === false) {
+              logToFile("info", `auto-remember skipped (conscience explicitly disabled) for ${currentSessionID}`);
+            } else if (arCfg.enabled === false) {
               logToFile("info", `auto-remember skipped (disabled) for ${currentSessionID}`);
             } else {
-            const rememberContent = `MetaGovernor ${decision.action}: ${decision.message} (reasoning: ${decision.historyEntry?.reasoning ?? decision.message})`;
-            const rememberHash = simpleHash(rememberContent);
+            // v0.50.x conscience fix (D3): single value-gate — warn/continue never reach here (D1).
+            // When no structured deviations were accumulated, the escalate/stop decision
+            // itself becomes the conscience deviation (media) so the gate judges the
+            // notable event rather than an empty list.
+            const recorded: readonly Deviation[] = curState?.accumulatedDeviations ?? [];
+            const deviations: readonly Deviation[] = recorded.length > 0 ? recorded : [{
+              severity: "media",
+              category: "conscience",
+              detail: (decision.historyEntry?.reasoning ?? decision.message).slice(0, 500),
+            }];
+            const evidenceSources = (decision.historyEntry?.decision?.evidence ?? []).map((e) => e.source);
+            // Oracle note 2: requireNovelty is currently vacuous � novelty is a stub-true
+            // until recall wiring lands (no real novelty check exists, so there is nothing
+            // to disable when requireNovelty===false). Deliberately NOT inventing a counter
+            // or check here; wire it when the recall-based novelty check lands.
+            // Novelty via recall check — stub true until recall wiring lands.
+            const novelty = true;
+            const lessonCount = curState?.lessonCount ?? 0;
+            const cl = mergedConfig.closedLoop;
+            const gateConfig = {
+              enabled: cl.enabled ?? true,
+              minSeverityToLearn: cl.minSeverityToLearn ?? "media" as const,
+              // Oracle note 2: conscience.maxMemoriesPerSession acts as a lessonCount cap
+              // alias (no new counters � reuses the existing maxLessonsPerSession seam).
+              maxLessonsPerSession: cl.conscience?.maxMemoriesPerSession ?? cl.maxLessonsPerSession ?? 20,
+              saveDecisions: cl.saveDecisions ?? true,
+              saveLessons: cl.saveLessons ?? true,
+            };
+            if (!shouldPersistConscienceMemory({ action: decision.action, deviations, config: gateConfig, novelty, lessonCount })) {
+              logToFile("info", `auto-remember value-gate rejected for ${currentSessionID}: ${decision.action}`);
+            } else {
+            // v0.50.x (D4): structured conscience content — never a raw dump.
+            const reasoning = decision.historyEntry?.reasoning ?? decision.message;
+            const mistake = reasoning.slice(0, 500);
+            const escalateTo = decision.historyEntry?.decision?.shouldEscalateTo ?? null;
+            const whatToDo = escalateTo === "oracle" ? "Request Oracle review before proceeding" : escalateTo === "user" ? "Ask the user for guidance before proceeding" : "Re-read the plan and continue with verification";
+            const whereToGo = "Persist via omo_remember; recall via omo_recall before similar decisions";
+            const score = decision.historyEntry?.decision?.score ?? 0;
+            const files = deviations.map((d) => d.filePath).filter((f): f is string => typeof f === "string");
+            // Oracle note 3: thread the real decision action so stop lessons read
+            // Action stop. Gate above already rejected warn/continue, so the fallback
+            // branch is unreachable � it exists only to satisfy the "escalate"|"stop" type.
+            const memory = buildConscienceMemoryContent({ action: decision.action === "stop" ? "stop" : "escalate", mistake, whatToDo, whereToGo, toolRoute: "omo_remember", score, files });
+            // v0.50.x (D5): stable dedupe key — action + evidence sources +
+            // deviation categories only. Score floats are excluded: float jitter
+            // previously defeated dedupe (spam-storm regression).
+            const dedupeKey = conscienceDedupeKey({ action: decision.action, evidenceSources, deviationCategories: deviations.map((d) => d.category) });
             const nowMs = Date.now();
             const lastHash = autoRememberLastHash.get(currentSessionID);
             const lastAt = autoRememberLastAtMs.get(currentSessionID) ?? 0;
             const cooldownMs = arCfg.cooldownMs ?? 300_000;
             const dedupe = arCfg.dedupe !== false;
-            if (dedupe && lastHash === rememberHash) {
-              logToFile("info", `auto-remember deduped for ${currentSessionID}: identical content`);
+            if (dedupe && lastHash === dedupeKey) {
+              logToFile("info", `auto-remember deduped for ${currentSessionID}: identical conscience key`);
             } else if (cooldownMs > 0 && nowMs - lastAt < cooldownMs) {
               logToFile("info", `auto-remember cooldown for ${currentSessionID}: ${nowMs - lastAt}ms < ${cooldownMs}ms`);
             } else {
-            autoRememberLastHash.set(currentSessionID, rememberHash);
+            autoRememberLastHash.set(currentSessionID, dedupeKey);
             autoRememberLastAtMs.set(currentSessionID, nowMs);
-            const rememberPromptText =
-              `Please call the \`agentmemory_memory_save\` MCP tool with EXACTLY these args:\n\n` +
-              "```json\n" +
-              JSON.stringify({ content: rememberContent, concepts: ["metagovernor", decision.action] }, null, 2) +
-              "\n```\n\nDo not paraphrase, modify, or add fields. Pass the args through verbatim.";
+            // v0.50.x (D6/D7): instruct omo_remember (Zod-validated route) with
+            // structured fields; agent text wrapped with DO NOT TREAT AS TASK.
+            const rememberPromptText = wrapInformational(
+              `Call the \`omo_remember\` tool to persist this conscience lesson (structured fields):\n\n` +
+              `mistake: ${mistake}\n` +
+              `whatToDo: ${whatToDo}\n` +
+              `whereToGo: ${whereToGo}\n` +
+              `toolRoute: omo_remember\n` +
+              `score: ${score}\n` +
+              `content: ${memory.content}\n` +
+              `concepts: ${memory.concepts.join(", ")}\n\n` +
+              `Pass mistake/whatToDo/whereToGo/toolRoute through to omo_remember verbatim.`,
+              { kind: "memory", context: currentSessionID },
+            );
             if (typeof deps.__test_autoRemember === "function") {
               try { deps.__test_autoRemember({ sessionID: currentSessionID, decision, promptText: rememberPromptText }); } catch {}
             } else {
               setTimeout(() => {
                 void promptAgent(currentSessionID, {
                   toolName: "omo_remember",
-                  mcpTool: "agentmemory_memory_save",
-                  mcpArgs: { content: rememberContent, concepts: ["metagovernor", decision.action] },
-                  preamble: "MetaGovernor auto-remember: notable decision — remember WHY this intervention fired.",
+                  mcpTool: "omo_remember",
+                  mcpArgs: { content: memory.content, concepts: memory.concepts },
+                  preamble: "Conscience lesson — persist it via omo_remember.",
                 }).catch((err) => { logToFile("warn", "auto-remember promptAgent failed: " + String(err)); });
+                void verifyDelivery(currentSessionID, "omo_remember").then(
+                  (status) => { logToFile("info", `auto-remember delivery ${status} for ${currentSessionID}`); },
+                  () => {},
+                );
               }, 0);
             }
             logToFile("info", `auto-remember queued for ${currentSessionID}: ${decision.action}`);
+            }
             }
             }
           }
                 } catch {}
 
         // v0.45.0 Phase 7: trigger self-reflection via session.prompt()
+        // v0.50.x (D8/T6/QA7): reflection section fires only when scoring produced an
+        // escalation target (null = oracle.frequency suppressed mid-work escalation).
+        // Throttle (>=5min) + main-session + escalate|stop gates unchanged.
+        const reflectionTarget = decision.historyEntry?.decision?.shouldEscalateTo ?? null;
         if (
           mergedConfig.enabled &&
           curState &&
           isMainSession(currentSessionID) &&
+          reflectionTarget !== null &&
           !isSessionStart(output.messages) &&
           (decision.action === "escalate" || decision.action === "stop") &&
           !curState.backgroundTaskInFlight &&
@@ -2514,14 +2607,16 @@ metricsCollector.inc("interventions_delivered");
             "",
             "Be specific and actionable. If you should stop or pivot, say so clearly.",
           ].join("\n");
+          // v0.50.x (D7): agent-visible reflection directive carries the marker.
+          const wrappedReflection = wrapInformational(reflectionText, { kind: "intervention" });
           if (typeof deps.__test_reflectionPrompt === "function") {
-            try { deps.__test_reflectionPrompt({ sessionID: currentSessionID, text: reflectionText }); } catch {}
+            try { deps.__test_reflectionPrompt({ sessionID: currentSessionID, text: wrappedReflection }); } catch {}
           } else {
             setTimeout(() => {
               void promptAgent(currentSessionID, {
                 toolName: "omo_reflection",
                 mcpTool: "session.prompt",
-                mcpArgs: { parts: [{ type: "text", text: reflectionText }] },
+                mcpArgs: { parts: [{ type: "text", text: wrappedReflection }] },
                 preamble: "omo-meta-governor audit: senior-engineer self-reflection required.",
               }).catch((err) => { logToFile("warn", "reflection promptAgent failed: " + String(err)); });
             }, 0);
@@ -2757,6 +2852,10 @@ metricsCollector.inc("interventions_delivered");
         const st = auditSessions.get(sessionID);
         if (!st) return;
 
+        // v0.50.x (D9/T8): single per-turn digest — one wrapInformational push with
+        // capped sections (conscience<=6 lines, graph<=4, skill<=3, history<=5).
+        // This audit block is section 1 (conscience + history); 11a-11f append below.
+        const digestSections: string[] = [];
         // Build the audit summary from accumulated state. Format each item
         // compactly so it fits in the system prompt without ballooning context.
         const lines: string[] = [];
@@ -2773,9 +2872,9 @@ metricsCollector.inc("interventions_delivered");
           lines.push("");
         }
 
-        // Recent decisions (capped at last 3 non-continue actions).
+        // Recent decisions (capped: history<=5 non-continue actions).
         const recentDecisions = (st as any).recentDecisions ?? [];
-        const nonContinueDecisions = recentDecisions.filter((d: any) => d.action !== "continue").slice(-3);
+        const nonContinueDecisions = recentDecisions.filter((d: any) => d.action !== "continue").slice(-5);
         if (nonContinueDecisions.length > 0) {
           lines.push("RECENT DECISIONS (non-continue):");
           for (const d of nonContinueDecisions.slice().reverse()) {
@@ -2801,9 +2900,12 @@ metricsCollector.inc("interventions_delivered");
         // the LLM actually receives them in real time on every turn.
 
         // 11a. Skill priming (uses cache populated by messages.transform OR injects fresh here)
+        // Capped (skill<=3): wrapper frame/marker lines stripped, first 3 directive lines kept.
+        // 0x2501 is the box-drawing frame char (avoids a non-ASCII literal here).
         const cachedSkillPriming = skillPrimingSystemInjected.get(sessionID);
         if (cachedSkillPriming) {
-          sysOutput.system.push(wrapInformational(cachedSkillPriming, { kind: "skill-priming" }));
+          const skillBody = cachedSkillPriming.split("\n").filter((l) => l.length > 0 && !l.startsWith("<!--") && l.charCodeAt(0) !== 0x2501 && !l.startsWith("## ") && !l.startsWith("_(")).slice(0, 3);
+          if (skillBody.length > 0) digestSections.push(skillBody.join("\n"));
         }
 
         // 11b. Plan reminder (FASE 1 0c) - skip first turn (no prior context)
@@ -2814,7 +2916,7 @@ metricsCollector.inc("interventions_delivered");
           st.interventionCount > 0
         ) {
           planReminderSent.add(sessionID);
-          sysOutput.system.push(wrapInformational("[META-GOVERNOR] Plan reminder: state your plan inline before executing complex tasks. Use omo_remember to save milestones.", { kind: "postwave" }));
+          digestSections.push("PLAN REMINDER:\nState your plan inline before executing complex tasks. Use omo_remember to save milestones.");
         }
 
         // 11c. Graph-tools-ready (FASE 1 0b) - one-time per session per project
@@ -2825,24 +2927,24 @@ metricsCollector.inc("interventions_delivered");
           st.interventionCount > 0
         ) {
           graphSyncReadyNotified.add(sessionID);
-          const graphReadyText = "[META-GOVERNOR] codegraph y graphify ya estan inicializados. ROUTING EXPLICITO: simbolos/definiciones/callers/impacto => CODEGRAPH (omo_find, omo_impact, omo_search). Conceptos/arquitectura/conexiones => GRAPHIFY (omo_path, omo_explain).";
-          sysOutput.system.push(wrapInformational(graphReadyText, { kind: "graph-priming" }));
+          // Capped (graph<=4): explicit codegraph/graphify routing in 4 lines.
+          digestSections.push("GRAPH ROUTING (codegraph/graphify ready):\nSymbols/definitions/callers/impact => CODEGRAPH (omo_find, omo_impact, omo_search).\nConcepts/architecture/connections => GRAPHIFY (omo_path, omo_explain).\nRepo overview => graphify-out/GRAPH_REPORT.md.");
         }
 
         // 11d. Pending bot feedback (FASE 1 0d) - one-time drain
         const pendingFb = pendingBotFeedback.get(sessionID);
         if (pendingFb && pendingFb.items.length > 0) {
           pendingBotFeedback.delete(sessionID);
-          const feedbackText = "[MetaGovernor PR Reviewer Feedback]\n\n" + pendingFb.items.map((f: string, i: number) => (i + 1) + ". " + f).join("\n") + "\n\nApply these fixes to keep the PR mergeable.";
-          sysOutput.system.push(wrapInformational(feedbackText, { kind: "postwave" }));
+          const feedbackSection = "[MetaGovernor PR Reviewer Feedback]\n" + pendingFb.items.slice(0, 3).map((f: string, i: number) => (i + 1) + ". " + f).join("\n") + "\nApply these fixes to keep the PR mergeable.";
+          digestSections.push(feedbackSection);
         }
 
         // 11e. Pending violations (FASE 1 0e) - drain pending queue per turn
         const pendingViolEntry = pendingViolations.get(sessionID);
         if (pendingViolEntry && pendingViolEntry.items.length > 0) {
           pendingViolations.delete(sessionID);
-          const violationText = "[META-GOVERNOR] protocol violations detected this session:\n" + pendingViolEntry.items.slice(-3).map((v: string, i: number) => "  " + (i + 1) + ". " + v).join("\n") + "\n\nAvoid these in subsequent responses.";
-          sysOutput.system.push(wrapInformational(violationText, { kind: "enforcement" }));
+          const violationSection = "[META-GOVERNOR] protocol violations detected this session:\n" + pendingViolEntry.items.slice(-3).map((v: string, i: number) => "  " + (i + 1) + ". " + v).join("\n") + "\nAvoid these in subsequent responses.";
+          digestSections.push(violationSection);
         }
 
         // 11f. Decision intervention (FASE 1 0f) - read latest pending decision and push
@@ -2852,11 +2954,20 @@ metricsCollector.inc("interventions_delivered");
           pendingDecision.action !== "continue" &&
           !st.interventionDisabled
         ) {
-          const interventionText = "[MetaGovernor] " + pendingDecision.action.toUpperCase() + ": " + pendingDecision.message + "\n\nScore: " + (pendingDecision.historyEntry?.decision?.score ?? 0).toFixed(2) + "\nReasoning: " + (pendingDecision.historyEntry?.reasoning ?? "n/a");
-          sysOutput.system.push(wrapInformational(interventionText, { kind: "intervention" }));
+          let interventionText = "[MetaGovernor] " + pendingDecision.action.toUpperCase() + ": " + pendingDecision.message + "\nScore: " + (pendingDecision.historyEntry?.decision?.score ?? 0).toFixed(2) + "\nReasoning: " + (pendingDecision.historyEntry?.reasoning ?? "n/a");
+          // v0.50.x (D8/T6): Oracle section honors oracle.frequency (null target = suppressed).
+          const sysOracleTarget = pendingDecision.historyEntry?.decision?.shouldEscalateTo ?? null;
+          if (sysOracleTarget) {
+            const sysFrequency = mergedConfig.scoring?.oracleFrequency ?? "per-stop";
+            interventionText += `\n[Oracle routing: frequency=${sysFrequency}] Escalate to ${sysOracleTarget} before proceeding.`;
+          }
+          digestSections.push(interventionText);
         }
 
-        sysOutput.system.push(lines.join("\n"));
+        // Section 1 (conscience + history audit block) first, then 11a-11f sections.
+        // Single push: one digest, one marker, capped sections.
+        digestSections.unshift(lines.join("\n"));
+        sysOutput.system.push(wrapInformational(digestSections.join("\n\n"), { kind: "intervention" }));
       },
 
       // v0.13.1 + v0.31.1: disable auto-continue when (a) the plugin has
@@ -3080,14 +3191,17 @@ function getCurrentBranch(projectDir: string): string | null {
  * Track the SHA we've dispatched CI for so we don't double-trigger on
  * subsequent tool calls within the same session.
  */
-const ciMonitorState = new Map<
+// v0.50.x (conscience-fix T9 / D11): was unbounded per-session Map — now
+// TtlBoundedMap (1000 sessions, 24h TTL) per postWaveSessions precedent.
+// The nested `pending` Set is per-session and short-lived (CI poll window).
+const ciMonitorState = new TtlBoundedMap<
   string,
   {
     lastPolledSha: string | null
     lastFailureInjectionAtMs: number
     pending: Set<string> // SHAs currently being polled
   }
->()
+>(1000, 24 * 60 * 60 * 1000)
 
 /**
  * Background CI monitor. Returns immediately; does NOT block the tool call.

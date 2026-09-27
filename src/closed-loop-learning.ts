@@ -243,9 +243,97 @@ export function defaultClosedLoopConfig(): ClosedLoopConfig {
     // v0.17.2: saveLessons default true. Set to false to disable lesson writes
     // while keeping decision records.
     saveLessons: true,
-    // v0.49.1: auto-remember anti-loop guard (enabled + 5min cooldown + dedupe).
-    autoRemember: { enabled: true, cooldownMs: 300_000, dedupe: true },
+    // Conscience fix (D2): auto-remember is opt-in — default disabled to end
+    // AgentMemory garbage. Keep 5min cooldown + dedupe defaults.
+    autoRemember: { enabled: false, cooldownMs: 300_000, dedupe: true },
   }
+}
+
+/**
+ * Conscience value-gate (D3). Single gate for all conscience memory writes.
+ *
+ * Requires ALL of:
+ * - action in {escalate, stop} (D1 — warn/continue never persist)
+ * - config.enabled
+ * - config.saveLessons !== false
+ * - severityMeetsThreshold(deviations, config.minSeverityToLearn)
+ * - novelty === true (caller-owned novelty check)
+ * - lessonCount < config.maxLessonsPerSession
+ */
+export interface ShouldPersistConscienceMemoryInput {
+  readonly action: Decision["action"]
+  readonly deviations: readonly Deviation[]
+  readonly config: ClosedLoopConfig
+  readonly novelty: boolean
+  readonly lessonCount: number
+}
+
+export function shouldPersistConscienceMemory(input: ShouldPersistConscienceMemoryInput): boolean {
+  const { action, deviations, config, novelty, lessonCount } = input
+  if (action !== "escalate" && action !== "stop") return false
+  if (!config.enabled) return false
+  if (config.saveLessons === false) return false
+  if (!severityMeetsThreshold(deviations, config.minSeverityToLearn)) return false
+  if (novelty !== true) return false
+  if (lessonCount >= config.maxLessonsPerSession) return false
+  return true
+}
+
+/**
+ * Stable dedupe key (D5). Hash of stable fields only — action + sorted
+ * evidence sources + sorted deviation categories. Score floats are
+ * deliberately excluded: float jitter previously defeated dedupe.
+ */
+export interface ConscienceDedupeKeyInput {
+  readonly action: string
+  readonly evidenceSources: readonly string[]
+  readonly deviationCategories: readonly string[]
+}
+
+export function conscienceDedupeKey(input: ConscienceDedupeKeyInput): string {
+  const sources = [...input.evidenceSources].sort().join(",")
+  const categories = [...input.deviationCategories].sort().join(",")
+  const stable = `${input.action}|${sources}|${categories}`
+  const hash = stable.split("").reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0)
+  return `C-${Math.abs(hash).toString(36)}`
+}
+
+/**
+ * Structured conscience memory content (D4/D6). Built via buildLessonContent
+ * + extractConcepts — never a raw dump. Delivery route is always the
+ * Zod-validated omo_remember tool.
+ */
+export interface BuildConscienceMemoryContentInput {
+  // Oracle note 3: real decision action - stop lessons must read Action stop, not escalate.
+  readonly action: "escalate" | "stop"
+  readonly mistake: string
+  readonly whatToDo: string
+  readonly whereToGo: string
+  readonly toolRoute: "omo_remember"
+  readonly score: number
+  readonly files: readonly string[]
+}
+
+export interface ConscienceMemoryContent {
+  readonly content: string
+  readonly concepts: string[]
+}
+
+export function buildConscienceMemoryContent(input: BuildConscienceMemoryContentInput): ConscienceMemoryContent {
+  const deviations: Deviation[] = [
+    { severity: "media", category: "conscience", detail: input.mistake },
+  ]
+  const decision: Decision = {
+    action: input.action,
+    score: input.score,
+    reasoning: `${input.whatToDo} -> ${input.whereToGo} via ${input.toolRoute}`,
+    evidence: [],
+    shouldEscalateTo: null,
+  }
+  const base = buildLessonContent(decision, deviations)
+  const content = `${base}\nMistake: ${input.mistake}\nWhatToDo: ${input.whatToDo}\nWhereToGo: ${input.whereToGo}\nToolRoute: ${input.toolRoute}`
+  const concepts = extractConcepts(deviations, input.files)
+  return { content, concepts }
 }
 
 export { SEVERITY_ORDER }

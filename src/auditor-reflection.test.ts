@@ -34,7 +34,10 @@ function makeDecision(action: "warn" | "escalate" | "stop", sid: string, reasoni
     action,
     message: `[MetaGovernor] ${action} test`,
     historyEntry: {
-      decision: { action, score: -0.5, reasoning, evidence: [], shouldEscalateTo: null },
+      // v0.50.x D8 (QA7): reflection requires a non-null escalation target — null
+      // means oracle.frequency suppressed mid-work escalation, so fixtures carry
+      // "oracle" (prod-faithful: per-stop stop/escalate decisions that reflect have one).
+      decision: { action, score: -0.5, reasoning, evidence: [], shouldEscalateTo: "oracle" },
       action,
       timestampISO: new Date().toISOString(),
       sessionID: sid,

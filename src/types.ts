@@ -254,7 +254,7 @@ export type TokenRecommendation = "compact-now" | "no-action";
  * while reading) re-queues the identical promptAgent every turn.
  */
 export interface AutoRememberConfig {
-  /** Master switch for the Phase 4 auto-remember prompt. Default true. */
+  /** Master switch for the Phase 4 auto-remember prompt. Default false. */
   readonly enabled?: boolean;
   /** Min ms between two auto-remember fires in the same session. Default 300000 (5 min). */
   readonly cooldownMs?: number;
@@ -279,6 +279,22 @@ export interface ClosedLoopConfig {
   readonly saveLessons?: boolean;
   /** v0.49.1: anti-loop guard for the Phase 4 auto-remember prompt. */
   readonly autoRemember?: AutoRememberConfig;
+  /** Conscience memory persistence (opt-in, default disabled). */
+  readonly conscience?: ConscienceConfig;
+}
+
+/**
+ * Conscience memory persistence config (opt-in).
+ */
+export interface ConscienceConfig {
+  /** Master switch. Default false. */
+  readonly enabled?: boolean;
+  /** Max conscience memories per session. */
+  readonly maxMemoriesPerSession?: number;
+  /** Tool route for conscience writes. */
+  readonly toolRoute?: 'omo_remember';
+  /** When true, only novel content is persisted. Default true. */
+  readonly requireNovelty?: boolean;
 }
 
 /**
