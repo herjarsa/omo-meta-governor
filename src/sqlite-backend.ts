@@ -23,6 +23,7 @@ import { join } from "node:path"
 
 import { homedir } from "node:os"
 import type { AgentmemoryWriteBackend } from "./types"
+import { MIN_LESSON_CONFIDENCE } from "./closed-loop-learning"
 import type { AgentmemoryBackend, BoulderStateBackend, RawCrystal, RawLesson } from "./memory-aggregator"
 
 // ---------------------------------------------------------------------------
@@ -85,6 +86,7 @@ CREATE TABLE IF NOT EXISTS entries (
   context    TEXT DEFAULT '',
   advice     TEXT CHECK(advice IN ('continue', 'stop', 'warn', 'info')),
   confidence REAL DEFAULT 0.5,
+  dedupe_key TEXT DEFAULT NULL,
   tags       TEXT DEFAULT '[]',
   files      TEXT DEFAULT '[]',
   session_id TEXT DEFAULT '',
@@ -187,6 +189,7 @@ export class SqliteBackend implements AgentmemoryWriteBackend, AgentmemoryBacken
   private db: OmoDatabase
   private stmts: {
     insertEntry: OmoStatement
+    dedupeLookup: OmoStatement
     ftsSearch: OmoStatement
     boulderSelect: OmoStatement
   }
@@ -229,20 +232,32 @@ export class SqliteBackend implements AgentmemoryWriteBackend, AgentmemoryBacken
       }
     }
 
+    // v0.51.1 (P1 spam guard): additive migration for pre-existing DBs - adds dedupe_key without touching rows.
+    const entryCols = this.db.prepare("PRAGMA table_info(entries)").all() as Array<{ name: string }>
+    if (!entryCols.some((c) => c.name === "dedupe_key")) {
+      this.db.exec("ALTER TABLE entries ADD COLUMN dedupe_key TEXT DEFAULT NULL")
+    }
+    // Index creation lives OUTSIDE SCHEMA_SQL on purpose: a CREATE INDEX
+    // inside the schema bundle would fail on pre-existing DBs that have
+    // not been migrated yet (no such column). IF NOT EXISTS keeps fresh
+    // and migrated DBs identical.
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_entries_dedupe ON entries(kind, dedupe_key)")
+
     // Prepare statements once
     this.stmts = {
       insertEntry: this.db.prepare(`
-        INSERT INTO entries (id, kind, title, content, context, advice, confidence, tags, files, session_id, directory, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO entries (id, kind, title, content, context, advice, confidence, dedupe_key, tags, files, session_id, directory, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `),
       ftsSearch: this.db.prepare(`
         SELECT e.id, e.title, e.content, e.kind, e.confidence, e.advice, e.tags, e.files, e.session_id
         FROM entries_fts f
         JOIN entries e ON e.id = f.id
-        WHERE entries_fts MATCH ? AND e.kind IN ('lesson', 'memory')
+        WHERE entries_fts MATCH ? AND e.kind IN ('lesson', 'memory') AND e.confidence >= ${MIN_LESSON_CONFIDENCE}
         ORDER BY rank
         LIMIT ?
       `),
+      dedupeLookup: this.db.prepare("SELECT id FROM entries WHERE kind = 'lesson' AND dedupe_key = ? LIMIT 1"),
       boulderSelect: this.db.prepare(`
         SELECT id, title, priority, status, description, directory, session_id, created_at_ms, updated_at_ms
         FROM boulder_tasks
@@ -270,6 +285,7 @@ export class SqliteBackend implements AgentmemoryWriteBackend, AgentmemoryBacken
       "",
       null,
       0.5,
+      null,
       JSON.stringify(input.concepts),
       JSON.stringify(input.files ?? []),
       "",
@@ -284,9 +300,24 @@ export class SqliteBackend implements AgentmemoryWriteBackend, AgentmemoryBacken
     context: string
     confidence?: number
     tags?: string[]
-  }): Promise<{ id: string }> {
-    const id = generateId("L")
+    dedupeKey?: string
+  }): Promise<{ id: string; deduped?: boolean }> {
     const confidence = input.confidence ?? 0.5
+    // v0.51.1 (P1 spam guard): defense-in-depth floor - low-confidence
+    // lessons are noise. Callers pre-gate; the backend refuses regardless
+    // so no write path can re-create the 5311-row spam class.
+    if (confidence < MIN_LESSON_CONFIDENCE) {
+      throw new Error(
+        "saveLesson rejected: confidence " + confidence + " < MIN_LESSON_CONFIDENCE " + MIN_LESSON_CONFIDENCE + " (low-value lesson spam guard)"
+      )
+    }
+    // v0.51.1: real dedupe on the stable key - an identical lesson
+    // persists exactly once no matter how many turns re-fire it.
+    if (input.dedupeKey !== undefined && input.dedupeKey !== "") {
+      const existing = this.stmts.dedupeLookup.get(input.dedupeKey) as { id: string } | undefined
+      if (existing) return Promise.resolve({ id: existing.id, deduped: true })
+    }
+    const id = generateId("L")
     // Extract title from first line of content (max 80 chars)
     const title = (input.content.split("\n")[0] ?? "lesson").slice(0, 80)
     this.stmts.insertEntry.run(
@@ -297,6 +328,7 @@ export class SqliteBackend implements AgentmemoryWriteBackend, AgentmemoryBacken
       input.context,
       null,
       confidence,
+      input.dedupeKey ?? null,
       JSON.stringify(input.tags ?? []),
       JSON.stringify([]),
       "",
@@ -304,6 +336,32 @@ export class SqliteBackend implements AgentmemoryWriteBackend, AgentmemoryBacken
       Date.now(),
     )
     return Promise.resolve({ id })
+  }
+
+  /**
+   * v0.51.1 (P1 lesson-spam backfill, Wave A T-5df16a0e): delete persisted
+   * noise - low-confidence Action-continue lessons:
+   *
+   *   DELETE FROM entries
+   *   WHERE kind = 'lesson' AND confidence < 0.5 AND title LIKE 'Action "continue"%'
+   *
+   * Returns the number of rows deleted. The entries_ad FTS trigger keeps
+   * entries_fts consistent, so post-purge recall returns high-value lessons.
+   *
+   * SCOPE WARNING: operates on THIS backend instance database file only.
+   * Tests MUST use a tmp file (see lesson-spam-guard.test.ts). NEVER point
+   * this at the prod DB (~/.omo-meta-governor/meta-governor.db) outside an
+   * explicit, reviewed ops runbook.
+   */
+  purgeNoiseLessons(): number {
+    const noiseTitlePrefix = "Action \"continue\""
+    const where = "kind = 'lesson' AND confidence < " + MIN_LESSON_CONFIDENCE + " AND title LIKE '" + noiseTitlePrefix + "%'"
+    const countRow = this.db.prepare("SELECT COUNT(*) AS n FROM entries WHERE " + where).get() as { n: number } | undefined
+    const n = countRow?.n ?? 0
+    if (n > 0) {
+      this.db.exec("DELETE FROM entries WHERE " + where)
+    }
+    return n
   }
 
   // -------- AgentmemoryBackend (memory-aggregator interface) --------

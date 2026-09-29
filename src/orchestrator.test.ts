@@ -57,6 +57,7 @@ const makeMemoryBackends = (
 const makeWriteBackend = (
   overrides?: Partial<AgentmemoryWriteBackend>,
 ): AgentmemoryWriteBackend => ({
+  saveMemory: mock(() => Promise.resolve({ id: "mem-1" })),
   saveLesson: mock(() => Promise.resolve({ id: "les-1" })),
   saveDecision: mock(() => Promise.resolve({ id: "dec-1" })),
   ...overrides,
@@ -228,7 +229,7 @@ describe("orchestrator", () => {
       expect(backends.boulderState.boulderRead).toHaveBeenCalled()
     })
 
-    it("saves lesson when closedLoop is enabled and deviation exists", async () => {
+    it("does NOT save lesson for a neutral continue even when closedLoop is enabled (P1 spam guard: continue/-0.11 carries no learnable signal)", async () => {
       // given
       const writeBackend = makeWriteBackend()
       const dev = { type: "file-deviation" as const, description: "wrong type", severity: "high" as const }
@@ -252,8 +253,11 @@ describe("orchestrator", () => {
       // when
       const output = await runMetaGovernor(input)
 
-      // then
-      expect(writeBackend.saveLesson).toHaveBeenCalled()
+      // then: neutral continue (score -0.11) persists no lesson, but the
+      // decision record still saves.
+      expect(writeBackend.saveLesson).not.toHaveBeenCalled()
+      expect(output.lessonSaved?.lessonSaved).toBeNull()
+      expect(output.lessonSaved?.decisionSaved).not.toBeNull()
     })
 
     it("does NOT save lesson when closedLoop is disabled", async () => {

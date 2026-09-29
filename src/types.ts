@@ -342,7 +342,14 @@ export interface AgentmemoryWriteBackend {
     context: string;
     confidence?: number;
     tags?: string[];
-  }): Promise<{ id: string }>;
+    /**
+     * v0.51.1 (P1 lesson-spam guard, Wave A T-5df16a0e): stable dedupe key
+     * (see conscienceDedupeKey in closed-loop-learning.ts). Persisting
+     * backends MUST return the existing id with deduped:true instead of
+     * inserting a duplicate row when the key was already saved.
+     */
+    dedupeKey?: string;
+  }): Promise<{ id: string; deduped?: boolean }>;
 }
 
 /** Backend interfaces for memory-aggregator DI. Re-uses existing BoulderStateBackend from memory-aggregator. */
@@ -446,7 +453,11 @@ export interface InterventionConfig {
   /**
    * Max number of times a single session may receive an intervention
    * before the plugin auto-disables intervention for that session.
-   * v0.10.0: prevents infinite instruction loops. Default: 3.
+   * v0.10.0: prevents infinite instruction loops. Default: 5 (was 3).
+   * v0.51.x (Wave A P3): severity-tiered quota — only escalate/stop consume
+   * this budget (see consumesInterventionQuota in plugin.ts). Warn-level
+   * noise is delivered under cooldown without consuming, so a session
+   * without high-severity events never exhausts the cap.
    */
   readonly maxInterventionsPerSession: number;
   /**
@@ -587,6 +598,22 @@ export interface SkillPrimingConfig {
    *    stronger model adherence.
    */
   readonly enforceMode: "directive" | "block";
+}
+
+/**
+ * Wave B workflow gates: opt-in hard gates for the agent workflow
+ * (explore-before-implement). All default false = zero behavior change.
+ */
+export interface WorkflowGatesConfig {
+  /** Master switch for workflow gates. Default false. */
+  readonly enabled: boolean;
+  /**
+   * When true, the first non-trivial IMPLEMENTATION_TOOLS call in a session
+   * throws unless a read/search/recall tool ran earlier in that session
+   * (explore-before-implement). Trivial writes bypass like skillPriming.
+   * Default false.
+   */
+  readonly requirePlan: boolean;
 }
 
 /**
@@ -765,6 +792,8 @@ export interface OrchestratorConfig {
   readonly protocolEnforcement: ProtocolEnforcementConfig;
   /** Skill priming config (v0.20.0): proactive skill-selection nudge. */
   readonly skillPriming: SkillPrimingConfig;
+  /** Wave B workflow gates (explore-before-implement). Default all false. */
+  readonly workflowGates: WorkflowGatesConfig;
   /** Skill hub config (v0.32.0): registry-backed catalog + hybrid search. */
   /** Skill hub config (v0.32.0): registry-backed catalog + hybrid search. */
   readonly skillHub: SkillHubConfig;

@@ -146,6 +146,97 @@ export interface AuditContext {
   batchCompletions?: number
 }
 
+// ─── codebase-graph-first scoping (P2: over-fire fix) ────────────
+// The rule targets architecture/symbol queries — broad searches across
+// the codebase — NOT directed reads of a known file. A normal exploration
+// session does mostly directed reads (exact file paths), which must not
+// warn, or the signal drowns (~10 warns/25s) and agents learn to ignore it.
+
+const GLOB_CHARS_RE = /[*?[\]{}]/
+const FILE_EXT_RE = /\.[A-Za-z0-9]{1,6}$/
+
+function looksLikeExactFilePath(value: string): boolean {
+  const trimmed = value.trim()
+  if (trimmed.length === 0) return false
+  if (GLOB_CHARS_RE.test(trimmed)) return false
+  if (!FILE_EXT_RE.test(trimmed)) return false
+  return true
+}
+
+function collectStringValues(record: Record<string, unknown>, keys: readonly string[]): string[] {
+  const out: string[] = []
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === "string" && value.trim().length > 0) {
+      out.push(value)
+    } else if (Array.isArray(value)) {
+      for (const entry of value) {
+        if (typeof entry === "string" && entry.trim().length > 0) {
+          out.push(entry)
+        }
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * Returns true when the grep/glob call is a broad architecture/symbol
+ * query (should warn when a graph index exists), false when it is a
+ * directed access to a known exact file (exempt — equivalent to a
+ * single read, the graph adds no value).
+ *
+ * - grep with no path (whole-codebase search) → broad.
+ * - grep scoped to an exact file path → directed (exempt).
+ * - grep scoped to a directory / bare name → broad.
+ * - glob with glob chars (`*?[]{}`, e.g. `**\/*.ts`) → broad.
+ * - glob with an exact file pattern (`src/foo.ts`) → directed (exempt).
+ * - empty/unknown args → broad (preserves pre-fix behaviour).
+ */
+export function isBroadCodebaseQuery(toolName: string, args: unknown): boolean {
+  if (args === null || args === undefined || typeof args !== "object") {
+    return true
+  }
+  const record = args as Record<string, unknown>
+  if (Object.keys(record).length === 0) {
+    return true
+  }
+  if (toolName === "grep") {
+    const paths = collectStringValues(record, [
+      "path",
+      "paths",
+      "dir",
+      "directory",
+      "cwd",
+      "file",
+      "filePath",
+      "filename",
+    ])
+    if (paths.length > 0) {
+      if (paths.every((p) => looksLikeExactFilePath(p))) {
+        return false
+      }
+      return true
+    }
+    return true
+  }
+  if (toolName === "glob") {
+    const patterns = collectStringValues(record, ["pattern", "patterns"])
+    if (patterns.length > 0) {
+      if (patterns.every((p) => looksLikeExactFilePath(p))) {
+        return false
+      }
+      return true
+    }
+    const pathValue = record["path"]
+    if (typeof pathValue === "string" && looksLikeExactFilePath(pathValue)) {
+      return false
+    }
+    return true
+  }
+  return true
+}
+
 // ─── auditToolCall ────────────────────────────────────────────────
 
 export function auditToolCall(
@@ -159,10 +250,15 @@ export function auditToolCall(
   const memorySaved = context.memorySaved ?? false
   const batchCompletions = context.batchCompletions ?? 0
   // ── Rule 0.5: Codebase Graph First ──────────────────────────────
-  // grep/glob/read for architecture/symbol queries should use codegraph/graphify first
+  // grep/glob for broad architecture/symbol queries should use
+  // codegraph/graphify first. Directed accesses to a known exact file
+  // (equivalent to a single read) are exempt — the graph adds no value
+  // there and flagging them produced ~10 warns/25s of noise. `read`
+  // itself is never flagged (directed by construction).
   if (
     (toolName === "grep" || toolName === "glob") &&
-    (context.hasCodegraphDir || context.hasGraphifyDir)
+    (context.hasCodegraphDir || context.hasGraphifyDir) &&
+    isBroadCodebaseQuery(toolName, args)
   ) {
     const graphType = context.hasCodegraphDir ? ".codegraph" : "graphify-out"
     violations.push({

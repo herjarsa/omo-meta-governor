@@ -367,8 +367,8 @@
         },
         "maxInterventionsPerSession": {
           "type": "integer",
-          "description": "Hard cap on interventions per session before the plugin auto-disables intervention. v0.10.0: prevents infinite instruction loops.",
-          "default": 3,
+          "description": "Hard cap on interventions per session before the plugin auto-disables intervention. v0.10.0: prevents infinite instruction loops. v0.51.x: severity-tiered — only escalate/stop consume quota; default 5.",
+          "default": 5,
           "minimum": 1
         },
         "respectDoneSignal": {

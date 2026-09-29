@@ -607,44 +607,25 @@ export async function runGraphSync(
             if (up === "graphify-installed") codes.push("graphify-upgraded")
           }
         }
-        if (config.checkGraphifyNeedsUpdate !== false) {
-          try {
-            // v0.26.0: respect the runner DI seam — tests shouldn't spawn real graphify.
-            const checkRes = config.runner
-              ? (() => {
-                  try {
-                    config.runner!("graphify check-update " + projectDir, { cwd: projectDir, stdio: "ignore", timeout: 10_000 } as never)
-                    return { code: 0, stdout: "", stderr: "" }
-                  } catch {
-                    return { code: 1, stdout: "", stderr: "runner rejected" }
-                  }
-                })()
-              : runGuardedSync("graphify", ["check-update", projectDir], { cwd: projectDir, timeoutMs: 10_000 })
-            if (checkRes.code !== 0) {
-              // Semantic re-extraction is pending — trigger it.
-              if (config.runner) {
-                try {
-                  config.runner!("graphify update " + projectDir + " --no-cluster", { cwd: projectDir, stdio: "ignore", timeout: (config.installTimeoutMs ?? 60_000) } as never)
-                } catch { /* best-effort */ }
-              } else {
-                runGuardedSync("graphify", ["update", projectDir, "--no-cluster"], { cwd: projectDir, timeoutMs: config.installTimeoutMs ?? 60_000 })
-              }
-              codes.push("graphify-reextract-triggered")
-            }
-          } catch { /* best-effort */ }
-        }
       }
 
       // Write cache ONCE with both latests (Bug #5: was being written with duplicate fetches).
-      try {
-        await writeUpgradeCache(cachePath, {
-          checkedAtMs: Date.now(),
-          codegraphLatest: freshLatest.codegraph ?? cache?.codegraphLatest,
-          graphifyLatest: freshLatest.graphify ?? cache?.graphifyLatest,
-        })
-        codes.push("upgrade-cache-written")
-      } catch {
-        // best-effort
+      // P4: respect TTL — when the cache was already fresh and nothing was
+      // re-fetched, keep the original checkedAtMs (don't bump the TTL with
+      // stale data and don't manufacture a fresh stamp for unfetched values).
+      const cacheWasFresh = isCacheFresh(cache, ttlMs)
+      const fetchedAnything = freshLatest.codegraph != null || freshLatest.graphify != null
+      if (!cacheWasFresh || fetchedAnything) {
+        try {
+          await writeUpgradeCache(cachePath, {
+            checkedAtMs: Date.now(),
+            codegraphLatest: freshLatest.codegraph ?? cache?.codegraphLatest,
+            graphifyLatest: freshLatest.graphify ?? cache?.graphifyLatest,
+          })
+          codes.push("upgrade-cache-written")
+        } catch {
+          // best-effort
+        }
       }
     } catch {
       codes.push("upgrade-check-skipped")
@@ -670,6 +651,35 @@ export async function runGraphSync(
   } else {
     if (!availability.codegraph) codes.push("codegraph-install-skipped")
     if (!availability.graphify) codes.push("graphify-install-skipped")
+  }
+
+  // Moved after auto-install so `pip install graphify` lands BEFORE
+  // `graphify check-update` (fresh installs report stale otherwise).
+  if (availability.graphify && config.checkGraphifyNeedsUpdate !== false) {
+    try {
+      // v0.26.0: respect the runner DI seam — tests shouldn't spawn real graphify.
+      const checkRes = config.runner
+        ? (() => {
+            try {
+              config.runner!("graphify check-update " + projectDir, { cwd: projectDir, stdio: "ignore", timeout: 10_000 } as never)
+              return { code: 0, stdout: "", stderr: "" }
+            } catch {
+              return { code: 1, stdout: "", stderr: "runner rejected" }
+            }
+          })()
+        : runGuardedSync("graphify", ["check-update", projectDir], { cwd: projectDir, timeoutMs: 10_000 })
+      if (checkRes.code !== 0) {
+        // Semantic re-extraction is pending — trigger it.
+        if (config.runner) {
+          try {
+            config.runner!("graphify update " + projectDir + " --no-cluster", { cwd: projectDir, stdio: "ignore", timeout: (config.installTimeoutMs ?? 60_000) } as never)
+          } catch { /* best-effort */ }
+        } else {
+          runGuardedSync("graphify", ["update", projectDir, "--no-cluster"], { cwd: projectDir, timeoutMs: config.installTimeoutMs ?? 60_000 })
+        }
+        codes.push("graphify-reextract-triggered")
+      }
+    } catch { /* best-effort */ }
   }
 
   // Codegraph init
@@ -985,8 +995,15 @@ export function isNewerVersion(installed: string | null | undefined, latest: str
   //   empty string installed → malformed → don't upgrade
   if (installed == null && latest) return true
   if (!latest) return false
-  const i = installed as string
-  const l = latest
+  // P4 (v0.51.x): normalize before comparing — trim whitespace and strip a
+  // leading "v"/"V" (npm never emits it, but `--version` probes and
+  // hand-written caches do: "v1.2.3" must equal "1.2.3" → silent).
+  const stripV = (v: string): string => {
+    const t = v.trim()
+    return t.length > 1 && (t[0] === "v" || t[0] === "V") ? t.slice(1).trim() : t
+  }
+  const i = stripV(installed as string)
+  const l = stripV(latest)
   if (!i || i === l) return false
   // Defensive: reject non-semver strings instead of treating them as 0.0.0
   const SEMVER_RE = /^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/
@@ -1010,6 +1027,20 @@ export function isNewerVersion(installed: string | null | undefined, latest: str
   if (iPre && !lPre) return true
   if (!iPre && lPre) return false
   return lPre > iPre
+}
+
+/**
+ * P4 (v0.51.x): self-version STALE_CACHE polarity gate. Returns true ONLY
+ * when `latest` (npm registry) is strictly newer than `loaded` (running
+ * bundle) — equal versions (incl. "v"-prefix/whitespace variants) and
+ * loaded-newer-than-npm (local dev) stay silent. Pure: no I/O, no TTL.
+ */
+export function shouldWarnStaleCache(
+  loaded: string | null | undefined,
+  latest: string | null | undefined,
+): boolean {
+  if (!loaded || !latest) return false
+  return isNewerVersion(loaded, latest)
 }
 
 /**

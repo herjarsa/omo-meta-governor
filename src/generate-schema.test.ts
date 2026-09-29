@@ -96,7 +96,7 @@ it("then has intervention with enum constraints", () => {
       // v0.10.0
       expect(iv.maxInterventionsPerSession).toBeDefined()
       expect(iv.maxInterventionsPerSession.type).toBe("integer")
-      expect(iv.maxInterventionsPerSession.default).toBe(3)
+      expect(iv.maxInterventionsPerSession.default).toBe(5)
       // v0.10.0/0.15.0
       expect(iv.respectDoneSignal).toBeDefined()
       expect(iv.respectDoneSignal.type).toBe("boolean")

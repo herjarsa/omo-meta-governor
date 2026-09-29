@@ -24,6 +24,7 @@ import {
   triggerReindex,
   detectRemoteNewCommits,
   stopWatches,
+  shouldWarnStaleCache,
 } from "./graph-sync";
 import {
   killOrphanedToolProcesses,
@@ -68,6 +69,8 @@ import {
   buildOmoAddTool,
   buildOmoCheckUpdateTool,
   buildOmoHookStatusTool,
+  buildOmoUpgradeCheckTool,
+  buildOmoUpgradeRunTool,
   // v0.28.0: CLI-Anything hub discovery tools
   buildOmoCliAnythingInstallTool,
   buildOmoCliAnythingListTool,
@@ -177,6 +180,7 @@ export interface MetaGovernorPluginDeps {
   /** v0.21.0: test-only hook â€” asserts runGraphSync is invoked with the
    * session's projectDir (fix: was module-load cwd under serve). */
   __test_onGraphSyncInit?: (payload: { projectDir: string }) => void;
+  __test_onCliAnythingInit?: (payload: { projectDir: string }) => void;
   /** v0.21.0: test-only DI seam â€” replaces the REAL runGraphSync so hermetic
    * placement tests never spawn npx/pip/graphify. Avoids mock.module (which
    * leaks across test files sharing a Bun worker â€” broke CI on macOS). */
@@ -228,6 +232,20 @@ function meetsMinAction(
   minAction: "warn" | "escalate" | "stop",
 ): boolean {
   return ACTION_SEVERITY[action] >= ACTION_SEVERITY[minAction];
+}
+
+/**
+ * v0.51.x (Wave A P3, T-92bc88b7): severity-tiered quota consumption. Only
+ * high-severity actions (escalate/stop) consume the maxInterventionsPerSession
+ * budget. Low-level warn noise (e.g. noProgress-only warns from read/grep
+ * loops in a session without high-severity events) is still delivered under
+ * the 60s per-reasoning cooldown but never trips the cap latch. Exported for
+ * direct unit testing.
+ */
+export function consumesInterventionQuota(
+  action: DecisionHandlerOutput["action"],
+): boolean {
+  return action === "escalate" || action === "stop";
 }
 
 // v0.34.2 (P1-6): bash with > file / >> file / 	ee file is a write tool
@@ -372,6 +390,9 @@ export function createMetaGovernorPlugin(
   const omoCliAnythingListTool = buildOmoCliAnythingListTool({ cwd });
   const omoCliAnythingSearchTool = buildOmoCliAnythingSearchTool({ cwd });
   const omoCliAnythingInfoTool = buildOmoCliAnythingInfoTool({ cwd });
+  // on-demand backend upgrades (no polling, TTL-cached)
+  const omoUpgradeCheckTool = buildOmoUpgradeCheckTool({ cwd });
+  const omoUpgradeRunTool = buildOmoUpgradeRunTool({ cwd });
   // Log startup so the user can see the plugin is loaded. The version is
   // prepended to the message (and included in the structured fields) so
   // OpenChamber's startup log shows exactly which release is loaded â€”
@@ -424,7 +445,8 @@ export function createMetaGovernorPlugin(
       const raw = readFileSync(CACHE_PATH, "utf-8")
       const parsed = JSON.parse(raw) as { latest?: unknown; checkedAtMs?: unknown }
       if (typeof parsed.latest === "string" && typeof parsed.checkedAtMs === "number"
-          && Date.now() - parsed.checkedAtMs < TTL_MS) {
+          // P4: future-dated stamps (negative age) count as stale, like isCacheFresh.
+          && Date.now() - parsed.checkedAtMs >= 0 && Date.now() - parsed.checkedAtMs < TTL_MS) {
         cached = { latest: parsed.latest, checkedAtMs: parsed.checkedAtMs }
       }
     } catch { /* cache miss */ }
@@ -452,7 +474,10 @@ export function createMetaGovernorPlugin(
         // npm unreachable or not installed -- do not block plugin load
       }
     }
-    if (latest && latest !== DEFAULT_VERSION) {
+    // P4 (v0.51.x): semver polarity — warn ONLY when npm is strictly NEWER
+    // than the loaded bundle. Equal (incl. "v"-prefix/whitespace variants)
+    // and loaded-newer-than-npm (local dev ahead of registry) stay silent.
+    if (shouldWarnStaleCache(DEFAULT_VERSION, latest)) {
       logToFile(
         "warn",
         `STALE_CACHE: loaded v${DEFAULT_VERSION} but npm has v${latest}. Run: npm cache clean --force && rm -rf ~/.cache/opencode/packages/@herjarsa/omo-meta-governor*`,
@@ -571,6 +596,28 @@ const graphSyncReadyProjects = new Set<string>();
     const graphSyncReadyNotified = new Set<string>();
     // session-promotion nudge (mirrors graphSyncReadyProjects).
     const cliAnythingReadyProjects = new Set<string>();
+    // Wave B workflowGates.requirePlan: sessions that already ran a
+    // read/search/recall tool (explore-before-implement). Factory-scoped
+    // like the other session sets above.
+    const sessionExplored = new Set<string>();
+    // Wave B: tools that count as exploration for the requirePlan gate.
+    const WORKFLOW_GATE_READ_TOOLS: readonly string[] = [
+      "read",
+      "omo_search",
+      "omo_recall",
+      "omo_recall_mcp",
+      "omo_find",
+      "omo_impact",
+      "omo_path",
+      "omo_explain",
+      "omo_files",
+      "omo_callers",
+      "omo_node",
+      "omo_context",
+      "omo_status",
+      "omo_health",
+      "omo_skill_find",
+    ];
 
     // v0.21.0: graphSync init runs at FACTORY INVOCATION with the session's
     // project directory, not at module load with process.cwd() (which under
@@ -626,18 +673,25 @@ const graphSyncReadyProjects = new Set<string>();
           }
 })
         .catch((err) => { logToFile("warn", `graphSync init failed: ${String(err)}`); });
-      // v0.28.0: CLI-Anything hub auto-install + auto-upgrade (parallel to graph-sync).
-      // Fire-and-forget; never blocks the factory. Mirrors graph-sync so the
-      // same caching, TTL, and runner DI seams apply.
-      // v0.28.0: default-on (opt-out), same as graph-sync v0.26.0. Tests that
-      // don't mock the runner should inject __test_runCliAnythingSync to
-      // avoid spawning real pip/npx under factory invocation.
-      if (mergedConfig.cliAnything?.enabled !== false) {
-        const rawCliAnything =
-          (options?.meta_governor as MetaGovernorPluginConfig | undefined)
-            ?.cliAnything ??
-          (fileConfigSource.config as MetaGovernorPluginConfig | undefined)
-            ?.cliAnything;
+    }
+    // v0.28.0: CLI-Anything hub auto-install + auto-upgrade (parallel to graph-sync).
+    // Fire-and-forget; never blocks the factory. Mirrors graph-sync so the
+    // same caching, TTL, and runner DI seams apply.
+    // v0.28.0: default-on (opt-out), same as graph-sync v0.26.0. Tests that
+    // don't mock the runner should inject __test_runCliAnythingSync to
+    // avoid spawning real pip/npx under factory invocation.
+    // v0.51.x (W1-A1): desanidado fuera del if(graphSyncEnabledAtInvocation) —
+    // corre aunque graphSync.enabled=false, con propio guard de 3 capas
+    // options?.meta_governor?.cliAnything ?? fileConfig?.cliAnything ?? config.cliAnything.
+    const rawCliAnything =
+      (options?.meta_governor as MetaGovernorPluginConfig | undefined)
+        ?.cliAnything ??
+      (fileConfigSource.config as MetaGovernorPluginConfig | undefined)
+        ?.cliAnything ??
+      config.cliAnything;
+    if (rawCliAnything?.enabled !== false) {
+      // Test-only hook: assert placement without executing real CLI commands.
+      deps.__test_onCliAnythingInit?.({ projectDir: sessionProjectDir });
 const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
         runCliSyncImpl({
           enabled: true,
@@ -660,12 +714,13 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
           .catch((err) => {
             logToFile("warn", `cli-anything sync failed: ${String(err)}`);
           });
-      }
-      // v0.25.1: origin-fetch reindex watcher â€”
+    }
+    // v0.25.1: origin-fetch reindex watcher â€”
       // fetch and reindex so the agent sees fresh graph results on next tool call.
       // Fire-and-forget; never blocks the factory. Sits INSIDE the
       // graphSyncEnabledAtInvocation guard so tests with graphSync:{enabled:false}
-      // never spawn real git processes.
+      // never spawn real git processes. reindexOnFetch SE QUEDA aqui (W1-A1).
+    if (graphSyncEnabledAtInvocation) {
       queueMicrotask(() => {
         try {
           const fetchBranch = mergedConfig.graphSync.fetchBranch
@@ -766,6 +821,9 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
           omo_cli_anything_list: omoCliAnythingListTool,
           omo_cli_anything_search: omoCliAnythingSearchTool,
           omo_cli_anything_info: omoCliAnythingInfoTool,
+          // on-demand backend upgrades
+          omo_upgrade_check: omoUpgradeCheckTool,
+          omo_upgrade_run: omoUpgradeRunTool,
         },
       // v0.30 zombie-fix: install process-exit handlers + dispose sweep
       dispose: async (): Promise<void> => {
@@ -1177,6 +1235,29 @@ metricsCollector.inc("interventions_delivered");
             `Pass the candidates to a sub-agent via \`task(category='<category>', load_skills=[...])\` to load 2-3 capabilities. ` +
             `Set skillPriming.enforceMode='directive' in your config to bypass this gate, or write to a tmp/test/scratch path for trivial edits.`,
           );
+        }
+
+        // Wave B workflowGates.requirePlan (opt-in, default false):
+        // explore-before-implement. The first non-trivial IMPLEMENTATION_TOOLS
+        // call in a session throws unless a read/search/recall tool ran
+        // earlier in that session. Mirrors the skill-priming block gate above
+        // (same trivial-write bypass, same throw-to-block mechanism).
+        if (
+          mergedConfig.workflowGates?.enabled === true &&
+          mergedConfig.workflowGates?.requirePlan === true &&
+          !sessionExplored.has(toolInput.sessionID) &&
+          IMPLEMENTATION_TOOLS.includes(toolInput.tool) &&
+          !isTrivialWrite(toolInput.tool, _output?.args)
+        ) {
+          throw new Error(
+            `[meta-governor] workflow gate requirePlan: explore before implementing. ` +
+            `Run a read/search/recall tool first (read, omo_search, omo_find, omo_recall) ` +
+            `to ground "${toolInput.tool}" in actual codebase state. ` +
+            `Set workflowGates.requirePlan=false in your config to bypass this gate.`,
+          );
+        }
+        if (WORKFLOW_GATE_READ_TOOLS.includes(toolInput.tool)) {
+          sessionExplored.add(toolInput.sessionID);
         }
 
         if (!mergedConfig.protocolEnforcement.auditToolCalls) return;
@@ -1972,19 +2053,26 @@ metricsCollector.inc("interventions_delivered");
                 mergedConfig.intervention.minActionForMessage,
               )
             ) {
-              // v0.10.0: rate-limit interventions
-              const cap = Math.max(
-                0,
-                mergedConfig.intervention.maxInterventionsPerSession ?? 0,
-              );
-              if (cap > 0 && sessionState.interventionCount >= cap) {
-                sessionState.interventionDisabled = true;
-                logToFile(
-                  "warn",
-                  `intervention cap (${cap}) reached for session ${toolInput.sessionID}; disabling further intervention`,
+              // v0.10.0: rate-limit interventions.
+              // v0.51.x (Wave A P3): severity-tiered quota — only escalate/stop
+              // consume the cap. Warn-level noise never trips the latch, so a
+              // session without high-severity events never exhausts its budget.
+              // Loop protection for warns is the 60s per-reasoning cooldown below.
+              const consumesQuota = consumesInterventionQuota(decision.action);
+              if (consumesQuota) {
+                const cap = Math.max(
+                  0,
+                  mergedConfig.intervention.maxInterventionsPerSession ?? 0,
                 );
-                takeDecision(toolInput.sessionID);
-                return;
+                if (cap > 0 && sessionState.interventionCount >= cap) {
+                  sessionState.interventionDisabled = true;
+                  logToFile(
+                    "warn",
+                    `intervention cap (${cap}) reached for session ${toolInput.sessionID}; disabling further intervention`,
+                  );
+                  takeDecision(toolInput.sessionID);
+                  return;
+                }
               }
               // v0.29.0: per-reasoning-hash cooldown (60s) for warn/escalate.
               // During background-task waits the same "no progress" reasoning
@@ -2007,7 +2095,16 @@ metricsCollector.inc("interventions_delivered");
                 takeDecision(toolInput.sessionID);
                 return;
               }
-              sessionState.interventionCount++;
+              // v0.51.x (Wave A P3): warn is delivered but does NOT consume
+              // quota (consumesQuota === false). Only escalate/stop increment.
+              if (consumesQuota) {
+                sessionState.interventionCount++;
+              } else {
+                logToFile(
+                  "info",
+                  `warn delivered without consuming quota for session ${toolInput.sessionID} (count ${sessionState.interventionCount})`,
+                );
+              }
               if (decision.action === "warn" || decision.action === "escalate") {
                 sessionState.lastWarnAtMs = now;
                 sessionState.lastWarnHash = reasoningHash;
@@ -2359,7 +2456,14 @@ metricsCollector.inc("interventions_delivered");
           0,
           mergedConfig.intervention.maxInterventionsPerSession ?? 0,
         );
-        if (cap > 0 && curState.interventionCount >= cap) {
+        // v0.51.x (Wave A P3): severity-tiered quota — defense-in-depth latch
+        // only trips on quota-consuming actions (escalate/stop). Warn noise
+        // never latches here (it never increments the counter upstream).
+        if (
+          cap > 0 &&
+          consumesInterventionQuota(decision.action) &&
+          curState.interventionCount >= cap
+        ) {
           curState.interventionDisabled = true;
           return;
         }
@@ -2458,15 +2562,18 @@ metricsCollector.inc("interventions_delivered");
           if (notable && isMainSession(currentSessionID) && !isSessionStart(output.messages)) {
             const arCfg = mergedConfig.closedLoop?.autoRemember ?? {};
             // Oracle note 2 precedence: closedLoop.conscience is an additional opt-in
-            // clarification only. Read from RAW user config � merged config always
+            // clarification only. Read from RAW user config � merged config always
             // projects conscience.enabled=false by default, so merged cannot distinguish
             // explicit-off from unset. Explicit conscience.enabled===false skips writes;
             // otherwise (undefined, or enabled!==false) fall back to autoRemember.enabled.
             const rawConscience = (rawConfig as { closedLoop?: { conscience?: { enabled?: boolean } } }).closedLoop?.conscience;
             if (rawConscience !== undefined && rawConscience.enabled === false) {
               logToFile("info", `auto-remember skipped (conscience explicitly disabled) for ${currentSessionID}`);
-            } else if (arCfg.enabled === false) {
-              logToFile("info", `auto-remember skipped (disabled) for ${currentSessionID}`);
+            } else if (arCfg.enabled !== true) {
+              // v0.51.1 (P1 spam guard): auto-remember is OPT-IN. Undefined
+              // must NOT fire - the old === false check let unprojected
+              // configs write memory by default.
+              logToFile("info", `auto-remember skipped (opt-in disabled) for ${currentSessionID}`);
             } else {
             // v0.50.x conscience fix (D3): single value-gate — warn/continue never reach here (D1).
             // When no structured deviations were accumulated, the escalate/stop decision
@@ -2479,7 +2586,7 @@ metricsCollector.inc("interventions_delivered");
               detail: (decision.historyEntry?.reasoning ?? decision.message).slice(0, 500),
             }];
             const evidenceSources = (decision.historyEntry?.decision?.evidence ?? []).map((e) => e.source);
-            // Oracle note 2: requireNovelty is currently vacuous � novelty is a stub-true
+            // Oracle note 2: requireNovelty is currently vacuous � novelty is a stub-true
             // until recall wiring lands (no real novelty check exists, so there is nothing
             // to disable when requireNovelty===false). Deliberately NOT inventing a counter
             // or check here; wire it when the recall-based novelty check lands.
@@ -2491,7 +2598,7 @@ metricsCollector.inc("interventions_delivered");
               enabled: cl.enabled ?? true,
               minSeverityToLearn: cl.minSeverityToLearn ?? "media" as const,
               // Oracle note 2: conscience.maxMemoriesPerSession acts as a lessonCount cap
-              // alias (no new counters � reuses the existing maxLessonsPerSession seam).
+              // alias (no new counters � reuses the existing maxLessonsPerSession seam).
               maxLessonsPerSession: cl.conscience?.maxMemoriesPerSession ?? cl.maxLessonsPerSession ?? 20,
               saveDecisions: cl.saveDecisions ?? true,
               saveLessons: cl.saveLessons ?? true,
@@ -2509,7 +2616,7 @@ metricsCollector.inc("interventions_delivered");
             const files = deviations.map((d) => d.filePath).filter((f): f is string => typeof f === "string");
             // Oracle note 3: thread the real decision action so stop lessons read
             // Action stop. Gate above already rejected warn/continue, so the fallback
-            // branch is unreachable � it exists only to satisfy the "escalate"|"stop" type.
+            // branch is unreachable � it exists only to satisfy the "escalate"|"stop" type.
             const memory = buildConscienceMemoryContent({ action: decision.action === "stop" ? "stop" : "escalate", mistake, whatToDo, whereToGo, toolRoute: "omo_remember", score, files });
             // v0.50.x (D5): stable dedupe key — action + evidence sources +
             // deviation categories only. Score floats are excluded: float jitter
@@ -2722,6 +2829,9 @@ metricsCollector.inc("interventions_delivered");
         omo_cli_anything_list: omoCliAnythingListTool,
         omo_cli_anything_search: omoCliAnythingSearchTool,
         omo_cli_anything_info: omoCliAnythingInfoTool,
+        // on-demand backend upgrades
+        omo_upgrade_check: omoUpgradeCheckTool,
+        omo_upgrade_run: omoUpgradeRunTool,
       },
 
       // v0.13.1: inject lesson context at compaction time so learned patterns

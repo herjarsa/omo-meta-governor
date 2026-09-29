@@ -307,10 +307,12 @@ describe("scoring-engine", () => {
       // when
       const result = score(ctx)
 
-      // then
-      if (result.decision.action === "escalate") {
-        expect(result.decision.shouldEscalateTo).toBe("user")
-      }
+      // then — Wave B grave floor pins action to escalate (was warn-band
+      // before, so the old conditional assert passed vacuously). Under
+      // per-stop the mid-work escalation target stays suppressed (null),
+      // same contract as the per-stop + escalate test below.
+      expect(result.decision.action).toBe("escalate")
+      expect(result.decision.shouldEscalateTo).toBeNull()
     })
 
 // // ─── v0.38.4 Option D: Oracle frequency gating ──────────────
@@ -746,6 +748,48 @@ describe("Deviation temporal decay (v0.29.0)", () => {
     expect(result.rawScore).toBeGreaterThan(-0.3)
     const descContrib = result.contributions.find((c) => c.source === "deviation-detector")
     expect(descContrib?.description).toBe("No deviations detected")
+  })
+
+  describe("Wave B grave floor", () => {
+    it("floors continue/warn to escalate on a fresh grave deviation", () => {
+      const ctx: DecisionContext = {
+        ...positiveContext,
+        deviations: [
+          { severity: "grave", category: "test", detail: "as-any + ts-ignore" },
+        ],
+      }
+      const result = score(ctx)
+      expect(result.decision.action).toBe("escalate")
+    })
+
+    it("does not floor when the grave deviation is stale", () => {
+      const now = Date.now()
+      const ctx: DecisionContext = {
+        ...positiveContext,
+        deviations: [
+          { severity: "grave", category: "test", detail: "old", ts: now - 120_000 },
+        ],
+      }
+      const result = score(ctx)
+      expect(result.decision.action).toBe("continue")
+    })
+
+    it("paralysis override stays supreme over the grave floor", () => {
+      const paralyzed: SlotMemory = {
+        ...emptySlotMemory,
+        consecutiveStops: 3,
+      }
+      const ctx: DecisionContext = {
+        ...severeContext,
+        slotMemory: paralyzed,
+        deviations: [
+          { severity: "grave", category: "test", detail: "fresh grave" },
+        ],
+      }
+      const result = score(ctx)
+      expect(result.paralysisOverride).toBe(true)
+      expect(result.decision.action).toBe("continue")
+    })
   })
 })
 

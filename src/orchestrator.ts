@@ -67,7 +67,13 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
     maxHistoryMessages: 5,
     minActionForMessage: "stop" as const,
     // v0.10.0: rate-limit interventions to break instruction loops.
-    maxInterventionsPerSession: 3,
+    // v0.51.x (Wave A P3): raised 3 -> 5. Only escalate/stop consume quota
+    // (see consumesInterventionQuota in plugin.ts), so 5 covers a full
+    // multi-wave troubled session (stop -> recover cycles) without silencing
+    // governance mid-session. Loops still terminate via the DONE latch
+    // (respectDoneSignal), the 60s warn cooldown, background-task gates, and
+    // the compactionLoopGuard below.
+    maxInterventionsPerSession: 5,
     // v0.10.0: stop injecting after the agent signals <promise>DONE</promise>
     // AND Oracle has verified the work.
     respectDoneSignal: true,
@@ -100,6 +106,11 @@ export const defaultOrchestratorConfig = (): OrchestratorConfig => ({
     router: "both",
     enforceMode: "directive" as const,
 },
+  // Wave B workflow gates: all false = zero behavior change.
+  workflowGates: {
+    enabled: false,
+    requirePlan: false,
+  },
   // v0.32.0: skill hub off by default in orchestrator defaults.
   skillHub: {
     enabled: false,

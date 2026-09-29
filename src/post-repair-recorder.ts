@@ -22,7 +22,13 @@ import type {
   LessonLearned,
   MemoryDecision,
 } from "./types"
-import { defaultClosedLoopConfig } from "./closed-loop-learning"
+import {
+  conscienceDedupeKey,
+  defaultClosedLoopConfig,
+  isNeutralContinueDecision,
+  lessonConfidenceForDecision,
+  MIN_LESSON_CONFIDENCE,
+} from "./closed-loop-learning"
 
 /**
  * Outcome of a recovery hook repair attempt.
@@ -158,34 +164,56 @@ export async function recordRecovery(
     }
   }
 
-  // Save lesson if deviations meet severity threshold
+  // Save lesson if deviations meet severity threshold.
+  // v0.51.1 (P1 spam guard): neutral continues + sub-threshold confidence
+  // never persist; saves carry the stable dedupeKey for real backend dedupe.
+  let lessonSkipReason: string | null = null
   if (severityMeetsThreshold(deviations, config.minSeverityToLearn)) {
-    const concepts = [...new Set(deviations.flatMap((d) => [d.category, d.severity]))]
-    const deviationSummary = deviations
-      .map((d) => `[${d.severity}] ${d.category}: ${d.detail}`)
-      .join("; ")
-    const content = `Action "${decision.action}" (score ${decision.score.toFixed(2)}) after deviations: ${deviationSummary}. Reasoning: ${decision.reasoning}`
+    if (isNeutralContinueDecision(decision)) {
+      lessonSkipReason = "neutral continue carries no learnable signal (action=continue score=" + decision.score.toFixed(2) + ")"
+    } else {
+      const lessonConfidence = lessonConfidenceForDecision(decision)
+      if (lessonConfidence < MIN_LESSON_CONFIDENCE) {
+        lessonSkipReason = "confidence below threshold (" + lessonConfidence.toFixed(2) + " < " + MIN_LESSON_CONFIDENCE.toFixed(2) + ")"
+      } else {
+        const concepts = [...new Set(deviations.flatMap((d) => [d.category, d.severity]))]
+        const deviationSummary = deviations
+          .map((d) => `[${d.severity}] ${d.category}: ${d.detail}`)
+          .join("; ")
+        const content = `Action "${decision.action}" (score ${decision.score.toFixed(2)}) after deviations: ${deviationSummary}. Reasoning: ${decision.reasoning}`
+        const dedupeKey = conscienceDedupeKey({
+          action: decision.action,
+          evidenceSources: decision.evidence.map((e) => e.source),
+          deviationCategories: deviations.map((d) => d.category),
+        })
 
-    try {
-      const result = await writeBackend.saveLesson({
-        content,
-        context: `session:${outcome.sessionID} dir:${outcome.directory}`,
-        confidence: Math.max(0.3, Math.min(0.8, Math.abs(decision.score))),
-        tags: concepts,
-      })
+        try {
+          const result = await writeBackend.saveLesson({
+            content,
+            context: `session:${outcome.sessionID} dir:${outcome.directory}`,
+            confidence: lessonConfidence,
+            tags: concepts,
+            dedupeKey,
+          })
 
-      lessonSaved = {
-        id: result.id,
-        title: `${decision.action} after ${deviations[0]?.category ?? "recovery"}`,
-        content,
-        type: "pattern",
-        concepts,
-        confidence: Math.max(0.3, Math.min(0.8, Math.abs(decision.score))),
-        files: [...(outcome.filesChanged ?? [])],
-        sessionID: outcome.sessionID,
+          if (result.deduped === true) {
+            lessonSkipReason = "duplicate suppressed (dedupeKey=" + dedupeKey + ")"
+          } else {
+            lessonSaved = {
+              id: result.id,
+              title: `${decision.action} after ${deviations[0]?.category ?? "recovery"}`,
+              content,
+              type: "pattern",
+              concepts,
+              confidence: lessonConfidence,
+              files: [...(outcome.filesChanged ?? [])],
+              sessionID: outcome.sessionID,
+            }
+          }
+        } catch {
+          // Backend failure is non-fatal — degrade silently
+        }
       }
-    } catch {
-      // Backend failure is non-fatal — degrade silently
     }
   }
 
@@ -194,6 +222,8 @@ export async function recordRecovery(
   if (decisionSaved) reasons.push("decision saved")
   if (lessonSaved) {
     reasons.push("lesson saved")
+  } else if (lessonSkipReason) {
+    reasons.push(lessonSkipReason)
   } else if (!severityMeetsThreshold(deviations, config.minSeverityToLearn)) {
     reasons.push("severity below threshold")
   }

@@ -273,6 +273,109 @@ describe("protocol-enforcer", () => {
       // then
       expect(violations.length).toBe(0)
     })
+
+    // P2 (over-fire fix): directed accesses to a known exact file are
+    // exempt — equivalent to a single read, the graph adds no value.
+    it("then does NOT flag grep scoped to an exact file path (directed, exempt)", () => {
+      // given — grep limited to one known file
+      const violations = auditToolCall("grep", { pattern: "auditToolCall", path: "src/protocol-enforcer.ts" }, {
+        memoryToolsUsed: [],
+        hasCodegraphDir: true,
+        hasGraphifyDir: false,
+        oracleInvoked: false,
+        filesChanged: 0,
+        emptyRecall: false,
+        escalationAttempted: false,
+      })
+
+      // then
+      expect(violations.filter((v) => v.rule === "codebase-graph-first").length).toBe(0)
+    })
+
+    it("then does NOT flag glob with an exact file pattern (directed, exempt)", () => {
+      // given — glob resolving to one known file, no wildcards
+      const violations = auditToolCall("glob", { pattern: "src/protocol-enforcer.ts" }, {
+        memoryToolsUsed: [],
+        hasCodegraphDir: true,
+        hasGraphifyDir: false,
+        oracleInvoked: false,
+        filesChanged: 0,
+        emptyRecall: false,
+        escalationAttempted: false,
+      })
+
+      // then
+      expect(violations.filter((v) => v.rule === "codebase-graph-first").length).toBe(0)
+    })
+
+    it("then does NOT flag read of an exact file path (directed, never flagged)", () => {
+      // given — read is directed by construction
+      const violations = auditToolCall("read", { path: "src/protocol-enforcer.ts" }, {
+        memoryToolsUsed: [],
+        hasCodegraphDir: true,
+        hasGraphifyDir: false,
+        oracleInvoked: false,
+        filesChanged: 0,
+        emptyRecall: false,
+        escalationAttempted: false,
+      })
+
+      // then
+      expect(violations.filter((v) => v.rule === "codebase-graph-first").length).toBe(0)
+    })
+
+    // P2 (over-fire fix): broad architecture/symbol queries still fire.
+    it("then DOES flag grep with no path as broad architecture query", () => {
+      // given — whole-codebase symbol search, no path scoping
+      const violations = auditToolCall("grep", { pattern: "auditToolCall" }, {
+        memoryToolsUsed: [],
+        hasCodegraphDir: true,
+        hasGraphifyDir: false,
+        oracleInvoked: false,
+        filesChanged: 0,
+        emptyRecall: false,
+        escalationAttempted: false,
+      })
+
+      // then
+      const graph = violations.filter((v) => v.rule === "codebase-graph-first")
+      expect(graph.length).toBe(1)
+      expect(graph[0]!.severity).toBe("media")
+    })
+
+    it("then DOES flag grep scoped to a directory as broad query", () => {
+      // given — directory scope is still a multi-file sweep
+      const violations = auditToolCall("grep", { pattern: "auditToolCall", path: "src" }, {
+        memoryToolsUsed: [],
+        hasCodegraphDir: true,
+        hasGraphifyDir: false,
+        oracleInvoked: false,
+        filesChanged: 0,
+        emptyRecall: false,
+        escalationAttempted: false,
+      })
+
+      // then
+      expect(violations.filter((v) => v.rule === "codebase-graph-first").length).toBe(1)
+    })
+
+    it("then DOES flag glob with wildcard pattern as broad query", () => {
+      // given — wildcard sweep across the codebase
+      const violations = auditToolCall("glob", { pattern: "**/*.ts" }, {
+        memoryToolsUsed: [],
+        hasCodegraphDir: false,
+        hasGraphifyDir: true,
+        oracleInvoked: false,
+        filesChanged: 0,
+        emptyRecall: false,
+        escalationAttempted: false,
+      })
+
+      // then
+      const graph = violations.filter((v) => v.rule === "codebase-graph-first")
+      expect(graph.length).toBe(1)
+      expect(graph[0]!.severity).toBe("media")
+    })
   })
 
   describe("#given auditToolCall with memory rules", () => {

@@ -346,9 +346,24 @@ export function score(
     clampedScore <= -resolvedConfig.warnThreshold
 
   // 4. Map score to action
-  const action = paralysisOverride
+  let action = paralysisOverride
     ? "continue"
     : mapScoreToAction(clampedScore, resolvedConfig)
+
+  // 4b. Wave B grave floor: a fresh grave protocol violation (as-any +
+  // @ts-ignore, empty catch in prod, destructive command, ...) is never
+  // merely advisory. Floor continue/warn to escalate so the agent must
+  // address it. Paralysis override stays supreme (breaks stop loops).
+  // Freshness window matches scoreDeviations decay (60s).
+  if (!paralysisOverride && (action === "continue" || action === "warn")) {
+    const graveNow = Date.now()
+    const hasFreshGrave = ctx.deviations.some(
+      (d) => d.severity === "grave" && (d.ts === undefined || graveNow - d.ts <= 60_000),
+    )
+    if (hasFreshGrave) {
+      action = "escalate"
+    }
+  }
 
   // 5. Build evidence array (cite-or-abstain)
   const evidence: Evidence[] = []

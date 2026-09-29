@@ -20,6 +20,7 @@ import {
 } from "./decision-store"
 import { defaultOrchestratorConfig } from "./orchestrator"
 import { loadOrchestratorConfig } from "./config"
+import { consumesInterventionQuota } from "./plugin"
 
 // ─── Shared helpers ─────────────────────────────────────────────
 
@@ -76,9 +77,22 @@ describe("DONE signal + oracle gating", () => {
   })
 
   describe("#given default intervention config", () => {
-    it("then maxInterventionsPerSession default is 3 (rate limit)", () => {
+    it("then maxInterventionsPerSession default is 5 (rate limit)", () => {
       const config = defaultOrchestratorConfig()
-      expect(config.intervention.maxInterventionsPerSession).toBe(3)
+      expect(config.intervention.maxInterventionsPerSession).toBe(5)
+    })
+
+    it("then loadOrchestratorConfig projects default 5 when unset", () => {
+      const config = loadOrchestratorConfig({ enabled: true })
+      expect(config.intervention.maxInterventionsPerSession).toBe(5)
+    })
+
+    it("then loadOrchestratorConfig honors an explicit override", () => {
+      const config = loadOrchestratorConfig({
+        enabled: true,
+        intervention: { maxInterventionsPerSession: 8 },
+      })
+      expect(config.intervention.maxInterventionsPerSession).toBe(8)
     })
 
     it("then respectDoneSignal default is true", () => {

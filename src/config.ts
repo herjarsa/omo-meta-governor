@@ -140,7 +140,8 @@ export interface MetaGovernorPluginConfig {
     minActionForMessage?: "warn" | "escalate" | "stop"
     /**
      * v0.10.0: rate-limit interventions to break instruction loops.
-     * @default 3
+     * v0.51.x (Wave A P3): severity-tiered quota — only escalate/stop consume.
+     * @default 5
      */
     maxInterventionsPerSession?: number
     /**
@@ -248,6 +249,12 @@ export interface MetaGovernorPluginConfig {
     auditToolCalls?: boolean
   }
 
+  /** Wave B workflow gates (explore-before-implement). All default false. */
+  workflowGates?: {
+    enabled?: boolean
+    requirePlan?: boolean
+  }
+
   /** Graph sync config for auto-initializing codegraph/graphify. */
   graphSync?: {
     /** @default true */
@@ -291,20 +298,28 @@ export interface MetaGovernorPluginConfig {
      * Default false (opt-in — multi-project users want explicit control). */
     addToGlobalGraph?: boolean
   }
-  /** v0.28.0: CLI-Anything hub auto-install + auto-upgrade. Opt-in.
+  /** v0.28.0: CLI-Anything hub auto-install + auto-upgrade. Opt-out
+   *  (enabled by default; set `cliAnything.enabled: false` to disable).
    *  When enabled, the plugin ensures `cli-anything-hub` (pip) and
-   *  `cli-hub-meta-skill` (npx skills) are installed and current. */
+   *  `cli-hub-meta-skill` (npx skills) are installed and current.
+   *  Canonical projection is `!== false` (see loadOrchestratorConfig
+   *  cliAnything projection and orchestrator.ts CLI-Anything defaults). */
   cliAnything?: {
-    /** @default false */
+    /** @default true (opt-out via `cliAnything.enabled: false`;
+     * canonical `!== false` projection in orchestrator.ts) */
     enabled?: boolean
     /** @default true */
     autoInstall?: boolean
     /** @default true */
     autoUpgrade?: boolean
+    /** @default newPluginPaths().cliAnythingUpgradeCheck
+     * (effective default applied at call-site, plugin.ts) */
     cachePath?: string
-    /** @default 86400000 */
+    /** @default 86400000 (24h; effective default applied at call-site, plugin.ts:649) */
     upgradeCheckTtlMs?: number
+    /** @default "cli-hub" */
     cliHubBin?: string
+    /** @default "npx skills" */
     skillsBin?: string
     /** @default "global" */
     installScope?: "global" | "project"
@@ -520,8 +535,9 @@ export function loadOrchestratorConfig(
       // v0.10.0: default is "stop" — see orchestrator.ts for rationale.
       minActionForMessage: full.intervention?.minActionForMessage ?? "stop",
       // v0.10.0: rate-limit interventions to break instruction loops.
+      // v0.51.x (Wave A P3): default 5 (was 3); only escalate/stop consume.
       maxInterventionsPerSession:
-        full.intervention?.maxInterventionsPerSession ?? 3,
+        full.intervention?.maxInterventionsPerSession ?? 5,
       // v0.10.0: stop injecting after the agent signals <promise>DONE</promise>
       // AND Oracle has verified the work.
       respectDoneSignal: full.intervention?.respectDoneSignal ?? true,
@@ -576,6 +592,11 @@ export function loadOrchestratorConfig(
       injectIntoSystem: full.protocolEnforcement?.injectIntoSystem ?? false,
       auditToolCalls: full.protocolEnforcement?.auditToolCalls ?? false,
     } as ProtocolEnforcementConfig,
+    // Wave B: project workflow gates with defaults (all false = no behavior change).
+    workflowGates: {
+      enabled: full.workflowGates?.enabled ?? false,
+      requirePlan: full.workflowGates?.requirePlan ?? false,
+    },
     // v0.20.0: project all skillPriming fields with defaults.
     // v0.33.1: enabled defaults to TRUE so the skill workflow fires out of the box;
     // router default changed from 'both' to 'registry' since AAS MCP is retired.

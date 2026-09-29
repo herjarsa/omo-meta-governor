@@ -28,6 +28,38 @@ import type {
   MemoryRead,
 } from "./types"
 
+/**
+ * v0.51.1 (P1 lesson-spam guard, Wave A T-5df16a0e): minimum lesson
+ * confidence. Lessons below this are noise: 5311 Action-continue rows at
+ * confidence 0.3 flooded recall. Only high-value lessons persist.
+ */
+export const MIN_LESSON_CONFIDENCE = 0.5
+
+/**
+ * Lesson confidence for a decision: the strongest available signal -
+ * max(|score|, best evidence confidence) - clamped to [0.3, 0.8].
+ * Evidence confidence matters: a warn at -0.4 backed by 0.8-confidence
+ * evidence is high-value signal, while a neutral continue near 0 with no
+ * evidence collapses to the 0.3 floor (below MIN_LESSON_CONFIDENCE).
+ */
+export function lessonConfidenceForDecision(decision: Decision): number {
+  let evidenceMax = 0
+  for (const e of decision.evidence) {
+    if (typeof e.confidence === "number" && e.confidence > evidenceMax) {
+      evidenceMax = e.confidence
+    }
+  }
+  return Math.max(0.3, Math.min(0.8, Math.max(Math.abs(decision.score), evidenceMax)))
+}
+
+/**
+ * Neutral continues carry no learnable signal and must never persist as
+ * lessons - they were the entire 5311-row Action-continue spam class.
+ */
+export function isNeutralContinueDecision(decision: Decision): boolean {
+  return decision.action === "continue" && Math.abs(decision.score) < MIN_LESSON_CONFIDENCE
+}
+
 /** Severity ordering for threshold comparison. */
 const SEVERITY_ORDER: Record<string, number> = {
   leve: 0,
@@ -180,48 +212,75 @@ export async function observeAndLearn(
   // v0.17.2 (Gap D): when saveLessons is explicitly false, skip lesson save.
   // Default is true (lesson saves unless explicitly disabled).
   const saveLessonsEnabled = config.saveLessons !== false
+  // v0.51.1 (P1 spam guard): WHY a lesson was skipped. Surfaced in reason.
+  let lessonSkipReason: string | null = null
   if (
     saveLessonsEnabled &&
     severityMeetsThreshold(deviationsFromEvidence, config.minSeverityToLearn)
   ) {
-    const concepts = extractConcepts(deviationsFromEvidence, filesChanged)
-    const content = buildLessonContent(decision, deviationsFromEvidence)
+    if (isNeutralContinueDecision(decision)) {
+      // Neutral continues carry no learnable signal - persisting them
+      // produced the 5311-row Action-continue noise class (Wave A P1).
+      lessonSkipReason = "neutral continue carries no learnable signal (action=continue score=" + decision.score.toFixed(2) + ")"
+    } else {
+      const lessonConfidence = lessonConfidenceForDecision(decision)
+      if (lessonConfidence < MIN_LESSON_CONFIDENCE) {
+        lessonSkipReason = "confidence below threshold (" + lessonConfidence.toFixed(2) + " < " + MIN_LESSON_CONFIDENCE.toFixed(2) + ")"
+      } else {
+        const concepts = extractConcepts(deviationsFromEvidence, filesChanged)
+        const content = buildLessonContent(decision, deviationsFromEvidence)
+        // v0.51.1: stable dedupe key - backends dedupe on this (real dedupe
+        // in save, not just the autoRemember cooldown). Score floats are
+        // excluded so jitter cannot defeat it.
+        const dedupeKey = conscienceDedupeKey({
+          action: decision.action,
+          evidenceSources: decision.evidence.map((e) => e.source),
+          deviationCategories: deviationsFromEvidence.map((d) => d.category),
+        })
 
-    try {
-      const result = await backend.saveLesson({
-        content,
-        context: `session:${sessionID} dir:${directory}`,
-        confidence: Math.max(0.3, Math.min(0.8, Math.abs(decision.score))),
-        tags: concepts,
-      })
+        try {
+          const result = await backend.saveLesson({
+            content,
+            context: `session:${sessionID} dir:${directory}`,
+            confidence: lessonConfidence,
+            tags: concepts,
+            dedupeKey,
+          })
 
-      lessonSaved = {
-        id: result.id,
-        title: `${decision.action} after ${deviationsFromEvidence[0]?.category ?? "deviation"}`,
-        content,
-        type: "pattern",
-        concepts,
-        confidence: Math.max(0.3, Math.min(0.8, Math.abs(decision.score))),
-        files: [...filesChanged],
-        sessionID,
+          if (result.deduped === true) {
+            lessonSkipReason = "duplicate suppressed (dedupeKey=" + dedupeKey + ")"
+          } else {
+            lessonSaved = {
+              id: result.id,
+              title: `${decision.action} after ${deviationsFromEvidence[0]?.category ?? "deviation"}`,
+              content,
+              type: "pattern",
+              concepts,
+              confidence: lessonConfidence,
+              files: [...filesChanged],
+              sessionID,
+            }
+          }
+        } catch {
+          // Backend failure is non-fatal — degrade silently
+        }
       }
-    } catch {
-      // Backend failure is non-fatal — degrade silently
     }
   }
 
   // Determine reason
   const reasons: string[] = []
   if (decisionSaved) reasons.push("decision saved")
-  if (lessonSaved) reasons.push("lesson saved")
-  if (!decisionSaved && !lessonSaved) {
-    if (!saveLessonsEnabled) {
-      reasons.push("saveLessons disabled")
-    } else if (!severityMeetsThreshold(deviationsFromEvidence, config.minSeverityToLearn)) {
-      reasons.push("severity below threshold")
-    } else {
-      reasons.push("no saveable content")
-    }
+  if (lessonSaved) {
+    reasons.push("lesson saved")
+  } else if (lessonSkipReason) {
+    reasons.push(lessonSkipReason)
+  } else if (!saveLessonsEnabled) {
+    reasons.push("saveLessons disabled")
+  } else if (!severityMeetsThreshold(deviationsFromEvidence, config.minSeverityToLearn)) {
+    reasons.push("severity below threshold")
+  } else {
+    reasons.push("no saveable content")
   }
 
   return {
