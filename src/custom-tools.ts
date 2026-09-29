@@ -20,6 +20,7 @@
  */
 
 import { tool, type ToolContext, type ToolResult } from "@opencode-ai/plugin"
+import type { execSync } from "node:child_process"
 
 // z is exposed via the `tool.schema` namespace export (re-exported from zod v4)
 const z = tool.schema
@@ -1654,6 +1655,253 @@ export function buildOmoHookStatusTool(deps: OmoHookStatusDeps) {
   })
 }
 
+
+// ============================================================================
+// omo_upgrade_check / omo_upgrade_run — on-demand backend upgrades
+// ============================================================================
+//
+// NOTE on `syncIntervalMs`: that setting applies ONLY to the skillHub
+// registry sync (periodic background refresh of the skill catalog). These
+// upgrade tools are on-demand/startup-only — they NEVER use setInterval
+// and never poll in the background. Call omo_upgrade_check for a dry-run
+// status table, or omo_upgrade_run to perform the upgrade path once.
+
+export interface OmoUpgradeDeps {
+  cwd: string
+  /** Optional runner DI seam for tests. When undefined, uses real subprocesses. */
+  runner?: (cmd: string, opts?: { timeoutMs?: number }) => string
+  /** Min ms between registry queries. Default 24h. */
+  upgradeCheckTtlMs?: number
+  /** Override the upgrade cache file path. Tests use this. */
+  upgradeCachePath?: string
+}
+
+const UPGRADE_CHECK_TTL_FALLBACK_MS = 24 * 60 * 60 * 1000
+
+interface BackendUpgradeStatus {
+  backend: "codegraph" | "graphify"
+  installed: string | null
+  latest: string | null
+  upgradeNeeded: boolean
+}
+
+/** Shared dry-run probe: installed vs latest per backend. Never installs. Never throws. */
+async function collectUpgradeStatus(deps: OmoUpgradeDeps): Promise<BackendUpgradeStatus[]> {
+  // Lazy import to avoid circular deps with graph-sync.ts (same as hook status above).
+  const gs = await import("./graph-sync")
+  const execRunner = deps.runner as unknown as typeof execSync | undefined
+  const ttlMs = deps.upgradeCheckTtlMs ?? UPGRADE_CHECK_TTL_FALLBACK_MS
+  const cachePath = deps.upgradeCachePath ?? gs.getDefaultUpgradeCachePath()
+  const cache = await gs.readUpgradeCache(cachePath)
+  const fresh = gs.isCacheFresh(cache, ttlMs)
+
+  const [codegraphInstalled, graphifyInstalled] = await Promise.all([
+    gs.getInstalledCodegraphVersion(execRunner),
+    gs.getInstalledGraphifyVersion(execRunner),
+  ])
+
+  const resolveLatest = async (
+    field: "codegraphLatest" | "graphifyLatest",
+    fetcher: () => Promise<string | null>,
+  ): Promise<string | null> => {
+    if (fresh && cache?.[field]) return cache[field]!
+    try {
+      return await fetcher()
+    } catch {
+      return null
+    }
+  }
+
+  const [codegraphLatest, graphifyLatest] = await Promise.all([
+    resolveLatest("codegraphLatest", () => gs.fetchCodegraphLatestVersion()),
+    resolveLatest("graphifyLatest", () => gs.fetchGraphifyLatestVersion()),
+  ])
+
+  return [
+    {
+      backend: "codegraph",
+      installed: codegraphInstalled,
+      latest: codegraphLatest,
+      upgradeNeeded: gs.shouldUpgrade(codegraphInstalled, codegraphLatest, cache, ttlMs, "codegraphLatest"),
+    },
+    {
+      backend: "graphify",
+      installed: graphifyInstalled,
+      latest: graphifyLatest,
+      upgradeNeeded: gs.shouldUpgrade(graphifyInstalled, graphifyLatest, cache, ttlMs, "graphifyLatest"),
+    },
+  ]
+}
+
+function formatUpgradeTable(rows: BackendUpgradeStatus[]): string {
+  const cell = (v: string | null) => v ?? "(unknown)"
+  const lines = rows.map(
+    (r) => `| ${r.backend.padEnd(9)} | ${cell(r.installed).padEnd(11)} | ${cell(r.latest).padEnd(11)} | ${r.upgradeNeeded ? "yes" : "no "} |`,
+  )
+  return (
+    `| backend   | installed   | latest      | upgrade-needed |\n` +
+    lines.join("\n")
+  )
+}
+
+/** `omo_upgrade_check` — dry-run version check. NEVER installs anything. */
+export function buildOmoUpgradeCheckTool(deps: OmoUpgradeDeps) {
+  return tool({
+    description:
+      "Dry-run version check for the graph backends (codegraph, graphify). " +
+      "USAGE: omo_upgrade_check returns a table of installed/latest/upgrade-needed per backend. " +
+      "NEVER installs anything — call omo_upgrade_run to upgrade. On-demand only, no polling.",
+    args: {},
+    async execute(_args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      try {
+        const rows = await collectUpgradeStatus(deps)
+        const { logToFile } = await import("./file-logger")
+        const summary = rows.map((r) => `${r.backend}=${r.upgradeNeeded ? "upgrade-needed" : "current"}`).join(", ")
+        const output = `omo_upgrade_check (dry-run — nothing was installed):\n${formatUpgradeTable(rows)}`
+        logToFile("info", `omo_upgrade_check completed: ${summary}`, { backends: rows })
+        console.log(`[meta-governor] upgrade check: ${summary}`)
+        return {
+          title: `omo_upgrade_check: ${rows.some((r) => r.upgradeNeeded) ? "upgrade-needed" : "all-current"}`,
+          output,
+          metadata: {
+            tool: "omo_upgrade_check",
+            backends: rows,
+            durationMs: Date.now() - start,
+            sessionID: ctx.sessionID,
+          },
+        }
+      } catch (err) {
+        // Best-effort: report, never throw.
+        return {
+          title: "omo_upgrade_check: error",
+          output: `Upgrade check failed (best-effort): ${err instanceof Error ? err.message : String(err)}`,
+          metadata: {
+            tool: "omo_upgrade_check",
+            durationMs: Date.now() - start,
+            sessionID: ctx.sessionID,
+          },
+        }
+      }
+    },
+  })
+}
+
+/** `omo_upgrade_run` — perform the backend upgrade path once. Best-effort, never throws. */
+export function buildOmoUpgradeRunTool(deps: OmoUpgradeDeps) {
+  return tool({
+    description:
+      "Run the graph-backend upgrade path once (codegraph, graphify). " +
+      "USAGE: omo_upgrade_run upgrades backends whose registry version is newer, " +
+      "respecting the upgrade-check TTL cache (skips when the cache is fresh). " +
+      "Best-effort and never throws — failures are reported, not raised. On-demand/startup-only, no polling.",
+    args: {},
+    async execute(_args, ctx): Promise<ToolResult> {
+      const start = Date.now()
+      const baseMeta = { tool: "omo_upgrade_run", sessionID: ctx.sessionID }
+      try {
+        // Lazy imports to avoid circular deps (same as hook status above).
+        const gs = await import("./graph-sync")
+        const { logToFile } = await import("./file-logger")
+        const execRunner = deps.runner as unknown as typeof execSync | undefined
+        const ttlMs = deps.upgradeCheckTtlMs ?? UPGRADE_CHECK_TTL_FALLBACK_MS
+        const cachePath = deps.upgradeCachePath ?? gs.getDefaultUpgradeCachePath()
+        const cache = await gs.readUpgradeCache(cachePath)
+
+        if (gs.isCacheFresh(cache, ttlMs)) {
+          const checkedAt = new Date(cache?.checkedAtMs ?? Date.now()).toISOString()
+          const output = `omo_upgrade_run: skipped — upgrade cache is fresh (last check ${checkedAt}). Nothing to do.`
+          logToFile("info", "omo_upgrade_run skipped (cache fresh)", { checkedAt })
+          console.log("[meta-governor] upgrade run skipped — cache fresh")
+          return {
+            title: "omo_upgrade_run: skipped",
+            output,
+            metadata: { ...baseMeta, skipped: true, checkedAt, durationMs: Date.now() - start },
+          }
+        }
+
+        // Track fresh-fetched latests so the cache is written ONCE at the end.
+        const freshLatest = { codegraph: null as string | null, graphify: null as string | null }
+        const actions: string[] = []
+
+        const maybeUpgrade = async (
+          backend: "codegraph" | "graphify",
+          field: "codegraphLatest" | "graphifyLatest",
+          getInstalled: () => Promise<string | null>,
+          fetchLatest: () => Promise<string | null>,
+          doInstall: () => Promise<string>,
+        ): Promise<void> => {
+          let installed: string | null = null
+          let latest: string | null = null
+          try {
+            installed = await getInstalled()
+            latest = await fetchLatest()
+          } catch {
+            actions.push(`${backend}: version probe failed (best-effort)`)
+            return
+          }
+          freshLatest[backend] = latest
+          if (!gs.shouldUpgrade(installed, latest, cache, ttlMs, field)) {
+            actions.push(`${backend}: current (${installed ?? "unknown"}${latest ? `, latest ${latest}` : ""})`)
+            return
+          }
+          if (latest && gs.isNewerVersion(installed, latest)) {
+            let code: string
+            try {
+              code = await doInstall()
+            } catch {
+              code = `${backend}-install-failed`
+            }
+            actions.push(`${backend}: ${code} (installed ${installed ?? "unknown"} → ${latest})`)
+          } else {
+            actions.push(`${backend}: check inconclusive (installed ${installed ?? "unknown"}, latest ${latest ?? "unknown"})`)
+          }
+        }
+
+        await maybeUpgrade(
+          "codegraph",
+          "codegraphLatest",
+          () => gs.getInstalledCodegraphVersion(execRunner),
+          () => gs.fetchCodegraphLatestVersion(),
+          () => gs.installCodegraph(deps.cwd, 60_000, execRunner),
+        )
+        await maybeUpgrade(
+          "graphify",
+          "graphifyLatest",
+          () => gs.getInstalledGraphifyVersion(execRunner),
+          () => gs.fetchGraphifyLatestVersion(),
+          () => gs.installGraphify(60_000, execRunner),
+        )
+
+        try {
+          await gs.writeUpgradeCache(cachePath, {
+            checkedAtMs: Date.now(),
+            codegraphLatest: freshLatest.codegraph ?? cache?.codegraphLatest,
+            graphifyLatest: freshLatest.graphify ?? cache?.graphifyLatest,
+          })
+        } catch {
+          // best-effort — cache write failures must never break the run
+        }
+
+        const output = `omo_upgrade_run completed:\n${actions.map((a) => `- ${a}`).join("\n")}`
+        logToFile("info", `omo_upgrade_run completed: ${actions.join("; ")}`, { actions })
+        console.log(`[meta-governor] upgrade run: ${actions.join("; ")}`)
+        return {
+          title: "omo_upgrade_run: done",
+          output,
+          metadata: { ...baseMeta, actions, durationMs: Date.now() - start },
+        }
+      } catch (err) {
+        // Best-effort never-throws: report, don't raise.
+        return {
+          title: "omo_upgrade_run: error",
+          output: `Upgrade run failed (best-effort, nothing was thrown): ${err instanceof Error ? err.message : String(err)}`,
+          metadata: { ...baseMeta, durationMs: Date.now() - start },
+        }
+      }
+    },
+  })
+}
 
 // ============================================================================
 // v0.28.0: CLI-Anything hub discovery tools

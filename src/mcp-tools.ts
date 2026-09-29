@@ -42,6 +42,8 @@ import {
   buildOmoSyncIfDirtyTool,
   buildOmoMarkDirtyTool,
   buildOmoHookStatusTool,
+  buildOmoUpgradeCheckTool,
+  buildOmoUpgradeRunTool,
 } from "./custom-tools"
 import {
   buildOmoSkillFindTool,
@@ -189,6 +191,8 @@ function buildAdapters(): readonly McpAdapter[] {
       model: "bge-m3",
     }),
     adapt(buildOmoSkillCreateTool as PluginToolBuilder, "omo_skill_create", { cwd }),
+    adapt(buildOmoUpgradeCheckTool as PluginToolBuilder, "omo_upgrade_check", { cwd }),
+    adapt(buildOmoUpgradeRunTool as PluginToolBuilder, "omo_upgrade_run", { cwd }),
   ]
 }
 
@@ -224,4 +228,6 @@ export const MCP_TOOL_NAMES = [
   "omo_skill_local_link",
   "omo_skill_semantic_find",
   "omo_skill_create",
+  "omo_upgrade_check",
+  "omo_upgrade_run",
 ] as const

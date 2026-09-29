@@ -1,5 +1,62 @@
 
 
+## [Unreleased] (W4-C — docs veraces + upgrade surface)
+
+**Docs veraces para el nuevo comportamiento W4-C** — `cliAnything` opt-out,
+`omo_upgrade_*` on-demand, orden init factory y `check-update` post-install.
+Sin cambio de versión (lo hace el release script).
+
+### Added
+- `omo_upgrade_check` (dry-run: tabla installed/latest/upgrade-needed por
+  backend, NEVER installs) y `omo_upgrade_run` (ejecuta el upgrade path una
+  vez; respeta TTL 24h `upgradeCheckTtlMs` con skip `skipped:true` cuando el
+  cache está fresco; best-effort, never throws) — `src/custom-tools.ts`.
+- Superficie triple para `omo_upgrade_*`: V1 `tool` hook (paths
+  governance-enabled y governance-disabled en `src/plugin.ts`), V2
+  (`registerOmoTools` en `src/v2-tools.ts`), MCP (`getAdapters()` +
+  `MCP_TOOL_NAMES` en `src/mcp-tools.ts`).
+- Seam `__test_onCliAnythingInit` (+ `__test_runCliAnythingSync`) en
+  `src/plugin.ts`, espejo de `__test_onGraphSyncInit` — assertions de
+  placement sin spawnear subprocessos reales.
+- Tests: S1 (`src/plugin-graphsync.test.ts` — cli-anything sync independiente
+  del guard graphSync, W1-A1), S2
+  (`src/graph-sync-check-update-order.test.ts` — pip install precede a
+  `check-update`, runner DI), S3 (`src/upgrade-tools.test.ts` — V1 hook + V2
+  editor fake + MCP adapters), B2 (`src/publish-workflow.test.ts` — sin
+  `continue-on-error` en Publish ni Create GitHub Release).
+
+### Fixed
+- Desanidado W1-A1: `cliAnything` corre fuera del
+  `if (graphSyncEnabledAtInvocation)` con guard propio de 3 capas
+  (`options > file > config.cliAnything`, canónico `enabled !== false`);
+  `reindexOnFetch` SE QUEDA dentro del guard graphSync.
+- Orden `check-update`: `pip install` precede a `graphify check-update`
+  dentro de `runGraphSync` (fresh installs reportaban stale); exit 1 emite
+  `graphify-reextract-triggered`.
+- Publish `continue-on-error`: pasos Publish y Create GitHub Release sin
+  `continue-on-error` — un fallo real tiñe el job de rojo; la idempotencia
+  del release usa guard explícito (`gh release view || gh release create`)
+  en vez de máscara.
+
+### Changed
+- Comentarios defaults `cliAnything` opt-out (`src/config.ts`): `enabled:true`
+  por defecto con proyección canónica `!== false`; `upgradeCheckTtlMs`
+  default 24h aplicado en call-site (`plugin.ts`); `cachePath` efectivo
+  `newPluginPaths().cliAnythingUpgradeCheck`.
+- Docs: README sección cliAnything opt-out + tabla `omo_upgrade_*` + nota
+  `syncIntervalMs` startup-only (solo skillHub registry sync); ARCHITECTURE
+  orden init factory + posición check-update post-install + superficie
+  V1/V2/MCP.
+
+### Tests
+- Targeted: `bun test src/plugin-graphsync.test.ts src/graph-sync-check-update-order.test.ts src/upgrade-tools.test.ts src/publish-workflow.test.ts` green.
+- Full suite: see CI.
+
+### Ship protocol compliance
+- ✅ `bun run typecheck` clean
+- ✅ targeted suites green + full suite green required (tag-push OIDC flow)
+- ✅ Oracle review gate required (Tier 2: 3+ files + core logic)
+
 ## [0.51.0] - 2026-09-27
 
 **Conscience fix — opt-in high-value memories only, anti-spam** — the plugin now acts as the agent's conscience (what to do, where to go, mistakes, high-value memories) instead of dumping AgentMemory garbage on every `warn`.

@@ -205,3 +205,33 @@ describe("graphSync init placement", () => {
     expect(sysOut.system.join("\n")).toContain("[omo-meta-governor audit]")
   })
 })
+
+describe("S1 cli-anything sync independent of graphSync guard (W1-A1)", () => {
+  it("graphSync disabled (factory arg + inline) skips graphSync init but runs cli-anything sync exactly once", async () => {
+    const seen: string[] = []
+    let cliAnythingCalls = 0
+    const deps: MetaGovernorPluginDeps = {
+      ...makeDeps(seen),
+      __test_runCliAnythingSync: (async () => {
+        cliAnythingCalls += 1
+        return {
+          attempted: false,
+          codes: ["cli-anything-upgrade-skipped"],
+          availability: { cliHub: false, cliHubVersion: null, metaSkill: false },
+          alreadyInitialized: true,
+        }
+      }) as unknown as NonNullable<MetaGovernorPluginDeps["__test_runCliAnythingSync"]>,
+    }
+    const plugin = createMetaGovernorPlugin(
+      { graphSync: { enabled: false, autoInstall: false } },
+      deps,
+    )
+    await plugin(makeInput("D:/test/project-s1"), {
+      meta_governor: { graphSync: { enabled: false } },
+    })
+    // The cli-anything sync is fire-and-forget — let the microtask run.
+    await new Promise((r) => setTimeout(r, 10))
+    expect(seen).toEqual([])
+    expect(cliAnythingCalls).toBe(1)
+  })
+})

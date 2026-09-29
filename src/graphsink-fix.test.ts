@@ -197,8 +197,9 @@ describe("plugin: git commit triggers reindex (v0.11.0 S7)", () => {
       },
     }
 
-    const plugin = createMetaGovernorPlugin({ graphSync: { enabled: false } } as any, {
+    const plugin = createMetaGovernorPlugin({ graphSync: { enabled: false }, cliAnything: { enabled: false } } as any, {
       __test_onCommitTrigger: (payload) => { triggers.push(payload) },
+      __test_runCliAnythingSync: async () => ({ attempted: false, codes: ["cli-hub-version-probed"], availability: { cliHub: false, cliHubVersion: null, metaSkill: false }, alreadyInitialized: true }),
     })
     const hooks = await plugin(mockInput, options)
     const afterHook = hooks["tool.execute.after"]!
@@ -251,8 +252,9 @@ describe("plugin: git commit triggers reindex (v0.11.0 S7)", () => {
       },
     }
 
-    const plugin = createMetaGovernorPlugin({ graphSync: { enabled: false } } as any, {
+    const plugin = createMetaGovernorPlugin({ graphSync: { enabled: false }, cliAnything: { enabled: false } } as any, {
       __test_onCommitTrigger: (payload) => { triggers.push(payload) },
+      __test_runCliAnythingSync: async () => ({ attempted: false, codes: ["cli-hub-version-probed"], availability: { cliHub: false, cliHubVersion: null, metaSkill: false }, alreadyInitialized: true }),
     })
     const hooks = await plugin(mockInput, options)
     const afterHook = hooks["tool.execute.after"]!

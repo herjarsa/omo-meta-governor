@@ -212,6 +212,53 @@ New config fields: `graphSync.autoUpgrade`, `graphSync.upgradeCachePath`,
 New `GraphSyncCode` union members: `codegraph-upgrade-broken`,
 `graphify-reextract-triggered`, `upgrade-cache-written`.
 
+#### Factory init order (W1-A1 / W4-C)
+
+`src/plugin.ts` factory runs three init blocks at invocation, all
+fire-and-forget (never block session start):
+
+1. **graphSync** — guarded by its own `rawGraphSync?.enabled !== false`.
+   Runs `runGraphSync` (auto-install → init → auto-upgrade →
+   `graphify check-update` → hook install). Test seam:
+   `__test_onGraphSyncInit` + `__test_runGraphSync`.
+2. **cliAnything** — INDEPENDENT of graphSync (W1-A1 desanidado: moved out
+   of the `if (graphSyncEnabledAtInvocation)` block). Own 3-layer guard
+   `options?.meta_governor?.cliAnything ?? fileConfig?.cliAnything ??
+   config.cliAnything` with canonical `enabled !== false` (opt-out, default
+   true). Runs `runCliAnythingSync` with 24h TTL cache
+   (`upgradeCheckTtlMs`, default `86400000`). Test seam:
+   `__test_onCliAnythingInit` + `__test_runCliAnythingSync`.
+3. **reindexOnFetch** — stays INSIDE the graphSync guard (W1-A1):
+   `queueMicrotask` → `detectRemoteNewCommits` → `triggerReindex` only when
+   graphSync is enabled, so `graphSync:{enabled:false}` tests never spawn
+   real git processes.
+
+#### check-update position (S2)
+
+`graphify check-update` runs POST-install inside `runGraphSync`
+(`src/graph-sync.ts`): fresh `pip install` lands BEFORE `check-update`
+(fresh installs otherwise report stale). On exit 1 the block emits
+`graphify-reextract-triggered` (semantic re-extraction pending). Pinned by
+`src/graph-sync-check-update-order.test.ts` (S2, runner DI — no network).
+
+#### On-demand upgrades — V1 / V2 / MCP surface (S3)
+
+`omo_upgrade_check` (dry-run table, never installs) and `omo_upgrade_run`
+(upgrade once, TTL-gated skip when cache fresh) are built in
+`src/custom-tools.ts` (`buildOmoUpgradeCheckTool` / `buildOmoUpgradeRunTool`,
+TTL fallback `24*60*60*1000`, `isCacheFresh` + `shouldUpgrade` shared with
+graph-sync) and registered on all three surfaces:
+
+| Surface | Registration point |
+|---------|--------------------|
+| V1 | `src/plugin.ts` `tool` map — BOTH governance-disabled and governance-enabled return paths |
+| V2 | `src/v2-tools.ts` `registerOmoTools()` |
+| MCP | `src/mcp-tools.ts` `getAdapters()` + `MCP_TOOL_NAMES` |
+
+Pinned by `src/upgrade-tools.test.ts` (S3: V1 hook + V2 editor fake +
+MCP adapters). `syncIntervalMs` belongs ONLY to the `skillHub` registry
+sync — upgrade tools are on-demand/startup-only, never `setInterval`.
+
 ### Process Zombie Safeguards (`proc-guard.ts`, v0.22.0)
 
 `src/proc-guard.ts` guarantees every subprocess the plugin spawns dies after

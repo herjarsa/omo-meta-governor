@@ -67,6 +67,8 @@ import {
   buildOmoAddTool,
   buildOmoCheckUpdateTool,
   buildOmoHookStatusTool,
+  buildOmoUpgradeCheckTool,
+  buildOmoUpgradeRunTool,
   buildOmoCliAnythingInstallTool,
   buildOmoCliAnythingListTool,
   buildOmoCliAnythingSearchTool,
@@ -161,6 +163,8 @@ export const OMO_TOOL_NAMES: readonly string[] = [
   "omo_cli_anything_list",
   "omo_cli_anything_search",
   "omo_cli_anything_info",
+  "omo_upgrade_check",
+  "omo_upgrade_run",
 ];
 
 // ---------------------------------------------------------------------------
@@ -440,6 +444,8 @@ export function registerOmoTools(
     { name: "omo_cli_anything_list", build: () => buildOmoCliAnythingListTool({ cwd }) },
     { name: "omo_cli_anything_search", build: () => buildOmoCliAnythingSearchTool({ cwd }) },
     { name: "omo_cli_anything_info", build: () => buildOmoCliAnythingInfoTool({ cwd }) },
+    { name: "omo_upgrade_check", build: () => buildOmoUpgradeCheckTool({ cwd }) },
+    { name: "omo_upgrade_run", build: () => buildOmoUpgradeRunTool({ cwd }) },
   ];
 
   const registered: string[] = [];

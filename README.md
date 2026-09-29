@@ -29,6 +29,8 @@
   - [Auto-upgrade (v0.26.0)](#auto-upgrade-v0260)
   - [Git hooks](#git-hooks)
   - [Process safeguards](#process-safeguards)
+  - [CLI-Anything hub (v0.28.0)](#cli-anything-hub-v0280)
+  - [On-demand upgrades (W4-C)](#on-demand-upgrades-w4-c)
 - [Persistence & observability](#persistence--observability)
 - [CI monitor (v0.25.0)](#ci-monitor-v0250)
 - [Configuration reference](#configuration-reference)
@@ -404,6 +406,61 @@ Config: `graphSync.killOrphanedOnInit` (default `true`) — on graph-sync
 init the plugin sweeps orphaned `graphify`/`codegraph` processes left
 by previous crashed runs. Set to `false` to disable the sweep.
 
+### CLI-Anything hub (v0.28.0)
+
+Parallel to graph-sync, the plugin ensures the CLI-Anything ecosystem
+(`cli-hub` registry/installer + `npx skills` meta-skill) is installed and
+current. **Opt-out: enabled by default** — every default projection uses
+`!== false`, so omitting the block means ON:
+
+```jsonc
+{
+  "meta_governor": {
+    "cliAnything": {
+      "enabled": true,          // default true — opt-out
+      "autoInstall": true,      // default true
+      "autoUpgrade": true,      // default true
+      "upgradeCheckTtlMs": 86400000  // 24h registry-query TTL
+    }
+  }
+}
+```
+
+To disable (e.g. offline machines, hermetic tests):
+
+```jsonc
+{
+  "meta_governor": {
+    "cliAnything": { "enabled": false }
+  }
+}
+```
+
+Independent of `graphSync.enabled` (W1-A1 desanidado): disabling graphSync
+does NOT disable cliAnything and vice-versa. Both run fire-and-forget at
+factory invocation, never blocking session start. The test seam
+`__test_onCliAnythingInit` mirrors `__test_onGraphSyncInit` for placement
+assertions without spawning real subprocesses.
+
+### On-demand upgrades (W4-C)
+
+Two tools expose the backend upgrade path on demand (codegraph + graphify):
+
+| Tool | What it does | Use case |
+|------|--------------|----------|
+| `omo_upgrade_check` | Dry-run version table (installed / latest / upgrade-needed per backend). NEVER installs anything. | "Is an upgrade pending?" — safe to call any time |
+| `omo_upgrade_run` | Executes the upgrade path once. Respects the 24h TTL cache (`upgradeCheckTtlMs`, default `86400000`): skips with `skipped:true` when the cache is fresh. Best-effort, never throws. | "Upgrade the backends now" |
+
+Both are registered on all three surfaces: V1 `tool` hook (governance-enabled
+and governance-disabled paths), V2 (`registerOmoTools`), and MCP
+(`getAdapters()` + `MCP_TOOL_NAMES`).
+
+> **Nota `syncIntervalMs` (startup-only):** `syncIntervalMs` applies ONLY to
+> the `skillHub` registry sync (periodic background refresh of the skill
+> catalog). `omo_upgrade_check` / `omo_upgrade_run` are **on-demand /
+> startup-only** — they NEVER use `setInterval` and never poll in the
+> background.
+
 ## MCP server mode (v0.31.0)
 
 OpenCode Desktop and OpenChamber spawn `opencode serve` in HTTP/sidecar mode
@@ -575,6 +632,7 @@ All configuration lives under the `meta_governor` key in
 | `protocolEnforcement` | object | — | Sisyphus protocol enforcement. |
 | `skillPriming` | object | — | Proactive skill-selection nudge (v0.20.0). |
 | `graphSync` | object | — | Graph synchronization (auto-init codegraph/graphify). |
+| `cliAnything` | object | — | CLI-Anything hub auto-install + auto-upgrade (opt-out, enabled by default). |
 
 ### `decision`
 
@@ -677,6 +735,19 @@ All configuration lives under the `meta_governor` key in
 | `autoUpgrade` | boolean | `true` | **v0.26.0** — auto-upgrade installed codegraph + graphify binaries. |
 | `upgradeCachePath` | string | — | **v0.26.0** — path for the upgrade cache file. |
 | `checkGraphifyNeedsUpdate` | boolean | `true` | **v0.26.0** — run `graphify check-update` after upgrade. |
+
+### `cliAnything`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `true` | Opt-out master switch — set `cliAnything.enabled:false` to disable. Canonical `!== false` projection. |
+| `autoInstall` | boolean | `true` | Auto-install `cli-hub` + meta-skill when missing. |
+| `autoUpgrade` | boolean | `true` | Auto-upgrade on factory init (TTL-gated). |
+| `cachePath` | string | — | Upgrade-check cache file (effective default `newPluginPaths().cliAnythingUpgradeCheck`). |
+| `upgradeCheckTtlMs` | number | `86400000` | Min ms between registry queries (24h). Effective default applied at call-site (`plugin.ts`). |
+| `cliHubBin` | string | `"cli-hub"` | Path to `cli-hub` binary. |
+| `skillsBin` | string | `"npx skills"` | Path to `npx skills` invocation. |
+| `installScope` | enum | `"global"` | `"global"` \| `"project"`. |
 
 ---
 

@@ -26,7 +26,20 @@ const auditOptions = {
     enabled: true,
     protocolEnforcement: { auditToolCalls: true },
     graphSync: { enabled: false, autoInstall: false },
+    cliAnything: { enabled: false },
   },
+}
+
+// v0.51.x (W1-A1 hermetic fix): cliAnything now runs even when
+// graphSync.enabled=false, so tests must disable it AND stub the runner
+// seam to avoid spawning real pip/npx subprocesses under factory invocation.
+const hermeticDeps = {
+  __test_runCliAnythingSync: async () => ({
+    attempted: false,
+    codes: ["cli-hub-version-probed"] as never,
+    availability: { cliHub: false, cliHubVersion: null, metaSkill: false },
+    alreadyInitialized: true,
+  }),
 }
 
 /** Fire tool.execute.before + after once so the session state exists. */
@@ -34,9 +47,13 @@ async function makeState(
   sessionID: string,
   tool = "bash",
 ): Promise<ReturnType<typeof createMetaGovernorPlugin>> {
-  const plugin = createMetaGovernorPlugin({
-    graphSync: { enabled: false, autoInstall: false },
-  })
+  const plugin = createMetaGovernorPlugin(
+    {
+      graphSync: { enabled: false, autoInstall: false },
+      cliAnything: { enabled: false },
+    },
+    hermeticDeps,
+  )
   const hooks = await plugin(mockInput as never, auditOptions as never)
   await hooks["tool.execute.before"]?.(
     { tool, sessionID, callID: "c1", args: {} },
@@ -75,9 +92,13 @@ describe("post-wave AuditState fields", () => {
   test("postWave defaults are additive and non-interfering", async () => {
     // The factory and hooks must construct without touching postWave logic:
     // firing a normal tool call must not throw and must not inject anything.
-    const plugin = createMetaGovernorPlugin({
-      graphSync: { enabled: false, autoInstall: false },
-    })
+    const plugin = createMetaGovernorPlugin(
+      {
+        graphSync: { enabled: false, autoInstall: false },
+        cliAnything: { enabled: false },
+      },
+      hermeticDeps,
+    )
     const hooks = await plugin(mockInput as never, auditOptions as never)
     const after = hooks["tool.execute.after"]!
     await after(
