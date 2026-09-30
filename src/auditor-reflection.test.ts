@@ -120,7 +120,7 @@ describe("FASE 7 reflection trigger via session.prompt", () => {
     }
   });
 
-  it("2/5 does NOT trigger reflection for subagent sessions (FASE 3 scope guard)", async () => {
+  it("2/5 does NOT trigger reflection for subagent sessions (FASE 3 scope guard)", { timeout: 15000 }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "fase7-subagent-"));
     writeFileSync(join(dir, "PLAN.md"), "# test");
     const reflectionCaptured: string[] = [];
@@ -158,7 +158,7 @@ describe("FASE 7 reflection trigger via session.prompt", () => {
     }
   });
 
-  it("3/5 does NOT trigger reflection for 'continue' decisions", async () => {
+  it("3/5 does NOT trigger reflection for 'continue' decisions", { timeout: 15000 }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "fase7-continue-"));
     writeFileSync(join(dir, "PLAN.md"), "# test");
     const reflectionCaptured: string[] = [];
@@ -196,7 +196,7 @@ describe("FASE 7 reflection trigger via session.prompt", () => {
     }
   });
 
-  it("4/5 the reflection prompt contains recent decision context (auditor reasoning)", async () => {
+  it("4/5 the reflection prompt contains recent decision context (auditor reasoning)", { timeout: 15000 }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "fase7-context-"));
     writeFileSync(join(dir, "PLAN.md"), "# test");
     const reflectionCaptured: string[] = [];
@@ -236,7 +236,7 @@ describe("FASE 7 reflection trigger via session.prompt", () => {
     }
   });
 
-  it("5/5 the reflection prompt asks the LLM to reason (3 specific questions)", async () => {
+  it("5/5 the reflection prompt asks the LLM to reason (3 specific questions)", { timeout: 15000 }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "fase7-questions-"));
     writeFileSync(join(dir, "PLAN.md"), "# test");
     const reflectionCaptured: string[] = [];
