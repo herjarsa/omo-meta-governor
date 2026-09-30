@@ -555,7 +555,15 @@ export function buildOmoRememberTool(deps: OmoRememberDeps) {
       "Save a fact, observation, or insight to AgentMemory so it persists across sessions. " +
       "USE THIS when you learn something worth remembering: a bug pattern, a config quirk, " +
       "a user preference, a project rule. The system will route the save to AgentMemory's " +
-      "MCP server. Example: omo_remember with content='Always use bun:sqlite, not better-sqlite3' " +
+      "MCP server. " +
+      "QUALITY RUBRIC — SAVE only novel, non-obvious signal: (1) non-obvious bug fixes and workarounds, " +
+      "(2) corrections to prior assumptions, (3) project rules discovered during work. " +
+      "DO NOT save routine ops (reads, greps, trivial decisions) or facts already in memory " +
+      "(recall first: omo_recall with query='<topic>'). " +
+      "TEMPLATE: 'Mistake: <what went wrong>. What to do: <correct action>. Where: <file/area>.' " +
+      "GOOD: 'Mistake: mock.module leaks across Bun workers sharing a file. What to do: use DI seams (__test_x). Where: src/plugin.ts factory tests.' " +
+      "BAD: 'Ran the test suite' (routine), 'Fixed a bug' (no what/where). " +
+      "Example: omo_remember with content='Always use bun:sqlite, not better-sqlite3' " +
       "concepts=['storage', 'bun'] — the system will save this to AgentMemory.",
     args: {
       content: z.string().min(1).describe("The fact/observation/lesson to remember"),

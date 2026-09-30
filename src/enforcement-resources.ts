@@ -116,6 +116,12 @@ export function buildAgentMemoryRule(): string {
     `- corrections to previous assumptions`,
     `- project-specific rules discovered during work`,
     ``,
+    `TEMPLATE (mistake / what-to-do / where):`,
+    `  Mistake: <what went wrong>. What to do: <correct action>. Where: <file/area>.`,
+    `GOOD: Mistake: mock.module leaks across Bun workers sharing a file.`,
+    `  What to do: use DI seams (__test_x). Where: plugin factory tests.`,
+    `BAD: Ran the test suite / Fixed a bug (routine, no what/where — never save).`,
+    ``,
     `Recall previous lessons before asking the user: omo_recall with query="<topic>"`,
     `On empty result, try omo_recall_mcp (cross-session AgentMemory bridge).`,
   ].join("\n")
