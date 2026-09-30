@@ -60,20 +60,18 @@ describe("protocol-enforcer", () => {
     })
 
     it("then reads protocol from default path when no path provided", async () => {
-      // given — only works if the default protocol file exists
-      // CI runners don't have the sisyphus-mandatory file, so this test
-      // gracefully handles ENOENT by skipping the assertions
-      let result: string
-      try {
-        result = await loadProtocol()
-      } catch (err) {
-        // File doesn't exist in this environment - skip the test
-        return
-      }
+      // given — P5: the default file is optional. When it exists the
+      // content is returned; when it is missing (CI runners) loadProtocol
+      // degrades to "" instead of throwing ENOENT.
+      // when
+      const result = await loadProtocol()
 
       // then
-      expect(result.length).toBeGreaterThan(0)
-      expect(result).toContain("Sisyphus")
+      if (result.length > 0) {
+        expect(result).toContain("Sisyphus")
+      } else {
+        expect(result).toBe("")
+      }
     })
   })
 

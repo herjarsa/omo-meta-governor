@@ -1,10 +1,15 @@
 
 
-## [Unreleased] (W4-C — docs veraces + upgrade surface)
+## [Unreleased] (W4-C + Waves A/B/C + Wave D P5/P6)
 
-**Docs veraces para el nuevo comportamiento W4-C** — `cliAnything` opt-out,
-`omo_upgrade_*` on-demand, orden init factory y `check-update` post-install.
-Sin cambio de versión (lo hace el release script).
+**Docs veraces (W4-C) + governance anti-ruido (Waves A/B/C) + Wave D** —
+`cliAnything` opt-out, `omo_upgrade_*` on-demand, orden init factory y
+`check-update` post-install; P1 lesson-spam guard, P2 graph-first scoping,
+P3 quota por severidad + cap 5, P4 semver/TTL; B1 grave floor,
+`workflowGates.requirePlan`; Wave C routing matrix canónica + rubric
+`omo_remember` + memory nudge en DONE + tests herméticos + timeouts
+Windows; P5 cero-ENOENT en protocolo opcional; P6 tabla de costes
+`oracle.frequency`. Sin cambio de versión (lo hace el release script).
 
 ### Added
 - `omo_upgrade_check` (dry-run: tabla installed/latest/upgrade-needed por
@@ -53,8 +58,66 @@ Sin cambio de versión (lo hace el release script).
   orden init factory + posición check-update post-install + superficie
   V1/V2/MCP.
 
+### Added (Wave A — P1 lesson-spam guard, P2 graph-first, P3 quota, P4 semver/TTL)
+- P1: recall filtra `confidence >= 0.5` + backfill `purgeNoiseLessons`
+  (solo conteo read-only: 3,571 filas candidatas en DB de desarrollo el
+  30-sep, 3,604 al cierre de Wave D; NO ejecutado en prod) —
+  `src/sqlite-backend.ts`, `src/lesson-spam-guard.test.ts` (nuevo).
+- P2: `isBroadCodebaseQuery()` — grep/glob dirigidos a un archivo exacto
+  están exentos de `codebase-graph-first`; solo barren amplio (sin path,
+  directorio, wildcards) — `src/protocol-enforcer.ts`.
+- P3: quota de lecciones por severidad + cap 5 por sesión —
+  `src/closed-loop-learning.ts`, `src/post-repair-recorder.ts`.
+- P4: semver + TTL en stale-cache (`src/graph-sync.ts`,
+  `src/stale-cache-p4.test.ts` nuevo).
+- B1: `score()` pisa `continue/warn -> escalate` ante `grave` fresca
+  (grave floor) — `src/scoring-engine.ts`.
+- B2: gate opt-in `workflowGates.requirePlan` (default `false`, sin cambio
+  por defecto) + broad grep/glob cuenta como exploración —
+  `src/plugin.ts`, `src/workflow-gates.test.ts` (nuevo).
+
+### Added (Wave C — routing canónico, rubric memory, nudge DONE, herméticos, timeouts)
+- `src/routing-matrix.ts` (nuevo): `ROUTING_MATRIX` canónica consumida por
+  `buildGraphPrimingMessage`, `buildSkillPrimingRule` y los textos de
+  `plugin.ts` (antes duplicada en 5 sitios) + `routingSuffixFor()` en las
+  descripciones de 7 tools de discovery — `src/routing-matrix.test.ts`,
+  `src/custom-tools-routing.test.ts` (nuevos).
+- Rubric GOOD/BAD + template (`mistake/what/where`) en `omo_remember` y
+  agentmemory rule — `src/custom-tools.ts`, `src/enforcement-resources.ts`.
+- Memory nudge en el gate DONE solo sesión principal (template + rubric
+  SAVE/DO-NOT una vez por sesión; status usuario <200 chars) —
+  `src/plugin.ts`, `src/memory-nudge.test.ts` (nuevo, 8 tests).
+- Tests herméticos de governance: pins inline de `permissionPolicy` vacía
+  en `plugin.test.ts` y `governance-activation.test.ts` (el user config
+  real del dev invertía pass-through a deny; CI Linux verde por homedir
+  limpio).
+- Timeout explícito 15s en `auditor-reflection.test.ts` (flake solo en
+  test-windows: SEA 5010ms vs default 5000ms de bun bajo carga; no hang).
+
+### Fixed (Wave D — P5 cero-ENOENT en protocolo opcional)
+- `loadProtocol()` (`src/protocol-enforcer.ts`): `ENOENT` ya no propaga —
+  devuelve `""` + un `warn` UNA vez por proceso (`protocol file not found
+  at <path>; using built-in protocol rules…`, con cómo crearlo o
+  silenciarlo vía `protocolEnforcement.enabled=false`). Las reglas reales
+  están embebidas en `buildSystemInjection()` (1-9 hardcodeadas); el
+  archivo solo aporta contexto extra/keyword Oracle. Cualquier OTRO error
+  (EACCES, EISDIR, …) sigue propagándose. Sin cambio de defaults.
+- Tests: `src/protocol-missing-file.test.ts` (nuevo, 4 casos: inexistente
+  → `""` sin lanzar; `buildSystemInjection("")` emite las reglas
+  embebidas + `Tool Routing Table`; archivo existente → contenido;
+  directorio como path → propaga).
+
+### Changed (Wave D — P6 tabla de costes `oracle.frequency`, solo docs)
+- README sección Oracle frequency: tabla comparativa `per-stop` (default:
+  solo stop-band + final-gate) / `final-only` (solo final-gate) /
+  `off` (nunca automático) + coste relativo por sesión típica +
+  implementación (`selectEscalationTarget` en `src/scoring-engine.ts`,
+  respeto del `null` + final-gate SIEMPRE Oracle en `src/plugin.ts`).
+  Default intacto (`per-stop`): decisión consciente, no cambio ciego.
+
 ### Tests
 - Targeted: `bun test src/plugin-graphsync.test.ts src/graph-sync-check-update-order.test.ts src/upgrade-tools.test.ts src/publish-workflow.test.ts` green.
+- Wave D: `bun test src/protocol-missing-file.test.ts src/protocol-enforcer.test.ts src/generate-schema-sync.test.ts` 0 fail.
 - Full suite: see CI.
 
 ### Ship protocol compliance

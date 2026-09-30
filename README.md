@@ -105,6 +105,18 @@ Controls when the plugin invokes Oracle for verification:
 The `<promise>DONE</promise>` / `<promise>PLAN-COMPLETE</promise>` final-gate
 ALWAYS invokes Oracle regardless of `oracle.frequency`.
 
+| `frequency` | Mid-work Oracle | Final-gate Oracle | Typical invocations / session |
+|---|---|---|---|
+| `per-stop` (default) | ONLY when scoring reaches the stop band (`action === "stop"`); `warn`/`escalate` log only (`escalation suppressed by oracle.frequency`) | Always | 1 (final-gate) + 1 per stop-level emergency; silent on normal work |
+| `final-only` | Never — even `stop` decisions log without an Oracle prompt | Always | Exactly 1 (final-gate); zero mid-work interruptions |
+| `off` | Never invoked automatically | Never — set `oracleVerified` manually (e.g. via `omo_recall`) | 0 |
+
+Implementation: `selectEscalationTarget()` in `src/scoring-engine.ts`
+returns `null` for `off`/`final-only` (any action) and for `per-stop` unless
+action is `"stop"`; `src/plugin.ts` respects the `null` (logs `escalation
+suppressed by oracle.frequency`) while the DONE final-gate handler
+(`detectPlanCompleteSignal` path) invokes Oracle separately.
+
 ---
 
 ## What it does

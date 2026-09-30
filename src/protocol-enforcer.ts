@@ -15,6 +15,7 @@ import { resolve } from "node:path"
 import { homedir } from "node:os"
 import type { ProtocolViolation } from "./types"
 import { IMPLEMENTATION_TOOLS } from "./skill-priming"
+import { logToFile } from "./file-logger"
 
 // ─── Default protocol path ───────────────────────────────────────
 
@@ -28,9 +29,48 @@ export const DEFAULT_PROTOCOL_PATH = resolve(
 
 // ─── loadProtocol ────────────────────────────────────────────────
 
+// P5 (ENOENT sisyphus-mandatory): tracks whether the missing-file notice
+// was already logged so an absent optional file warns exactly once per
+// process instead of once per session/turn.
+let missingProtocolWarned = false
+
+/**
+ * Reads the optional Sisyphus-mandatory protocol file from disk.
+ *
+ * The file is OPTIONAL: the real enforcement rules are embedded in
+ * `buildSystemInjection()` (rules 1-9, hardcoded). The file only adds
+ * extra context — its text is used solely to decide whether rule 4
+ * (Post-task Oracle Verification) is emitted, via the `/\boracle\b/i`
+ * test. A missing file therefore degrades gracefully to `""` (embedded
+ * rules still inject) instead of throwing ENOENT into the startup log.
+ *
+ * - `ENOENT` (file not found) → returns `""` + one actionable `warn`
+ *   per process naming the path and how to silence/provide it.
+ * - Any OTHER error (EACCES, EISDIR, …) → still propagates. Real
+ *   errors must never be silenced.
+ */
 export async function loadProtocol(path?: string): Promise<string> {
   const resolvedPath = path ?? DEFAULT_PROTOCOL_PATH
-  return await readFile(resolvedPath, "utf-8")
+  try {
+    return await readFile(resolvedPath, "utf-8")
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException | undefined)?.code
+    if (code !== "ENOENT") throw err
+    if (!missingProtocolWarned) {
+      missingProtocolWarned = true
+      try {
+        logToFile(
+          "warn",
+          `protocol file not found at ${resolvedPath}; using built-in protocol rules. ` +
+            `To provide extra protocol context, create the file at that path; ` +
+            `to silence this notice, set protocolEnforcement.enabled=false.`,
+        )
+      } catch {
+        // Logging is best-effort — never fail the load on a log error.
+      }
+    }
+    return ""
+  }
 }
 
 // ─── buildSystemInjection ────────────────────────────────────────
