@@ -31,6 +31,7 @@ import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { ROUTING_MATRIX } from "./routing-matrix"
 import { buildPluginHealth, writeHealthToFile } from "./health"
 import { getDefaultCodeGraphTools, type CodeGraphTools } from "./codegraph-tools"
 import { getDefaultGraphRetrieval } from "./graph-retrieval"
@@ -68,6 +69,37 @@ async function tryMcpFirst(
   } catch {
     return null
   }
+}
+
+/**
+ * Canonical routing suffix for a tool description (Wave C part 2).
+ *
+ * Why this exists: the agent sees tool descriptions on every turn, while the
+ * graph-priming injection fires once per session. Embedding the canonical
+ * routing line in the description keeps "which tool for which question"
+ * visible without depending on that one-shot injection.
+ *
+ * Why lookup by ROUTING_MATRIX: the matrix is the single canonical source -
+ * reusing it here keeps descriptions in sync when the matrix changes, instead
+ * of duplicating tool-name literals at each call site.
+ */
+export function routingSuffixFor(toolName: string): string {
+  const entry = ROUTING_MATRIX.find((e) => e.tools.includes(toolName))
+  if (!entry) return ""
+  return ` ROUTING: ${entry.question} -> ${entry.tools.join(" / ")}.`
+}
+
+/**
+ * Why guard on "ROUTING:": legacy descriptions already mention
+ * "ROUTING (v0.25.0)" with parens, while the canonical line uses a colon.
+ * Checking for the colon form keeps the append idempotent (a single line,
+ * never duplicated) without blocking the first append on legacy text.
+ */
+function withRoutingSuffix(toolName: string, base: string): string {
+  if (base.includes("ROUTING:")) return base
+  const suffix = routingSuffixFor(toolName)
+  if (suffix === "") return base
+  return base + suffix
 }
 
 // ---------------------------------------------------------------------------
@@ -149,13 +181,15 @@ export interface OmoSearchDeps {
  */
 export function buildOmoSearchTool(deps: OmoSearchDeps) {
   return tool({
-    description:
+    description: withRoutingSuffix(
+      "omo_search",
       "Semantic code search over the project graph. ROUTING (v0.25.0): with both indexes present, " +
       "codegraph handles code-structure queries (symbols, call sites, module layout) and graphify " +
       "handles concept/architecture queries — the plugin alternates deterministically per query, " +
       "or you can force one via config graphRetrieval.preferredTool. " +
       "USE THIS for architecture questions, finding call sites, understanding module structure. " +
       "Prefer over grep/glob for high-level understanding — grep is still better for literal text matches.",
+    ),
     args: {
       query: z.string().min(3).describe("Natural language query describing what you're looking for"),
       maxResults: z.number().int().min(1).max(20).optional().describe("Max results to return (default 10)"),
@@ -217,10 +251,12 @@ export interface OmoRecallDeps {
  */
 export function buildOmoRecallTool(deps: OmoRecallDeps) {
   return tool({
-    description:
+    description: withRoutingSuffix(
+      "omo_recall",
       "Search lessons learned in past sessions of this project. " +
       "Returns ranked lessons (highest confidence first) matching the query. " +
       "Use before making non-trivial decisions — the answer may already be in memory.",
+    ),
     args: {
       query: z.string().min(2).describe("What kind of lesson you're looking for"),
       limit: z.number().int().min(1).max(20).optional().describe("Max lessons to return (default 5)"),
@@ -352,12 +388,14 @@ export interface OmoFindDeps {
  */
 export function buildOmoFindTool(deps: OmoFindDeps) {
   return tool({
-    description:
+    description: withRoutingSuffix(
+      "omo_find",
       "Find the exact source location and direct callers of a symbol (function, class, method, variable). " +
       "CODEGRAPH TOOL (v0.25.0): symbol precision lives in codegraph — use this for exact definitions " +
       "and call sites. " +
       "USE THIS when you know the exact symbol name and need its source code. " +
       "Example: omo_find with symbol='UserService.create' returns the file:line of the definition and every call site.",
+    ),
     args: {
       symbol: z.string().min(1).describe("The exact symbol name to find (e.g. 'UserService.create', 'validateToken')"),
     },
@@ -421,12 +459,14 @@ export interface OmoImpactDeps {
  */
 export function buildOmoImpactTool(deps: OmoImpactDeps) {
   return tool({
-    description:
+    description: withRoutingSuffix(
+      "omo_impact",
       "Analyze the impact of changing a symbol. Lists direct callers, transitive callers, " +
       "and affected test/doc files. CODEGRAPH TOOL (v0.25.0): call-graph analysis is codegraph-only. " +
       "ALWAYS run this BEFORE modifying a function or class — " +
       "knows what will break. Example: omo_impact with symbol='validateToken' lists every file " +
       "that calls validateToken and every test that exercises it.",
+    ),
     args: {
       symbol: z.string().min(1).describe("The symbol to analyze (function, class, method)"),
     },
@@ -645,11 +685,13 @@ export interface OmoRecallMcpDeps {
  */
 export function buildOmoRecallMcpTool(deps: OmoRecallMcpDeps) {
   return tool({
-    description:
+    description: withRoutingSuffix(
+      "omo_recall_mcp",
       "Search AgentMemory's cross-session memory (via agentmemory_memory_smart_search). " +
       "USE THIS for questions that need context from PREVIOUS sessions: " +
       "'how did we set up X', 'what was the last approach to Y', 'recall the config for Z'. " +
       "For current-session recall, prefer omo_recall (local SQLite) instead.",
+    ),
     args: {
       query: z.string().min(2).describe("The search query"),
       limit: z.number().int().min(1).max(20).optional().describe("Max results (default 5)"),
@@ -720,13 +762,15 @@ export interface OmoPathDeps {
  */
 export function buildOmoPathTool(deps: OmoPathDeps) {
   return tool({
-    description:
+    description: withRoutingSuffix(
+      "omo_path",
       "Find the shortest conceptual path between two concepts in the codebase " +
       "using the graphify knowledge graph. GRAPHIFY TOOL (v0.25.0): concept-level relations live in graphify — " +
       "codegraph cannot answer these. " +
       "USE THIS to understand how two apparently " +
       "unrelated parts of the codebase connect. Example: omo_path with from='auth' " +
       "to='database' traces the chain from authentication handlers to DB queries.",
+    ),
     args: {
       from: z.string().min(1).describe("Start concept"),
       to: z.string().min(1).describe("End concept"),
@@ -782,11 +826,13 @@ export interface OmoExplainDeps {
  */
 export function buildOmoExplainTool(deps: OmoExplainDeps) {
   return tool({
-    description:
+    description: withRoutingSuffix(
+      "omo_explain",
       "Get a plain-language explanation of a concept from the graphify knowledge graph. " +
       "GRAPHIFY TOOL (v0.25.0): conceptual overviews live in graphify — codegraph cannot produce them. " +
       "USE THIS when you encounter an unfamiliar term or module and need a quick overview " +
       "of what it is and how it fits into the codebase. Example: 'omo_explain SwinTransformer'.",
+    ),
     args: {
       concept: z.string().min(1).describe("The concept to explain"),
     },
