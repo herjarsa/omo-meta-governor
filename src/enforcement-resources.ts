@@ -18,6 +18,8 @@
  *
  * The returned text uses a `[SYSTEM-NUDGE]` prefix the LLM can detect.
  */
+import { formatRoutingMatrixLines } from "./routing-matrix"
+
 export const ENFORCEMENT_RESOURCE_URIS = [
   "meta-governor://rules/oracle",
   "meta-governor://rules/agentmemory",
@@ -132,6 +134,7 @@ export function buildAgentMemoryRule(): string {
  * Directs the LLM to discover skills via the catalog before implementation.
  */
 export function buildSkillPrimingRule(): string {
+  const matrixLines = formatRoutingMatrixLines({ bullet: true }).split("\n")
   return [
     `${NUDGE_PREFIX} Skill Priming (select before writing code)`,
     ``,
@@ -144,11 +147,7 @@ export function buildSkillPrimingRule(): string {
     `   or omo_skill_create if no catalog match`,
     ``,
     `Primary discovery tools (use BEFORE grep/glob/raw read):`,
-    `- Architecture / concepts / cross-module relationships -> omo_search`,
-    `  (auto-routes between codegraph + graphify)`,
-    `- Symbol-level lookup, call graph, impact analysis -> omo_find / omo_impact`,
-    `- Past lessons, decisions, prior solutions -> omo_recall`,
-    `- Project status -> omo_health / omo_status`,
+    ...matrixLines,
     ``,
     `Use raw grep ONLY when indexed queries above cannot answer the question`,
     `(literal byte patterns, throwaway strings).`,

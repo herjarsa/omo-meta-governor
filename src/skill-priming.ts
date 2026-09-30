@@ -24,6 +24,7 @@
  */
 import type { SkillPrimingRouter, SkillPrimingTrigger } from "./types"
 import { wrapInformational, buildUserStatus, type NotificationKind } from "./agent-notifications"
+import { formatGraphPrimingBody } from "./routing-matrix"
 
 /**
  * Tool names that signal the agent has started implementation work.
@@ -64,14 +65,7 @@ export const IMPLEMENTATION_TOOLS: readonly string[] = [
  * receiving this as context don't interpret it as their primary task.
  */
 export function buildGraphPrimingMessage(): string {
-  const body = [
-    "[GRAPH PRIMING] Before grep/regex/glob/raw read, query the project's own indexes:",
-    "1. Architecture / concepts / cross-module relationships -> omo_search (auto-routes between codegraph + graphify).",
-    "2. Symbol-level lookup, call graph, impact analysis -> omo_find / omo_impact / omo_path.",
-    "3. Past lessons, decisions, prior solutions -> omo_recall (local SQLite FTS5).",
-    "4. Project status (codegraph health, recent decisions) -> omo_health / omo_status.",
-    "Use raw grep ONLY when the indexed queries above cannot answer the question (e.g. literal byte patterns, throwaway strings).",
-  ].join("\n")
+  const body = formatGraphPrimingBody()
   return wrapInformational(body, { kind: "graph-priming" })
 }
 

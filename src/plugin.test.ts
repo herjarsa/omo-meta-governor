@@ -794,7 +794,25 @@ describe("v0.41.0 governance hooks", () => {
 
   it("governance hooks are no-ops with default config (empty policy)", async () => {
     const plugin = createHermeticPlugin({ graphSync: { enabled: false } })
-    const hooks = await plugin(mockPluginInput, { meta_governor: { enabled: true } })
+    // Hermetic: pin an empty permissionPolicy inline (highest precedence:
+    // options inline > file config). Without this, a developer's real
+    // ~/.config/opencode/omo-meta-governor.jsonc leaks in via loadMetaGovernorConfig
+    // and a local deny pattern can flip this pass-through assertion to "deny".
+    const hooks = await plugin(mockPluginInput, {
+      meta_governor: {
+        enabled: true,
+        governance: {
+          permissionPolicy: {
+            mode: undefined,
+            bashDenyPatterns: [],
+            bashAskPatterns: [],
+            editDenyPaths: [],
+            editAskPaths: [],
+            webfetchDenyHosts: [],
+          },
+        },
+      },
+    })
     // Default governance has empty deny patterns — hooks should pass through
     const permOutput: { status: "ask" | "deny" | "allow" } = { status: "ask" }
     await (hooks["permission.ask"] as unknown as (i: unknown, o: unknown) => Promise<void>)({ type: "bash", command: "rm -rf /" }, permOutput)

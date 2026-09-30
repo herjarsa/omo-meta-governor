@@ -116,6 +116,7 @@ import { AuditStateCache } from "./audit-state-cache";
 import { TtlBoundedMap } from "./utils/ttl-bounded-map";
 import { isSessionStart } from "./utils/session-start";
 import { wrapInformational, buildUserStatus } from "./agent-notifications";
+import { formatDigestRouting, formatGraphRoutingBulletsES } from "./routing-matrix";
 import { shouldPersistConscienceMemory, conscienceDedupeKey, buildConscienceMemoryContent } from "./closed-loop-learning";
 import { bootstrapChoreSkills } from "./skills-bootstrap.js";
 
@@ -2295,13 +2296,11 @@ metricsCollector.inc("interventions_delivered");
           // v0.38.6: graphSyncReadyNotified is set INSIDE the gate so the nudge re-fires
           // on the next turn if the push is skipped at session start.
           const graphReadyText = [
-            "[META-GOVERNOR] codegraph y graphify ya estÃ¡n inicializados en este repo. ",
-            "ROUTING EXPLÃCITO (v0.25.0): ",
-            "â€¢ SÃ­mbolos/definiciones/callers/impacto (cÃ³digo) â†’ CODEGRAPH: omo_find, omo_impact, omo_search. ",
-            "â€¢ Conceptos/arquitectura/conexiones/explicaciones â†’ GRAPHIFY: omo_path, omo_explain (y omo_search en modo alternate). ",
-            "â€¢ Vista general del repo â†’ lee graphify-out/GRAPH_REPORT.md. ",
+            "[META-GOVERNOR] codegraph y graphify ya estan inicializados en este repo. ",
+            "ROUTING EXPLICITO (v0.25.0): ",
+            ...formatGraphRoutingBulletsES().split("\n"),
             "Actualizan tras cada commit.",
-          ].join(" ");
+          ].join(" ")
           // v0.33.2: superficial — assistant in prod (visible, not blocking), user in tests.
           // v0.38.6: skip at session start (would create a fake assistant turn and pause the session).
           // v0.49.0 FASE 11: graph-tools-ready now fires via system.transform instead.
@@ -3046,7 +3045,7 @@ metricsCollector.inc("interventions_delivered");
         ) {
           graphSyncReadyNotified.add(sessionID);
           // Capped (graph<=4): explicit codegraph/graphify routing in 4 lines.
-          digestSections.push("GRAPH ROUTING (codegraph/graphify ready):\nSymbols/definitions/callers/impact => CODEGRAPH (omo_find, omo_impact, omo_search).\nConcepts/architecture/connections => GRAPHIFY (omo_path, omo_explain).\nRepo overview => graphify-out/GRAPH_REPORT.md.");
+          digestSections.push(formatDigestRouting())
         }
 
         // 11d. Pending bot feedback (FASE 1 0d) - one-time drain

@@ -95,8 +95,24 @@ describe("governance activation FASE 2 part 2", () => {
     writeFileSync(join(dir, "PLAN.md"), "# test");
     try {
       const plugin = createHermeticPlugin({} as never);
+      // Hermetic: pin an empty permissionPolicy inline (highest precedence:
+      // options inline > file config). Without this, a developer's real
+      // ~/.config/opencode/omo-meta-governor.jsonc leaks in via loadMetaGovernorConfig
+      // and a local deny pattern can flip this pass-through assertion to "deny".
       const hooks = await plugin(mockPluginInput(dir), {
-        meta_governor: { enabled: true },
+        meta_governor: {
+          enabled: true,
+          governance: {
+            permissionPolicy: {
+              mode: undefined,
+              bashDenyPatterns: [],
+              bashAskPatterns: [],
+              editDenyPaths: [],
+              editAskPaths: [],
+              webfetchDenyHosts: [],
+            },
+          },
+        },
       } as never);
       const permOutput: { status: "ask" | "deny" | "allow" } = { status: "ask" };
       await (hooks["permission.ask"] as unknown as (i: unknown, o: unknown) => Promise<void>)(
