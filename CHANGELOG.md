@@ -8,7 +8,7 @@
 P3 quota por severidad + cap 5, P4 semver/TTL; B1 grave floor,
 `workflowGates.requirePlan`; Wave C routing matrix canónica + rubric
 `omo_remember` + memory nudge en DONE + tests herméticos + timeouts
-Windows; P5 cero-ENOENT en protocolo opcional; P6 tabla de costes
+Windows; P5 cero-ENOENT en protocolo opcional; P6 tabla de costes + BREAKING default `oracle.frequency: final-only`
 `oracle.frequency`. Sin cambio de versión (lo hace el release script).
 
 ### Added
@@ -34,6 +34,7 @@ Windows; P5 cero-ENOENT en protocolo opcional; P6 tabla de costes
 - `cliAnything` corre independiente del guard `graphSync` (opt-out): quien tenia `graphSync.enabled=false` para silenciar todo vera syncs de `cli-anything-hub`. Desactivar explicito con `cliAnything.enabled=false`.
 - Recall filtra `confidence >= 0.5`: lessons viejas de bajo valor dejan de aparecer hasta el backfill `purgeNoiseLessons` (3,571 filas candidatas en DB local, verificado read-only; NO ejecutado en prod).
 - `score()` pisa `continue/warn -> escalate` ante `grave` fresca; nuevo gate opt-in `workflowGates.requirePlan` (default false, sin cambio por defecto).
+- `oracle.frequency` default `per-stop` -> **`final-only`** (BREAKING, ordenado por el usuario): cero invocaciones Oracle mid-work por defecto, ni siquiera en stop-band; Oracle solo en final-gate DONE/PLAN-COMPLETE. Restaura con `oracle: { frequency: "per-stop" }` (`scoring.oracleFrequency` deprecated sigue como fallback read-only). Pin: `src/oracle-default-pin.test.ts` + `src/config.test.ts`.
 
 ### Fixed
 - Desanidado W1-A1: `cliAnything` corre fuera del
@@ -113,7 +114,7 @@ Windows; P5 cero-ENOENT en protocolo opcional; P6 tabla de costes
   `off` (nunca automático) + coste relativo por sesión típica +
   implementación (`selectEscalationTarget` en `src/scoring-engine.ts`,
   respeto del `null` + final-gate SIEMPRE Oracle en `src/plugin.ts`).
-  Default intacto (`per-stop`): decisión consciente, no cambio ciego.
+  SUPERSEDED: default ahora `final-only` (BREAKING, ver arriba) — `per-stop` solo vía override explícito `oracle: { frequency: "per-stop" }`.
 
 ### Tests
 - Targeted: `bun test src/plugin-graphsync.test.ts src/graph-sync-check-update-order.test.ts src/upgrade-tools.test.ts src/publish-workflow.test.ts` green.
