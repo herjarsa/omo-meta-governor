@@ -919,6 +919,13 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
        *  (with optional `!`). In v0.15.0 phase-aware mode this is NOT used
        *  by the gate; see `phaseCompleteSignal` and `planCompleteSignal`. */
       taskDoneSignal: boolean;
+      /**
+       * v0.51.x: memory-save nudge fired once per session in the DONE gate.
+       * The DONE gate is the only moment where the agent still holds full
+       * context of what it did; without this nudge 99% of sessions end with
+       * no useful memory persisted.
+       */
+      memoryNudgeSent: boolean;
       /** v0.15.0: set by `<promise>DONE</promise>` OR
        *  `<promise>PHASE-N-COMPLETE</promise>`. Per-phase hint only;
        *  only latches intervention in legacy (phaseAwareDoneSignal=false) mode. */
@@ -1039,6 +1046,11 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
     const omoRecallCalled = new Set<string>();
     // v0.35.9: per-session guard so the graph-priming injection fires at most once.
     const graphPrimingSent = new Set<string>();
+    // v0.51.x: DONE-gate memory nudge — pending agent text per session.
+    // Set in tool.execute.after when DONE fires with no memory saved;
+    // drained once by messages.transform (with isSessionStart guard).
+    // TtlBoundedMap (1000 sessions, 24h TTL) per postWaveSessions precedent.
+    const memoryNudgePending = new TtlBoundedMap<string, string>(1000, 24 * 60 * 60 * 1000);
 
     const implementationToolsSeen = new Set<string>();
     // v0.49.1: auto-remember anti-loop guard — per-session last hash + timestamp.
@@ -1288,6 +1300,7 @@ metricsCollector.inc("interventions_delivered");
             recentInterventionTexts: [],
             batchCompletions: 0,
             taskDoneSignal: false,
+            memoryNudgeSent: false,
             phaseCompleteSignal: false,
             planCompleteSignal: false,
             interventionCount: 0,
@@ -1572,6 +1585,11 @@ metricsCollector.inc("interventions_delivered");
               sessionState.memorySaved = true;
             }
           }
+          // v0.51.x: omo_remember is the Zod-validated route to the same backend;
+          // calling it counts as a save for the DONE-gate nudge.
+          if (toolInput.tool === "omo_remember") {
+            sessionState.memorySaved = true;
+          }
 
           if (toolInput.tool === "task") {
             const out = toolOutput.output ?? "";
@@ -1648,6 +1666,29 @@ metricsCollector.inc("interventions_delivered");
               "info",
               `task_done_signal detected (legacy) for session ${toolInput.sessionID}`,
             );
+            // v0.51.x: DONE-gate memory nudge — the DONE gate is the only moment
+            // where the agent still holds full context of what it did; without
+            // this nudge 99% of sessions end with no useful memory persisted.
+            // Fires once per session, only when no memory was saved, and never
+            // while a background task (or Oracle) is in flight. User status goes
+            // via persistIntervention now; agent directive is queued for
+            // messages.transform (isSessionStart guard there). Never breaks the
+            // respectDoneSignal latch below.
+            if (
+              sessionState.memorySaved === false &&
+              sessionState.memoryNudgeSent === false &&
+              sessionState.backgroundTaskInFlight === false &&
+              sessionState.oracleInFlight === false &&
+              isMainSession(toolInput.sessionID)
+            ) {
+              sessionState.memoryNudgeSent = true;
+              memoryNudgePending.set(toolInput.sessionID, buildMemoryNudgeAgentMessage());
+              logToFile(
+                "info",
+                `memory_nudge_queued for session ${toolInput.sessionID}`,
+              );
+              persistIntervention(toolInput.sessionID, buildMemoryNudgeUserStatus());
+            }
           }
           if (
             !sessionState.phaseCompleteSignal &&
@@ -2344,6 +2385,35 @@ metricsCollector.inc("interventions_delivered");
           }
         }
 
+        // v0.51.x: DONE-gate memory nudge drain — pending agent text queued in
+        // tool.execute.after when DONE fires with no memory saved. Fires once
+        // per session, before the mode gate so silent mode still nudges, and
+        // never at session start (would pause the TUI). Re-checks in-flight
+        // guards so a background task started after queueing still suppresses.
+        // Never touches the respectDoneSignal latch below.
+        const memoryNudgeText = memoryNudgePending.get(currentSessionID);
+        if (memoryNudgeText) {
+          const nudgeState = auditSessions.get(currentSessionID);
+          const nudgeInFlight = Boolean(nudgeState?.backgroundTaskInFlight || nudgeState?.oracleInFlight);
+          if (!isMainSession(currentSessionID)) {
+            memoryNudgePending.delete(currentSessionID);
+            logToFile(
+              "info",
+              `memory_nudge_skipped (subagent) for session ${currentSessionID}`,
+            );
+          } else if (!nudgeInFlight && !isSessionStart(output.messages)) {
+            output.messages.push({
+              info: { role: "assistant", agent: "meta-governor", synthetic: true },
+              parts: [{ type: "text", text: memoryNudgeText, synthetic: true }],
+            });
+            memoryNudgePending.delete(currentSessionID);
+            logToFile(
+              "info",
+              `memory_nudge_injected for session ${currentSessionID}`,
+            );
+          }
+        }
+
         if (mergedConfig.intervention.mode !== "message") return;
         // v0.10.0: respect per-session intervention disable.
         // v0.31.1: the compaction loop guard sets this flag when it trips
@@ -2438,6 +2508,7 @@ metricsCollector.inc("interventions_delivered");
             recentInterventionTexts: [],
             batchCompletions: 0,
             taskDoneSignal: false,
+            memoryNudgeSent: false,
             phaseCompleteSignal: false,
             planCompleteSignal: false,
             interventionCount: 0,
@@ -3126,6 +3197,7 @@ metricsCollector.inc("interventions_delivered");
             recentInterventionTexts: [],
             batchCompletions: 0,
             taskDoneSignal: false,
+            memoryNudgeSent: false,
             phaseCompleteSignal: false,
             planCompleteSignal: false,
             interventionCount: 0,
@@ -3457,6 +3529,34 @@ export function shouldInjectPlanReminder(
 }
 
 // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ v0.15.0 completion-signal detectors (module-level exports for testing) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+
+/**
+ * v0.51.x: DONE-gate memory nudge — agent directive (max ~6 lines).
+ * The DONE gate is the only moment where the agent still holds full context
+ * of what it did; without this nudge 99% of sessions end with no useful
+ * memory persisted. Tells the agent WHAT to save (not just the command):
+ * novel/non-obvious/correction/project-rule lessons in Mistake/What to do/Where
+ * shape, via omo_remember, after an omo_recall novelty check. DO NOT save routine.
+ */
+export function buildMemoryNudgeAgentMessage(): string {
+  const body = [
+    "[MEMORY NUDGE] Task DONE with no memory saved this session \u2014 consider one lesson via `omo_remember`.",
+    "Template: Mistake: <what failed>. What to do: <correct action>. Where: <file/area>.",
+    "SAVE only if novel/non-obvious/correction/project rule.",
+    "DO NOT save routine steps.",
+    "First verify with `omo_recall` if already covered; skip if so.",
+    "Keep it to one concise lesson.",
+  ].join("\n");
+  return wrapInformational(body, { kind: "memory" });
+}
+
+/**
+ * v0.51.x: DONE-gate memory nudge — brief TUI status for the user.
+ * No actionable agent instructions (v0.38.2 rule); detail lives in agent context.
+ */
+export function buildMemoryNudgeUserStatus(): string {
+  return buildUserStatus("memory", "Sin memoria guardada en esta sesion \u2014 revisa si hay una leccion que valga persistir.");
+}
 
 /**
  * v0.10.0 legacy detector. Matches `<promise>DONE</promise>` (with optional
