@@ -71,14 +71,14 @@ export interface Decision {
 export type EscalationTarget = "oracle" | "user";
 
 /**
- * v0.38.4: Oracle invocation frequency. Controls when the plugin invokes
+ * Oracle invocation frequency. Controls when the plugin invokes
  * Oracle for verification — reduces noisy mid-work escalations.
  *
- * - `"per-stop"` (default, Option D): Oracle invoked at final-gate
- *   AND when score crosses the stop threshold (`≤ -stopThreshold`).
- *   warn/escalate log but do NOT inject an Oracle prompt mid-work.
- * - `"final-only"` (Option A): Oracle invoked ONLY at final-gate.
+ * - `"final-only"` (default): Oracle invoked ONLY at final-gate.
  *   Even stop-level decisions log without injecting an Oracle prompt.
+ * - `"per-stop"`: Oracle invoked at final-gate AND when score crosses
+ *   the stop threshold (`≤ -stopThreshold`). warn/escalate log but do
+ *   NOT inject an Oracle prompt mid-work.
  * - `"off"`: Oracle is never invoked automatically.
  */
 export type OracleFrequency = "per-stop" | "final-only" | "off";
@@ -690,9 +690,8 @@ export interface ScoringConfig {
    * ALWAYS Oracle-verified regardless of this setting — only the
    * mid-work escalation policy changes.
    *
-   * - `"per-stop"` (default, Option D): Oracle invoked ONLY when action is
-   *   "stop" (the brake). warn/escalate log but do NOT inject Oracle mid-work.
-   * - `"final-only"` (Option A): Oracle NEVER invoked mid-work.
+   * - `"final-only"` (default): Oracle NEVER invoked mid-work.
+   * - `"per-stop"`: Oracle invoked ONLY when action is
    * - `"off"`: Oracle NEVER invoked automatically (set oracleVerified manually).
    */
   readonly oracleFrequency: OracleFrequency;

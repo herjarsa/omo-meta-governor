@@ -2605,7 +2605,7 @@ metricsCollector.inc("interventions_delivered");
         // The final-gate (DONE signal) invokes Oracle separately regardless.
         const digestOracleTarget = decision.historyEntry?.decision?.shouldEscalateTo ?? null;
         if (digestOracleTarget) {
-          const digestFrequency = mergedConfig.scoring?.oracleFrequency ?? "per-stop";
+          const digestFrequency = mergedConfig.scoring?.oracleFrequency ?? "final-only";
           messageText += `\n\n[Oracle routing: frequency=${digestFrequency}] Escalate to ${digestOracleTarget} before proceeding.`;
         }
         // v0.50.x (D8/T6): single escalate/stop digest — intervention + history +
@@ -3146,7 +3146,7 @@ metricsCollector.inc("interventions_delivered");
           // v0.50.x (D8/T6): Oracle section honors oracle.frequency (null target = suppressed).
           const sysOracleTarget = pendingDecision.historyEntry?.decision?.shouldEscalateTo ?? null;
           if (sysOracleTarget) {
-            const sysFrequency = mergedConfig.scoring?.oracleFrequency ?? "per-stop";
+            const sysFrequency = mergedConfig.scoring?.oracleFrequency ?? "final-only";
             interventionText += `\n[Oracle routing: frequency=${sysFrequency}] Escalate to ${sysOracleTarget} before proceeding.`;
           }
           digestSections.push(interventionText);

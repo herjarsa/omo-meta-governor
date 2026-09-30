@@ -318,8 +318,8 @@ describe("scoring-engine", () => {
 // // ─── v0.38.4 Option D: Oracle frequency gating ──────────────
     //
     // Oracle invocation mid-work is now controlled by `oracle.frequency`:
-    //   - "per-stop" (default): Oracle only when action === "stop"
-    //   - "final-only": never mid-work (Oracle only at final-gate)
+    //   - "final-only" (default): never mid-work (Oracle only at final-gate)
+    //   - "per-stop": Oracle only when action === "stop"
     //   - "off": never invoked automatically
     //
     // All three modes keep shouldEscalateTo === null for warn/escalate,
@@ -793,3 +793,18 @@ describe("Deviation temporal decay (v0.29.0)", () => {
   })
 })
 
+
+
+// ─── Nota 2 Oracle (ses_f0ba5f99effeC4eWLGkiyESCcS): default fijado ───
+// El nuevo default de frecuencia Oracle es "final-only": cero
+// interrupciones mid-work; Oracle solo verifica en el final-gate.
+
+describe("defaultScoringConfig — oracle frequency default (nota 2 Oracle)", () => {
+  it("then oracleFrequency defaults to 'final-only'", () => {
+    // given/when
+    const config = defaultScoringConfig()
+
+    // then
+    expect(config.oracleFrequency).toBe("final-only")
+  })
+})

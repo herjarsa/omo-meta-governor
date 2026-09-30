@@ -107,24 +107,24 @@ export interface MetaGovernorPluginConfig {
   modelOverride?: ModelOverrideConfig
 
   /**
-   * v0.38.4: Oracle invocation frequency. Controls when the plugin invokes
+   * Oracle invocation frequency. Controls when the plugin invokes
    * Oracle for verification — reduces noisy mid-work escalations.
    *
-   * - `"per-stop"` (default, Option D): Oracle is invoked ONLY at the
-   *   final-gate (`<promise>DONE</promise>`) AND when score crosses the
-   *   stop threshold (`≤ -stopThreshold`). warn/escalate decisions log
-   *   but do NOT inject an Oracle prompt mid-work. Best balance: silent
-   *   on normal work, brake on emergencies, mandatory at done.
-   *
-   * - `"final-only"` (Option A): Oracle is invoked ONLY at the final-gate.
+   * - `"final-only"` (default): Oracle is invoked ONLY at the final-gate.
    *   Even stop-level decisions log without injecting an Oracle prompt.
-   *   Use when you want zero mid-work interruptions.
+   *   Zero mid-work interruptions.
+   *
+   * - `"per-stop"`: Oracle is invoked ONLY at the final-gate
+   *   (`<promise>DONE</promise>`) AND when score crosses the stop
+   *   threshold (`≤ -stopThreshold`). warn/escalate decisions log but do
+   *   NOT inject an Oracle prompt mid-work. Brake on emergencies,
+   *   mandatory at done.
    *
    * - `"off"`: Oracle is never invoked. The post-wave gate still requires
    *   `oracleVerified` — set it manually via `omo_recall` if you need it.
    */
   oracle?: {
-    /** @default "per-stop" */
+    /** @default "final-only" */
     frequency?: "per-stop" | "final-only" | "off"
   }
 
@@ -435,15 +435,14 @@ export function loadOrchestratorConfig(
       ...(full.scoring?.defaultEscalationTarget !== undefined
         ? { defaultEscalationTarget: full.scoring.defaultEscalationTarget }
         : {}),
-      // v0.38.4 Option D (reaffirmed v0.50.0 D10): Oracle invocation
-      // frequency is DERIVED from `oracle.frequency` (canonical).
-      // `scoring.oracleFrequency` is a deprecated read-only fallback for
-      // pre-v0.38.4 configs — never a user knob. Fallback order:
-      // oracle.frequency -> scoring.oracleFrequency (deprecated) -> "per-stop".
+      // Oracle invocation frequency is DERIVED from `oracle.frequency`
+      // (canonical). `scoring.oracleFrequency` is a deprecated read-only
+      // fallback for pre-v0.38.4 configs — never a user knob. Fallback order:
+      // oracle.frequency -> scoring.oracleFrequency (deprecated) -> "final-only".
       oracleFrequency:
         full.oracle?.frequency ??
         full.scoring?.oracleFrequency ??
-        "per-stop",
+        "final-only",
     },
     // v0.18.0: project all closedLoop fields, not just saveDecisions.
     // Previously maxLessonsPerSession, enabled, minSeverityToLearn, and

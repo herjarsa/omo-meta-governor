@@ -309,7 +309,7 @@
     },
     "oracle": {
       "type": "object",
-      "description": "Oracle invocation frequency (Option D, v0.38.4). Controls when the plugin invokes Oracle for verification mid-work.",
+      "description": "Oracle invocation frequency. Controls when the plugin invokes Oracle for verification mid-work.",
       "additionalProperties": false,
       "properties": {
         "frequency": {
@@ -319,8 +319,8 @@
             "final-only",
             "off"
           ],
-          "default": "per-stop",
-          "description": "per-stop: brake at stop + final-gate. final-only: only final-gate. off: never auto-invoke."
+          "default": "final-only",
+          "description": "final-only: only final-gate. per-stop: brake at stop + final-gate. off: never auto-invoke."
         }
       }
     },

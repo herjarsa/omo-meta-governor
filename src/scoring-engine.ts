@@ -78,10 +78,10 @@ export const defaultScoringConfig = (): ScoringConfig => ({
   stopThreshold: 0.55,
   paralysisThreshold: 3,
   defaultEscalationTarget: "oracle",
-  // v0.38.4: Oracle invocation frequency (Option D default = per-stop).
-  // warn/escalate log only; stop invokes Oracle as a brake; done is
-  // ALWAYS Oracle-verified at the final-gate regardless of this setting.
-  oracleFrequency: "per-stop",
+  // v0.38.4: Oracle invocation frequency (default = final-only).
+  // warn/escalate/stop log only; done is ALWAYS Oracle-verified at the
+  // final-gate regardless of this setting.
+  oracleFrequency: "final-only",
 })
 
 // ─── Signal scoring ────────────────────────────────────────────────
@@ -240,7 +240,7 @@ function selectEscalationTarget(
   if (config.oracleFrequency === "off") return null
   if (config.oracleFrequency === "final-only") return null
 
-  // "per-stop" (default): Oracle ONLY when action is "stop" (the brake).
+  // "per-stop": Oracle ONLY when action is "stop" (the brake).
   // warn and escalate log but do NOT inject Oracle mid-work — the
   // final-gate handles verification. This eliminates the noisy
   // mid-work Oracle prompts that disrupted agent flow.
@@ -391,10 +391,11 @@ export function score(
   }
 
   // 6. Select escalation target
-  // v0.38.4 Option D: selectEscalationTarget now checks oracleFrequency AND
-  // action internally. We call it for ALL actions (not just "escalate") so
-  // the per-stop brake fires when action is "stop". The function returns null
-  // for "continue", "warn", and "escalate" under per-stop/final-only/off modes.
+  // selectEscalationTarget checks oracleFrequency AND action internally.
+  // We call it for ALL actions (not just "escalate") so the per-stop brake
+  // fires when action is "stop". The function returns null for "continue",
+  // "warn", and "escalate" under per-stop/final-only/off modes, and for
+  // "stop" under final-only/off.
   const shouldEscalateTo = selectEscalationTarget(
     ctx,
     resolvedConfig,

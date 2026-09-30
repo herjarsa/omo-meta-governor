@@ -86,18 +86,18 @@ Minimal config to enable the governance pipeline:
 }
 ```
 
-### Oracle frequency (v0.38.4+, Option D)
+### Oracle frequency
 
 Controls when the plugin invokes Oracle for verification:
 
 ```jsonc
 {
   "oracle": {
-    // "per-stop" (default): Oracle invoked ONLY at the final-gate AND when
+    // "final-only" (default): Oracle invoked ONLY at the final-gate. Zero mid-work.
+    // "per-stop": Oracle invoked ONLY at the final-gate AND when
     // scoring reaches stop band (action === "stop"). warn/escalate log only.
-    // "final-only": Oracle invoked ONLY at the final-gate. Zero mid-work.
     // "off": Oracle never invoked automatically. Set oracleVerified manually.
-    "frequency": "per-stop"
+    "frequency": "final-only"
   }
 }
 ```
@@ -107,8 +107,8 @@ ALWAYS invokes Oracle regardless of `oracle.frequency`.
 
 | `frequency` | Mid-work Oracle | Final-gate Oracle | Typical invocations / session |
 |---|---|---|---|
-| `per-stop` (default) | ONLY when scoring reaches the stop band (`action === "stop"`); `warn`/`escalate` log only (`escalation suppressed by oracle.frequency`) | Always | 1 (final-gate) + 1 per stop-level emergency; silent on normal work |
-| `final-only` | Never — even `stop` decisions log without an Oracle prompt | Always | Exactly 1 (final-gate); zero mid-work interruptions |
+| `final-only` (default) | Never — even `stop` decisions log without an Oracle prompt | Always | Exactly 1 (final-gate); zero mid-work interruptions |
+| `per-stop` | ONLY when scoring reaches the stop band (`action === "stop"`); `warn`/`escalate` log only (`escalation suppressed by oracle.frequency`) | Always | 1 (final-gate) + 1 per stop-level emergency |
 | `off` | Never invoked automatically | Never — set `oracleVerified` manually (e.g. via `omo_recall`) | 0 |
 
 Implementation: `selectEscalationTarget()` in `src/scoring-engine.ts`

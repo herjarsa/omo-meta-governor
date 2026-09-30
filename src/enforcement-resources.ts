@@ -32,38 +32,35 @@ export type EnforcementResourceUri = (typeof ENFORCEMENT_RESOURCE_URIS)[number]
 const NUDGE_PREFIX = "[SYSTEM-NUDGE]"
 
 /**
- * Build the Oracle gate rule (v0.38.4 Option D — Oracle frequency).
+ * Build the Oracle gate rule (Oracle frequency).
  *
- * v0.38.4 REWRITE: Oracle is no longer auto-invoked mid-work for every
- * multi-file change. Instead, the `oracle.frequency` config controls when
- * Oracle fires:
- *   - `"per-stop"` (default): Oracle invoked at the final-gate
+ * Oracle is no longer auto-invoked mid-work for every multi-file change.
+ * Instead, the `oracle.frequency` config controls when Oracle fires:
+ *   - `"final-only"` (default): Oracle invoked ONLY at the final-gate.
+ *     Even stop-level decisions log without invoking Oracle mid-work.
+ *   - `"per-stop"`: Oracle invoked at the final-gate
  *     (<promise>DONE</promise>) AND when the scoring engine reaches the
  *     stop band (action === "stop"). warn/escalate log but do NOT
  *     invoke Oracle mid-work.
- *   - `"final-only"`: Oracle invoked ONLY at the final-gate. Even
- *     stop-level decisions log without invoking Oracle mid-work.
  *   - `"off"`: Oracle is NEVER invoked automatically. The agent must
  *     set `oracleVerified` manually (e.g. via omo_recall).
  *
  * The DONE final-gate is ALWAYS Oracle-verified regardless of frequency.
  *
  * Same MCP resource contract as before — `meta-governor://rules/oracle`
- * still returns this text. The previous "INVOKE triggers per multi-file
- * change" was the source of the noise — now mid-work Oracle is
- * gated by score band, not file count.
+ * still returns this text.
  */
 export function buildOracleRule(): string {
   return [
-    `${NUDGE_PREFIX} Oracle Review Gate (v0.38.4 Option D — Oracle frequency)`,
+    `${NUDGE_PREFIX} Oracle Review Gate (Oracle frequency)`,
     ``,
     `The plugin invokes Oracle based on the \`oracle.frequency\` config:`,
     ``,
-    `- \`per-stop\` (default): Oracle fires ONLY at the final-gate AND when`,
+    `- \`final-only\` (default): Oracle fires ONLY at the final-gate. Zero mid-work`,
+    `  invocations, even for stop decisions.`,
+    `- \`per-stop\`: Oracle fires ONLY at the final-gate AND when`,
     `  the scoring engine reaches the stop band (action === "stop").`,
     `  warn and escalate decisions log but do NOT auto-invoke Oracle.`,
-    `- \`final-only\`: Oracle fires ONLY at the final-gate. Zero mid-work`,
-    `  invocations, even for stop decisions.`,
     `- \`off\`: Oracle is NEVER invoked automatically. Set`,
     `  \`oracleVerified\` manually (e.g. via omo_recall).`,
     ``,
