@@ -485,3 +485,41 @@ describe('Config precedence (P1-1 regression)', () => {
     expect(result.graphSync?.reindexOnFetch).toBe(false)
   })
 })
+
+
+// Nota 2 Oracle (ses_f0ba5f99effeC4eWLGkiyESCcS): default fijado.
+// El campo proyectado por loadOrchestratorConfig es scoring.oracleFrequency,
+// derivado de oracle.frequency (canonico) -> scoring.oracleFrequency
+// (deprecated, back-compat) -> "final-only".
+
+describe("loadOrchestratorConfig — oracle frequency default (nota 2 Oracle)", () => {
+  it("then undefined config gives scoring.oracleFrequency 'final-only'", () => {
+    // given/when
+    const result = loadOrchestratorConfig(undefined)
+
+    // then
+    expect(result.scoring.oracleFrequency).toBe("final-only")
+  })
+
+  it("then empty config gives scoring.oracleFrequency 'final-only'", () => {
+    // given/when
+    const result = loadOrchestratorConfig({})
+
+    // then
+    expect(result.scoring.oracleFrequency).toBe("final-only")
+  })
+
+  it("then explicit oracle.frequency 'per-stop' override is respected", () => {
+    // given
+    const config: MetaGovernorPluginConfig = {
+      enabled: true,
+      oracle: { frequency: "per-stop" },
+    }
+
+    // when
+    const result = loadOrchestratorConfig(config)
+
+    // then
+    expect(result.scoring.oracleFrequency).toBe("per-stop")
+  })
+})
