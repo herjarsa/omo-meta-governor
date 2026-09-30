@@ -128,6 +128,7 @@ import {
   loadProtocol,
   buildSystemInjection,
   auditToolCall,
+  isBroadCodebaseQuery,
   DEFAULT_PROTOCOL_PATH,
 } from "./protocol-enforcer";
 import { startSkillsFsWatcher } from "./skills-fs-watcher";
@@ -1256,7 +1257,14 @@ metricsCollector.inc("interventions_delivered");
             `Set workflowGates.requirePlan=false in your config to bypass this gate.`,
           );
         }
-        if (WORKFLOW_GATE_READ_TOOLS.includes(toolInput.tool)) {
+        // Oracle Wave A+B note: broad grep/glob queries also count as
+        // exploration (the agent looked before writing, even if via grep).
+        // Directed single-file access is already exempt from graph-first.
+        if (
+          WORKFLOW_GATE_READ_TOOLS.includes(toolInput.tool) ||
+          ((toolInput.tool === "grep" || toolInput.tool === "glob") &&
+            isBroadCodebaseQuery(toolInput.tool, _output?.args))
+        ) {
           sessionExplored.add(toolInput.sessionID);
         }
 

@@ -98,3 +98,16 @@ describe("workflowGates.requirePlan", () => {
     )
   })
 })
+
+  it("counts a broad grep query as exploration (Oracle note)", async () => {
+    const plugin = makePlugin({ enabled: true, requirePlan: true })
+    const hooks = await plugin(makeInput("D:/test/wfg-d"), {})
+    await hooks["tool.execute.before"]?.(
+      { tool: "grep", sessionID: "s-wfg-4", callID: "c1", args: { pattern: "handleDecision" } },
+      { title: "", output: "", metadata: {} },
+    )
+    await hooks["tool.execute.before"]?.(
+      { tool: "write", sessionID: "s-wfg-4", callID: "c2", args: bigWriteArgs },
+      { title: "", output: "", metadata: {} },
+    )
+  })

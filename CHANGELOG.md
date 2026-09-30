@@ -25,6 +25,11 @@ Sin cambio de versión (lo hace el release script).
   editor fake + MCP adapters), B2 (`src/publish-workflow.test.ts` — sin
   `continue-on-error` en Publish ni Create GitHub Release).
 
+### BREAKING (Oracle Wave A+B note)
+- `cliAnything` corre independiente del guard `graphSync` (opt-out): quien tenia `graphSync.enabled=false` para silenciar todo vera syncs de `cli-anything-hub`. Desactivar explicito con `cliAnything.enabled=false`.
+- Recall filtra `confidence >= 0.5`: lessons viejas de bajo valor dejan de aparecer hasta el backfill `purgeNoiseLessons` (3,571 filas candidatas en DB local, verificado read-only; NO ejecutado en prod).
+- `score()` pisa `continue/warn -> escalate` ante `grave` fresca; nuevo gate opt-in `workflowGates.requirePlan` (default false, sin cambio por defecto).
+
 ### Fixed
 - Desanidado W1-A1: `cliAnything` corre fuera del
   `if (graphSyncEnabledAtInvocation)` con guard propio de 3 capas
