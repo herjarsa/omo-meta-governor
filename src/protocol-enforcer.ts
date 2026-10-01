@@ -75,12 +75,19 @@ export async function loadProtocol(path?: string): Promise<string> {
 
 // ─── buildSystemInjection ────────────────────────────────────────
 
+/**
+ * B1/B2: options.oracleFrequency mirrors scoring.oracleFrequency (default final-only).
+ * It only tunes the rule-4 wording; when omitted the legacy gate and text shape
+ * are preserved so existing callers and tests keep passing. No default change.
+ */
 export function buildSystemInjection(
   _protocolText: string,
-  options?: { oracleVerified?: boolean; filesChanged?: number },
+  options?: { oracleVerified?: boolean; filesChanged?: number; oracleFrequency?: "per-stop" | "final-only" | "off" },
 ): string {
   const oracleVerified = options?.oracleVerified === true;
   const filesChanged = options?.filesChanged ?? 0;
+  // B2: frequency only tunes rule-4 wording; default final-only preserves legacy behavior.
+  const oracleFrequency = options?.oracleFrequency ?? "final-only";
   const lines: string[] = [
     "",
     "## Sisyphus Protocol Enforcement",
@@ -91,31 +98,40 @@ export function buildSystemInjection(
     "",
     "2. **Codebase Graph First**: Before using grep/glob/read for architecture or symbol queries, check whether `.codegraph/` or `graphify-out/` exists. If so, use codegraph/graphify tools first, then grep/read only as last resort.",
     "",
+    // B1: canonical wrapper names (omo_*) — the rest of the plugin (buildProtocolRule,
+    // START PROTOCOL, ROUTING_MATRIX) already routes memory through these wrappers.
+    // Raw agentmemory_* MCP names are kept only as back-compat in auditToolCall below.
     "3. **Tool Routing Table**: Match common intents to the correct tool:",
-    '   - "we did this before" / "you should know" → `agentmemory_memory_recall`',
-    "   - Starting a task that resembles a previous one → `agentmemory_memory_smart_search`",
-    "   - Before asking the user a clarifying question → `agentmemory_memory_recall` first",
-    "   - Save durable insight/decision/rule → `agentmemory_memory_save`",
+    '   - "we did this before" / "you should know" → `omo_recall`',
+    "   - Starting a task that resembles a previous one → `omo_recall_mcp`",
+    "   - Before asking the user a clarifying question → `omo_recall` first",
+    "   - Save durable insight/decision/rule → `omo_remember`",
     "",
   ]
 
   // v0.29.0: emit rule 4 (Post-task Oracle Verification) only when Oracle
   // hasn't already verified in this session. Once oracleVerified=true the
   // agent has done its job and the rule becomes context-window spam — every
-  // subsequent turn re-injects the same "invoke Oracle" reminder. The
-  // protocol-enforcer audit rule (Gap H) still flags a missing Oracle call
-  // on write tools; the system-prompt rule is just the agent's standing
-  // instruction, which can be retired once Oracle has been consulted.
+  // subsequent turn re-injects the same "invoke Oracle" reminder.
+  // B2(a): truth about the audit side — auditToolCall has NO per-turn Oracle audit.
+  // It flags oracle-verification ONLY on IMPLEMENTATION_TOOLS writes once
+  // filesChanged >= 3 && !oracleInvoked (write-gated, not every tool call).
+  // The system-prompt rule below is the agent's standing instruction, retired
+  // once Oracle has been consulted.
   const shouldEmitOracleRule =
     /\boracle\b/i.test(_protocolText) && !(oracleVerified && filesChanged > 0)
   if (shouldEmitOracleRule) {
     lines.push(
-      "4. **Post-task Oracle Verification**: If files touched >= 3 OR any INVOKE trigger matches, invoke Oracle with the exact format:",
+      // B2(b): final-only default — the PLUGIN invokes Oracle at the final-gate,
+      // so the agent must NOT self-invoke mid-work. Manual invocation is only
+      // for per-stop (stop band) or off (manual oracleVerified).
+      "4. **Post-task Oracle Verification** (final-gate; frequency=" + oracleFrequency + "): The PLUGIN invokes Oracle automatically at the final-gate (<promise>DONE</promise>/<promise>PLAN-COMPLETE</promise>). Do NOT invoke Oracle mid-work when frequency is final-only (default: zero mid-work invocations, even for stop decisions).",
+      "   - Invoke Oracle MANUALLY only when: frequency is per-stop AND the scoring engine reached the stop band (action is stop), OR frequency is off AND you need oracleVerified (for example via omo_recall).",
       '   `task(subagent_type="oracle", run_in_background=false, prompt="Verify: ...")`',
-      "   - INVOKE triggers: created 1+ new file, modified abstraction, touched security/auth paths, modified DB/persistence, modified CI/CD, added/removed dependency, modified perf-critical path, todo had 2+ completed items.",
+      "   - Final-gate INVOKE triggers: created 1+ new file, modified abstraction, touched security/auth paths, modified DB/persistence, modified CI/CD, added/removed dependency, modified perf-critical path, todo had 2+ completed items.",
       "   - SKIP only when: files touched <= 2, no new file, no dependency change, single-step task, change is typo/comment/rename only.",
       "   - Verdict: PASS → done. FAIL/CONDITIONAL → fix and re-invoke. Max 3 invocations.",
-      "   - Cost: Max 3 oracle invocations per task. Skip rate: Must NOT skip Oracle on 2+ file change.",
+      "   - Cost: Max 3 oracle invocations per task (final-gate only).",
       "",
     )
   }
@@ -123,7 +139,8 @@ export function buildSystemInjection(
   lines.push(
     "5. **Parallel Query Rule**: Fire independent tool queries in the same turn. Do NOT serialize independent memory/context queries.",
     "",
-    "6. **Empty-Result Escalation**: On empty `agentmemory_memory_recall`, fire `agentmemory_memory_smart_search` + `agentmemory_memory_export` before asking the user.",
+    // B1: wrapper route — on empty omo_recall try omo_recall_mcp (cross-session bridge).
+    "6. **Empty-Result Escalation**: On empty `omo_recall`, try `omo_recall_mcp` (cross-session bridge) before asking the user.",
     "",
     "7. **Hard Rules (No Exceptions)**:",
     "   - Do NOT ask 'where is X?' if memory or session record already contains it.",
@@ -141,7 +158,7 @@ export function buildSystemInjection(
     "   - Verify you did not ask a question whose answer is in those blocks.",
     "   - For multi-file changes, verify Oracle was invoked.",
     "   - For codebase exploration, verify codegraph/graphify was tried before grep/read.",
-    "   - After discovering something non-obvious, save it with `agentmemory_memory_save` so future sessions benefit.",
+    "   - After discovering something non-obvious, save it with `omo_remember` so future sessions benefit.",
     "   - Do NOT save routine operations (file reads, greps, list commands), trivial decisions, or facts already covered by existing memory. Save only novel insights, non-obvious patterns, or corrections to previous assumptions.",
     "",
     "9. **CI Verification Loop (NON-NEGOTIABLE)**: After EVERY step of an implementation plan that produces a code change you intend to keep, you MUST execute the full CI loop BEFORE moving to the next step:",
@@ -405,7 +422,8 @@ export function auditToolCall(
         severity: "leve",
         detail:
           `Used ${toolName} to discover code but no memory save was made afterwards. ` +
-          "Save non-obvious findings with agentmemory_memory_save so future sessions benefit.",
+          // B1: wrapper name — raw agentmemory_memory_save is the underlying MCP.
+          "Save non-obvious findings with omo_remember so future sessions benefit.",
       })
     }
   }
@@ -432,14 +450,16 @@ export function auditToolCall(
         tool: toolName,
         severity: "grave",
         detail:
-          "Memory recall returned empty but agent did not fire smart_search + export " +
+          "Memory recall returned empty but agent did not try omo_recall_mcp " +
           "before asking the user. Steps 1-3 of empty-result escalation protocol are mandatory.",
       })
     }
   }
 
   // ── Rule: Memory first before asking questions ──────────────────
+  // B1: wrappers first; raw agentmemory_* kept as back-compat so old sessions still count.
   const memoryToolPatterns = [
+    "omo_recall", "omo_recall_mcp", "omo_remember",
     "agentmemory_memory_recall", "agentmemory_memory_smart_search",
     "agentmemory_memory_save",
   ]
@@ -454,7 +474,7 @@ export function auditToolCall(
       severity: "grave",
       detail:
         "Asked a question without first querying memory. " +
-        "Must fire agentmemory_memory_recall or agentmemory_memory_smart_search before asking the user.",
+        "Must fire omo_recall or omo_recall_mcp before asking the user.",
     })
   }
 

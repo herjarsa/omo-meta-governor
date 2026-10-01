@@ -114,11 +114,13 @@ export interface MetaGovernorPluginConfig {
    *   Even stop-level decisions log without injecting an Oracle prompt.
    *   Zero mid-work interruptions.
    *
-   * - `"per-stop"`: Oracle is invoked ONLY at the final-gate
-   *   (`<promise>DONE</promise>`) AND when score crosses the stop
-   *   threshold (`≤ -stopThreshold`). warn/escalate decisions log but do
-   *   NOT inject an Oracle prompt mid-work. Brake on emergencies,
-   *   mandatory at done.
+   * - `"per-stop"`: Oracle is invoked at the final-gate
+   *   (`<promise>DONE</promise>`) AND when the scoring engine reaches the
+   *   stop band (action === "stop"). warn/escalate decisions log but do
+   *   NOT invoke Oracle mid-work. Brake on emergencies, mandatory at done.
+   *   (B3: wording copied from enforcement-resources.ts buildOracleRule;
+   *   the previous text said "ONLY at the final-gate ... AND when",
+   *   which is self-contradictory.)
    *
    * - `"off"`: Oracle is never invoked. The post-wave gate still requires
    *   `oracleVerified` — set it manually via `omo_recall` if you need it.

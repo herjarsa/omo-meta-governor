@@ -42,6 +42,10 @@ function baseOptions(): PluginOptions {
       skillPriming: { enabled: false },
       protocolEnforcement: { enabled: true, auditToolCalls: true },
       intervention: { mode: "message", minActionForMessage: "warn" },
+      // Pin workflowGates off inline: only options.meta_governor beats the real
+      // dev file config (~/.config/opencode/omo-meta-governor.jsonc), so without
+      // this the requirePlan gate throws and breaks these hermetic tests.
+      workflowGates: { enabled: false, requirePlan: false },
     },
   } as unknown as PluginOptions;
 }

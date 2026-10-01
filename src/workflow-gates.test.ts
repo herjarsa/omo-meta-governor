@@ -90,8 +90,13 @@ describe("workflowGates.requirePlan", () => {
   })
 
   it("is a no-op when the gate is disabled (default)", async () => {
-    const plugin = makePlugin({})
-    const hooks = await plugin(makeInput("D:/test/wfg-c"), {})
+    // Pin workflowGates off inline: factory-direct config loses to the real dev
+    // file config (file > factory-arg), so only options.meta_governor inline
+    // keeps this hermetic test from throwing the requirePlan gate.
+    const plugin = makePlugin({ enabled: false, requirePlan: false })
+    const hooks = await plugin(makeInput("D:/test/wfg-c"), {
+      meta_governor: { workflowGates: { enabled: false, requirePlan: false } },
+    })
     await hooks["tool.execute.before"]?.(
       { tool: "write", sessionID: "s-wfg-3", callID: "c1", args: bigWriteArgs },
       { title: "", output: "", metadata: {} },

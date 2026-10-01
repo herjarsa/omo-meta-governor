@@ -494,6 +494,9 @@ describe("v0.35.3 Bug B - skill-find gate unlocks on omo_skill_add and omo_skill
         enabled: true,
         protocolEnforcement: { enabled: true, auditToolCalls: false },
         skillPriming: { enabled: true, trigger: "sessionStart", router: "registry", enforceMode: "block" },
+        // Pin workflowGates off inline: only options.meta_governor beats the real
+        // dev file config, so without this the requirePlan gate throws here.
+        workflowGates: { enabled: false, requirePlan: false },
       },
     }
     const mockInput = {
