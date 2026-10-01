@@ -1,6 +1,6 @@
 
 
-## [Unreleased] (W4-C + Waves A/B/C + Wave D P5/P6)
+## [0.52.0] - 2026-10-01
 
 **Docs veraces (W4-C) + governance anti-ruido (Waves A/B/C) + Wave D** —
 `cliAnything` opt-out, `omo_upgrade_*` on-demand, orden init factory y
