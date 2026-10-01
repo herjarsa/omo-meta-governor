@@ -123,6 +123,14 @@ export interface Deviation {
   readonly category: string;
   readonly detail: string;
   readonly filePath?: string;
+  /**
+   * v0.53.0 (adherence): how many times this rule\u2019s directive was
+   * already drained (seen by the agent) when this deviation was recorded.
+   * 0/undefined = first occurrence, not a reincidencia. Grave repeats at
+   * >= ADHERENCE_STOP_REPEAT_THRESHOLD floor the decision to `stop` via
+   * adherenceFloor; leve/media repeats never escalate on their own.
+   */
+  readonly adherenceRepeat?: number;
   /** v0.29.0: wall-clock timestamp (ms) when the deviation was recorded. Used by
    * the scoring engine to apply temporal decay — deviations older than the
    * decay window (default 60s) no longer contribute to the score, so an idle

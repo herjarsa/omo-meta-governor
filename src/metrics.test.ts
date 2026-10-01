@@ -16,7 +16,7 @@ describe("createMetricsCollector", () => {
       expect(snap.counters.interventions_delivered?.count ?? 0).toBe(0)
     })
 
-    test("all 26 MetricEvent types can be incremented", () => {
+    test("all 27 MetricEvent types can be incremented", () => {
       const m = createMetricsCollector({ sessionID: "sess" })
       const events: MetricEvent[] = [
         "decisions_taken",
@@ -48,6 +48,8 @@ describe("createMetricsCollector", () => {
         "governance_tools_hidden",
         "governance_tools_rewritten",
         "governance_commands_blocked",
+        // v0.53.0 (adherence): repeat violations of an already-injected rule
+        "directives_ignored",
       ]
       for (const e of events) m.inc(e)
       const snap = m.getMetrics()

@@ -51,6 +51,7 @@ import type {
   ScoringResult,
   RelevantLesson,
 } from "./types"
+import { adherenceFloor } from "./adherence"
 
 // ─── Default weights ───────────────────────────────────────────────
 
@@ -362,6 +363,27 @@ export function score(
     )
     if (hasFreshGrave) {
       action = "escalate"
+    }
+  }
+
+  // v0.53.0 (adherence): grave third strike floors to `stop`. A repeat of
+  // the same rule AFTER its directive was drained (adherenceRepeat >=
+  // threshold) means the agent ignored an already-seen directive — louder
+  // injection will not help, so the floor becomes `stop`. leve/media
+  // repeats NEVER escalate on their own (adherenceFloor returns null for
+  // non-grave). Paralysis stays supreme (skipped under override) and the
+  // 60s freshness window matches the Wave B floor and scoreDeviations
+  // decay, so stale strikes cannot stop. Uses adherenceFloor as the single
+  // productive call-site (no dead code, no duplicated threshold).
+  if (!paralysisOverride) {
+    const adherenceNow = Date.now()
+    const hasAdherenceStop = ctx.deviations.some((d) => {
+      if (d.severity !== "grave") return false
+      if (d.ts !== undefined && adherenceNow - d.ts > 60_000) return false
+      return adherenceFloor(d.severity, d.adherenceRepeat ?? 0) === "stop"
+    })
+    if (hasAdherenceStop) {
+      action = "stop"
     }
   }
 

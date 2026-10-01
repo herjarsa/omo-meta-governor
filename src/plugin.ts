@@ -100,6 +100,12 @@ import { resolve } from "node:path";
 import { oldPluginPaths, newPluginPaths, migrateOldToNew } from "./utils/migrate";
 import { buildPluginHealth, createThrottledHealthWriter, describeLogFile, writeHealthToFile } from "./health";
 import { createMetricsCollector } from "./metrics";
+import {
+  countRepeat,
+  parseInjectedRules,
+  recordInjection,
+  type InjectedRules,
+} from "./adherence";
 import { handlePermissionAsk } from "./governance/permission-gate";
 import { handleToolDefinition } from "./governance/tool-rewriter";
 import { handleCommandFilter } from "./governance/command-filter";
@@ -867,7 +873,11 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
         mergedConfig.protocolEnforcement.path ?? DEFAULT_PROTOCOL_PATH;
       try {
         protocolText = await loadProtocol(protocolPath);
-        systemInjection = buildSystemInjection(protocolText);
+        // B2: forward the canonical frequency so rule-4 wording matches oracle.frequency.
+        // Default final-only preserves legacy behavior when unset. No default change.
+        systemInjection = buildSystemInjection(protocolText, {
+          oracleFrequency: mergedConfig.scoring?.oracleFrequency ?? "final-only",
+        });
       } catch (err: unknown) {
         // v0.26.1: file-only log (was console.warn â€” leaked into TUI).
         // The `verbosity !== "silent"` guard is preserved so users who
@@ -908,7 +918,17 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
         category: string;
         detail: string;
         filePath?: string;
+        ts?: number;
+        adherenceRepeat?: number;
       }[];
+      /**
+       * v0.53.0 (adherence): rule -> times its directive was drained
+       * (seen by the agent) in this session. Written ONLY at drain time
+       * (pendingViolations consumed into agent context), never at
+       * detection time — an undrained queue may never have been seen.
+       * Read at detection time via countRepeat to decide reincidencia.
+       */
+      injectedRules: InjectedRules;
       /** v0.17.2: rolling window of recent intervention texts. Populated
        *  by messages.transform when intervention fires. Surfaced back into
        *  the LLM context on subsequent interventions when
@@ -1319,6 +1339,7 @@ metricsCollector.inc("interventions_delivered");
             recentPwArgsHashes: [],
             overflowCompactionCount: 0,
             overflowLoopGuardTripped: false,
+            injectedRules: {},
           };
           auditSessions.set(toolInput.sessionID, state);
         }
@@ -1350,6 +1371,27 @@ metricsCollector.inc("interventions_delivered");
           batchCompletions: state.batchCompletions,
         });
 
+        /**
+         * v0.53.0 (adherence): count reincidencia WITHOUT altering the
+         * decision here. A repeat (same rule violated again AFTER its
+         * directive was drained) is evidence the agent ignored an
+         * already-seen directive, so it increments `directives_ignored`.
+         * leve/media repeats never escalate on their own (see
+         * adherenceFloor); only grave repeats at threshold floor to
+         * `stop` downstream in scoring-engine. Detection alone never
+         * marks injectedRules — only the drain does (agent saw it).
+         */
+        for (const v of violations) {
+          const repeat = countRepeat(state.injectedRules ?? {}, v.rule);
+          if (repeat > 0) {
+            metricsCollector.inc("directives_ignored");
+            logToFile(
+              "info",
+              `adherence_ignored rule=${v.rule} repeat=${repeat} severity=${v.severity}`,
+            );
+          }
+        }
+
         if (violations.length > 0) {
           // v0.23.1: cooldown check â€” prevent feedback loop where violations
           // trigger more violations. During cooldown, log but don't queue.
@@ -1367,6 +1409,7 @@ metricsCollector.inc("interventions_delivered");
               category: v.rule,
               detail: v.detail,
               ts: Date.now(),
+              adherenceRepeat: countRepeat(state.injectedRules ?? {}, v.rule),
             }));
             state.accumulatedDeviations = [
               ...state.accumulatedDeviations,
@@ -1406,6 +1449,7 @@ metricsCollector.inc("interventions_delivered");
               category: v.rule,
               detail: v.detail,
               ts: Date.now(),
+              adherenceRepeat: countRepeat(state.injectedRules ?? {}, v.rule),
             }));
             state.accumulatedDeviations = [
               ...state.accumulatedDeviations,
@@ -2461,7 +2505,9 @@ metricsCollector.inc("interventions_delivered");
             // v0.38.6: pendingViolations is deleted INSIDE the gate so the violation
             // stays queued if the push is skipped at session start, then fires on the next turn.
             // v0.43.0: always push with role assistant + informational marker (Phase 1 auditor restore).
-            const violationText = `[META-GOVERNOR PROTOCOL VIOLATIONS - YOU MUST COMPLY]\n\n${violations.map((v, i) => `${i + 1}. ${v}`).join("\n")}\n\nRemember: use codegraph/graphify for architecture queries, do not grep without trying codegraph/graphify first, no @ts-ignore/as-any, no empty catch, check memory before asking.`;
+            // B4: violation text names the omo_* wrappers explicitly — bare
+            // codegraph/graphify left agents guessing which tool to call.
+            const violationText = `[META-GOVERNOR PROTOCOL VIOLATIONS - YOU MUST COMPLY]\n\n${violations.map((v, i) => `${i + 1}. ${v}`).join("\n")}\n\nRemember: use omo_search/omo_find (codegraph/graphify) for architecture queries, do not grep without trying omo_search/omo_find first, no @ts-ignore/as-any, no empty catch, check memory (omo_recall) before asking.`;
             // v0.38.6: skip at session start (would create a fake assistant turn and pause the session).
               // v0.49.0 FASE 11: violation push now fires via system.transform instead.
             persistIntervention(currentSessionID, buildUserStatus("enforcement", `Protocol violations: ${violations.length} detected — detail in agent context.`));
@@ -2469,6 +2515,17 @@ metricsCollector.inc("interventions_delivered");
             const injectState = auditSessions.get(currentSessionID);
             if (injectState) {
               injectState.lastViolationInjectionAtMs = Date.now();
+              /**
+               * v0.53.0 (adherence): mark drained rules as injected — the
+               * agent saw them via this drain. Detection alone never marks
+               * (an undrained queue may never reach the agent). Only the
+               * drain assigns here.
+               */
+              let next = injectState.injectedRules ?? {};
+              for (const rule of parseInjectedRules(violations)) {
+                next = recordInjection(next, rule);
+              }
+              injectState.injectedRules = next;
             }
           }
         }
@@ -2527,6 +2584,7 @@ metricsCollector.inc("interventions_delivered");
             recentPwArgsHashes: [],
             overflowCompactionCount: 0,
             overflowLoopGuardTripped: false,
+            injectedRules: {},
           };
           auditSessions.set(currentSessionID, curState);
         }
@@ -3133,6 +3191,17 @@ metricsCollector.inc("interventions_delivered");
           pendingViolations.delete(sessionID);
           const violationSection = "[META-GOVERNOR] protocol violations detected this session:\n" + pendingViolEntry.items.slice(-3).map((v: string, i: number) => "  " + (i + 1) + ". " + v).join("\n") + "\nAvoid these in subsequent responses.";
           digestSections.push(violationSection);
+          /**
+           * v0.53.0 (adherence): mark drained rules as injected — the agent
+           * saw them via this system-transform drain. Detection alone never
+           * marks (an undrained queue may never reach the agent). Only the
+           * drain assigns here.
+           */
+          let nextInjected = st.injectedRules ?? {};
+          for (const rule of parseInjectedRules(pendingViolEntry.items)) {
+            nextInjected = recordInjection(nextInjected, rule);
+          }
+          st.injectedRules = nextInjected;
         }
 
         // 11f. Decision intervention (FASE 1 0f) - read latest pending decision and push
@@ -3216,6 +3285,7 @@ metricsCollector.inc("interventions_delivered");
             recentPwArgsHashes: [],
             overflowCompactionCount: 0,
             overflowLoopGuardTripped: false,
+            injectedRules: {},
           };
           auditSessions.set(sessionID, sessionState);
         }
