@@ -37,6 +37,7 @@ export interface PluginHealth {
     /** v0.35.0 (Tier 3 watcher): count of new SKILL.md files detected under
      *  cwd/.agents/skills/. Increments per create/write event from chokidar. */
     tier3SkillsCreated: number
+    directivesIgnored: number
     lastDecisionISO: string | null
     lastInterventionISO: string | null
   }
@@ -207,6 +208,7 @@ export function buildPluginHealth(input: BuildPluginHealthInput): PluginHealth {
       materializationFailures: c.materialization_failures?.count ?? 0,
       tier3RemindersSent: c.tier3_reminders_sent?.count ?? 0,
       tier3SkillsCreated: c.tier3_skills_created?.count ?? 0,
+      directivesIgnored: c.directives_ignored?.count ?? 0,
       lastDecisionISO: c.decisions_taken?.lastOccurrenceISO ?? null,
       lastInterventionISO: c.interventions_delivered?.lastOccurrenceISO ?? null,
     },

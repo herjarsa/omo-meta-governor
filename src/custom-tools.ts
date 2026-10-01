@@ -355,7 +355,8 @@ export function buildOmoHealthTool(deps: OmoHealthDeps) {
         `| Interventions skipped | ${health.session.interventionsSkipped} | — |\n` +
         `| Orchestrator runs | ${health.metrics.orchestratorRuns} | — |\n` +
         `| Orchestrator errors | ${health.metrics.orchestratorErrors} | — |\n` +
-        `| Protocol violations | ${health.session.violationsDetected} | — |\n\n` +
+        `| Protocol violations | ${health.session.violationsDetected} | — |\n` +
+        `| Directives ignored | ${health.metrics.directivesIgnored} | — |\n\n` +
         `## Files\n` +
         `- Health JSON: \`${deps.healthFilePath}\`\n` +
         `- Log file: \`${deps.logFilePath}\`\n\n` +
