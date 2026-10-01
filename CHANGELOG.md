@@ -1,5 +1,45 @@
 
 
+## [0.53.0] - 2026-10-01
+
+**Directivas veraces + adherence por strikes + hermeticos pineados** —
+B1 tabla de routing del system prompt migrada de `agentmemory_*` crudos a
+wrappers `omo_*`; B2 regla 4 Oracle coherente con `oracle.frequency`
+`final-only`; B3 JSDoc de `config.ts` corregido; B4 textos de violacion
+nombran `omo_search`/`omo_find`; metrica `directives_ignored` en
+`omo_health` con escalado solo en graves al 3er strike; 10 tests
+no-hermeticos pinean `workflowGates` inline.
+
+### Fixed
+- B1: tabla de routing del system prompt migrada de `agentmemory_*` crudos
+a wrappers `omo_*` (doble tabla contradictoria activa con
+`protocolEnforcement.injectIntoSystem`) — `src/protocol-enforcer.ts`.
+- B2: regla 4 Oracle coherente con `oracle.frequency=final-only` +
+comentario honesto (no existe audit per-turn de Oracle).
+- B3: JSDoc de `config.ts` corregido.
+- B4: texto de violaciones nombra `omo_search`/`omo_find`.
+- 10 tests no-hermeticos pinean `workflowGates` inline (la config real del
+dev con `requirePlan:true` los rompia) — `src/workflow-gates.test.ts`,
+`src/memory-nudge.test.ts`, `src/skill-hub-tools.test.ts`.
+
+### Added
+- Adherence: metrica `directives_ignored` en `omo_health` —
+`src/metrics.ts`, `src/scoring-engine.ts`.
+- Reincidencia = misma regla violada tras drenaje (marca solo al drenar);
+grave al 3er strike escala a `stop`, leve/media solo cuentan; paralysis
+sigue supremo (no puede deadlock) — `src/plugin.ts`.
+- Helpers puros en `src/adherence.ts` (nuevo) con cap de 50 reglas —
+`src/adherence.test.ts` (nuevo).
+
+### Tests
+- Suite completa 1382 pass / 4 skip / 0 fail; typecheck exit 0.
+
+### Ship protocol compliance
+- ✅ `bun run typecheck` clean (exit 0)
+- ✅ Full suite green — `bun test` 1382 pass / 4 skip / 0 fail
+- ✅ B1/B2/B3/B4 verificados contra `protocolEnforcement.injectIntoSystem` + `oracle.frequency=final-only`
+- ✅ Adherence: strikes solo en graves (3er strike -> stop), paralysis supremo sin deadlock, cap 50 reglas
+
 ## [0.52.0] - 2026-10-01
 
 **Docs veraces (W4-C) + governance anti-ruido (Waves A/B/C) + Wave D** —
