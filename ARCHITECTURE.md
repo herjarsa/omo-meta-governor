@@ -87,7 +87,7 @@ When `intervention.mode !== "silent"`, decisions that meet the `minActionForMess
 
 ### Rate Limiting and Termination
 
-- `maxInterventionsPerSession` (default: 3) — hard cap per session; once reached, `interventionDisabled` latches to `true`.
+- `maxInterventionsPerSession` (default: 5) — hard cap per session (see Wave A P3 note above). Since Wave A P3 only quota-consuming actions (`escalate`/`stop` via `consumesInterventionQuota()` in `src/plugin.ts:~247`) increment the count — `continue`/`warn` are free — 5 covers a full session (see Wave A P3 below); once reached, `interventionDisabled` latches to `true`.
 - `respectDoneSignal` — when `true`, intervention stops after the agent emits a terminal completion signal AND Oracle has verified.
 - `phaseAwareDoneSignal` (v0.15.0) — when `true`, only `<promise>PLAN-COMPLETE</promise>` is terminal. `<promise>DONE</promise>` and `<promise>PHASE-N-COMPLETE</promise>` are per-phase hints that do NOT latch intervention. Recommended for multi-phase plans.
 
@@ -401,6 +401,67 @@ JSONC files support comments and trailing commas (`src/config-file.ts` strips th
 | `tokenPredictor` | Burn rate thresholds, window size |
 | `closedLoop` | Lesson persistence, severity thresholds |
 | `modelOverride` | Provider/model for internal LLM usage |
+| `workflowGates` | Opt-in workflow awareness: `{enabled, requirePlan}` (default off; see Wave B B2) |
+| `oracle` | Oracle invocation policy: `frequency final-only` default (see Wave D; cost table in README Oracle section) |
+
+## Governance Hardening — Waves A–D (v0.51.x)
+
+Inventario real (`git log --oneline -12`): `c785238` docs BREAKING oracle final-only, `f732220` test pin final-only, `e3792b5` feat oracle final-only, `fe9d339` fix ENOENT protocol, `3ae8653` timeout 15s auditor-reflection, `16a4b2f` memory nudge DONE solo-main, `66933b9` matriz canonica en descripciones, `074e9c5` matriz unica + tests hermeticos, `01079a9` rubric good/bad, `08603a4` notas Oracle Wave A+B, `e6cb54b` Wave A ruido + Wave B conciencia, `3aeb248` cliAnything desanidado.
+
+### Wave A — P1 lesson-spam guard (`src/closed-loop-learning.ts:~32-60,215-259`, `src/sqlite-backend.ts:~26,88-89,235-260,301-356`)
+
+- Umbral `MIN_LESSON_CONFIDENCE = 0.5` (`closed-loop-learning.ts:~36`): `lessonConfidenceForDecision()` = max(|score|, mejor confidence de evidencia), clamped a [0.3, 0.8]; un `continue` con score debil colapsa al floor 0.3 y no persiste.
+- `dedupe_key` estable (`closed-loop-learning.ts:~232` + `sqlite-backend.ts:~89,244,260`): columna aditiva via migracion (tablas pre-existentes no se tocan), indice `idx_entries_dedupe(kind, dedupe_key)`, lookup `dedupeLookup` antes de insertar.
+- Defensa en profundidad: `saveLesson` rechaza `confidence < 0.5` (`sqlite-backend.ts:~305-311`); recall FTS filtra `e.confidence >= 0.5` (`sqlite-backend.ts:~256`) — BREAKING: recall ya no devuelve lecciones de bajo valor (las 3,571 filas candidatas en DB de desarrollo el 30-sep, 3,604 al cierre de Wave D a 0.3 que inundaban recall).
+- `purgeNoiseLessons()` (`sqlite-backend.ts:~343-356`): purga one-shot de ruido historico (`kind='lesson' AND confidence < 0.5 AND title LIKE 'Action "continue"%'`).
+
+### Wave A — P2 graph-first scoping (`src/protocol-enforcer.ts:~236-310`)
+
+- `isBroadCodebaseQuery(toolName, args)` (`protocol-enforcer.ts:~236`) distingue busquedas amplias de lecturas dirigidas: `grep` con path/archivo concreto, `glob` con patron estrecho o `read` dirigido → exento (no es violacion `codebase-graph-first`); `grep` sin args/objeto vacio → amplio (`~237-243`).
+- Solo el caso amplio con `.codegraph/` o `graphify-out/` presente emite la violacion `codebase-graph-first` (severidad media, `~301-310`).
+
+### Wave A — P3 quota por severidad + cap 5 (`src/plugin.ts:~240-247,2107-2155,2535-2542`, `src/orchestrator.ts:~71`)
+
+- `consumesInterventionQuota(action)` (`plugin.ts:~247`): solo `escalate`/`stop` consumen quota; `continue`/`warn` son gratis (ruido informativo sin coste de cap).
+- `maxInterventionsPerSession` default 5 (`orchestrator.ts:~71`, `plugin.ts:~2115,2535`): 5 cubre una sesion completa bajo quota por severidad.
+- Latch de defensa en profundidad (`plugin.ts:~2537-2542`): el latch `interventionDisabled` solo salta en acciones que consumen quota; los `warn` nunca lo disparan.
+
+### Wave A — P4 semver normalizado + stale-cache TTL (`src/graph-sync.ts:~565-620,1036-1052`, `src/plugin.ts:~27,482`)
+
+- `shouldWarnStaleCache(installed, latest)` (`graph-sync.ts:~1038`) con version normalizada (semver; builds locales newer-than-npm en silencio, pura sin I/O).
+- Respeto de TTL: `isCacheFresh(cache, ttlMs)` + `shouldUpgrade(..., ttlMs, field)` (`graph-sync.ts:~567-585`); cuando la cache ya estaba fresca no se re-fetch ni se bumpa `checkedAtMs` (`~613-620`). `upgradeCheckTtlMs` default 24h.
+- Consumo en `plugin.ts:~482`: el aviso de cache stale solo se emite via `shouldWarnStaleCache(DEFAULT_VERSION, latest)`.
+
+### Wave B — B1 grave floor + paralysis supremo (`src/scoring-engine.ts:~75-79,174,227,252,343-356`)
+
+- `score()`: violacion grave fresca (p. ej. as-any + patron de riesgo) eleva el piso `continue`/`warn` → `escalate` (`scoring-engine.ts:~353-356`), para que el agente deba atenderla en vez de tratarla como aviso.
+- Paralysis override sigue supremo (`~343-349,262-263`): N stops consecutivos (default 3, `paralysisThreshold`) fuerza `continue` con warning aunque haya tumba grave — rompe loops de stop. `escalateThreshold 0.45` / `stopThreshold 0.55` mantienen la escalada alcanzable (`~75-79`); tumba grave ya verificada por Oracle escala al usuario (`~251-252`).
+
+### Wave B — B2 workflowGates opt-in (`src/types.ts:~607-616,795`, `src/config.ts:~253-255,595-597`, `src/orchestrator.ts:~110-112`)
+
+- `WorkflowGatesConfig {enabled, requirePlan}` (`types.ts:~607-616`), ambos default `false` (opt-in; `config.ts:~595-597`, `orchestrator.ts:~110-112`).
+- Con el gate activo, un `grep` amplio cuenta como exploracion (no exige plan previo); sin plan el gate solo sugiere, nunca bloquea.
+
+### Wave C — routing canonico + memoria + tests hermeticos
+
+- `src/routing-matrix.ts` canonico (`~26,103-155`): `ROUTING_MATRIX`, `recommendedTools()`, `formatRoutingMatrixLines()`, `formatDigestRouting()`; `routingSuffixFor(toolName)` (`src/custom-tools.ts:~86-100`) inyecta el sufijo de routing en las descripciones de las herramientas de discovery (codegraph/graphify/recall).
+- Rubric GOOD/BAD en `omo_remember` + agentmemory rule (`src/custom-tools.ts:~599-605`): SAVE solo senal novedosa no-obvia; GOOD cita mistake + que-hacer + donde; BAD es rutina sin que/donde.
+- Memory nudge en gate DONE solo-sesion-principal (`src/plugin.ts:~928,1053,1303,1679-1684,2511,3200`): `memoryNudgeSent` + `memoryNudgePending`/`autoRemember*` como `TtlBoundedMap` (1000 sesiones, TTL 24h); el nudge no se repite ni fuga a subagentes.
+- Tests hermeticos de governance (pin inline, sin red/procesos): matriz de routing, rubric, quota por severidad, grave floor, final-only default.
+- Timeouts 15s en auditor-reflection (flake Windows/CI lento; `3ae8653`).
+
+### Wave D — protocolo silencioso + oracle final-only
+
+- `loadProtocol()` (`src/protocol-enforcer.ts:~32,45-58`): `ENOENT` de `sisyphus-mandatory.md` → retorna cadena vacia + un unico `warn` accionable; las reglas siguen inyectandose y el log de arranque deja de ensuciarse (`fe9d339`).
+- `oracle.frequency` default `final-only` (`src/orchestrator.ts:~53-58`; `e3792b5`, pin `f732220`, docs `c785238`): cero interrupciones mid-work; `warn`/`escalate` loguean sin invocar Oracle mid-work (`src/scoring-engine.ts:~244`); `done` siempre verificado por Oracle. Tabla de coste/frecuencia: ver README seccion Oracle frequency (`README.md:~89-117`) — este documento la referencia, no la duplica.
+
+### BREAKING acumulados (Waves A–D)
+
+| Cambio | Efecto | Mitigacion |
+|--------|--------|------------|
+| `cliAnything` independiente de `graphSync` (`src/plugin.ts` factory; `3aeb248`) | Desactivar `graphSync` ya no desactiva CLI-hub | Ninguna (intencionado; `reindexOnFetch` sigue bajo el guard de graphSync) |
+| `omo_recall` filtra `confidence >= 0.5` (P1) | Lecciones de ruido historico desaparecen de recall | `purgeNoiseLessons()` + re-aprender con alta confianza |
+| `oracle.frequency` default `final-only` (Wave D) | Sin verificaciones Oracle mid-work por defecto | Fijar `oracle.frequency: per-stop` para el comportamiento anterior |
 
 ## Build
 

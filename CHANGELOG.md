@@ -122,9 +122,11 @@ Windows; P5 cero-ENOENT en protocolo opcional; P6 tabla de costes + BREAKING def
 - Full suite: see CI.
 
 ### Ship protocol compliance
-- ✅ `bun run typecheck` clean
-- ✅ targeted suites green + full suite green required (tag-push OIDC flow)
-- ✅ Oracle review gate required (Tier 2: 3+ files + core logic)
+- ✅ `bun run typecheck` clean (exit 0, sin `as-any`)
+- ✅ Full suite green — `bun test` 0 fail (targeted + Wave D + herméticos)
+- ✅ CI verde en los ultimos 5 runs de main (ubuntu/macos/windows); el unico rojo (16a4b2f, test-windows) se corrigio en 3ae8653
+- ✅ Oracle review: 0 blockers en Fix A/B, Wave A/B, routing-matrix, memory-nudge, routing-suffix, Wave D y oracle-default (1 blocker encontrado y corregido: fuga del nudge a subagentes)
+- ✅ 3 BREAKING documentados: `cliAnything` independiente de `graphSync`; recall `confidence>=0.5` + `purgeNoiseLessons` (3,604 filas candidatas); `oracle.frequency` default `final-only`
 
 ## [0.51.0] - 2026-09-27
 
