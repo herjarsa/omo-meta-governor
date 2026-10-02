@@ -162,6 +162,9 @@ describe("conscience content — real lesson, not verbatim dump", () => {
           enabled: true,
           skillPriming: { enabled: false },
           intervention: { mode: "message", minActionForMessage: "warn" },
+          // Hermetic pin: auditToolCalls true inline so CI (no dev config file,
+          // default false) matches dev. Same pattern as plugin.test.ts / memory-nudge.test.ts.
+          protocolEnforcement: { enabled: true, injectIntoSystem: false, auditToolCalls: true },
           closedLoop: { autoRemember: { enabled: true, cooldownMs: 0, dedupe: false } },
         },
       } as PluginOptions);
@@ -195,6 +198,9 @@ describe("conscience content — real lesson, not verbatim dump", () => {
           enabled: true,
           skillPriming: { enabled: false },
           intervention: { mode: "message", minActionForMessage: "warn" },
+          // Hermetic pin: auditToolCalls true inline so the seeded write deviation
+          // is recorded in CI (dev config file absent -> default false).
+          protocolEnforcement: { enabled: true, injectIntoSystem: false, auditToolCalls: true },
           closedLoop: { autoRemember: { enabled: true, cooldownMs: 0, dedupe: false } },
         },
       } as PluginOptions);

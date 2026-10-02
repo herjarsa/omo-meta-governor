@@ -355,6 +355,10 @@ describe("P1 autoRemember 5-minute cooldown wiring", () => {
           enabled: true,
           skillPriming: { enabled: false },
           intervention: { mode: "message", minActionForMessage: "warn" },
+          // Hermetic pin: auditToolCalls true inline so tool.execute.before
+          // accumulates deviations in CI (dev config file absent -> default false).
+          // Same pattern as plugin.test.ts / memory-nudge.test.ts.
+          protocolEnforcement: { enabled: true, injectIntoSystem: false, auditToolCalls: true },
           // cooldownMs deliberately OMITTED: the projected default (300000
           // = 5min) must apply. dedupe:false isolates the cooldown gate
           // from the content-dedupe gate.
@@ -365,6 +369,10 @@ describe("P1 autoRemember 5-minute cooldown wiring", () => {
         i: unknown,
         o: unknown,
       ) => Promise<void>;
+      // Seed a REAL rule deviation (grave double-suppression) so the SKIP guard
+      // does not swallow the escalates — same pattern as auto-remember 4/8 and QA4-QA6.
+      const beforeT3 = (plugin as unknown as Record<string, unknown>)["tool.execute.before"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+      await beforeT3({ tool: "write", sessionID: sid, callID: "call-seed" }, { args: { filePath: "/tmp/seed.ts", content: "// @ts-ignore\nconst x = 1 as any;" } });
 
       storeDecision(sid, makePluginDecision("escalate", sid, "[MetaGovernor] first escalate alpha"));
       await transform({}, midSessionOutput(sid));

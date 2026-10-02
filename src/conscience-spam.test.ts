@@ -121,6 +121,10 @@ async function makePlugin(
       enabled: true,
       skillPriming: { enabled: false },
       intervention: { mode: "message", minActionForMessage: "warn" },
+      // Hermetic pin: auditToolCalls must be true inline so tool.execute.before
+      // accumulates deviations in CI (dev config file absent -> default false).
+      // Same pattern as plugin.test.ts / memory-nudge.test.ts.
+      protocolEnforcement: { enabled: true, injectIntoSystem: false, auditToolCalls: true },
       ...(closedLoopOverride ? { closedLoop: closedLoopOverride } : {}),
     },
   } as PluginOptions);

@@ -100,6 +100,10 @@ function baseOptionsWithIntervention(extra?: Record<string, unknown>): PluginOpt
       enabled: true,
       skillPriming: { enabled: false },
       intervention: { mode: "message", minActionForMessage: "warn" },
+      // Hermetic pin: auditToolCalls must be true inline so tool.execute.before
+      // accumulates deviations in CI (where the dev config file is absent and
+      // the default is false). Same pattern as plugin.test.ts / memory-nudge.test.ts.
+      protocolEnforcement: { enabled: true, injectIntoSystem: false, auditToolCalls: true },
       closedLoop: { autoRemember: { enabled: true } },
       ...extra,
     },
@@ -226,6 +230,8 @@ describe("conscience auto-remember — escalate|stop fire for main agent only (s
           enabled: true,
           skillPriming: { enabled: false },
           intervention: { mode: "message", minActionForMessage: "warn" },
+          // Hermetic pin (see baseOptionsWithIntervention): auditToolCalls true so the seeded deviation is recorded in CI.
+          protocolEnforcement: { enabled: true, injectIntoSystem: false, auditToolCalls: true },
           closedLoop: { autoRemember: { enabled: true, cooldownMs: 600_000, dedupe: false } },
         },
       } as PluginOptions);
@@ -264,6 +270,8 @@ describe("conscience auto-remember — escalate|stop fire for main agent only (s
           enabled: true,
           skillPriming: { enabled: false },
           intervention: { mode: "message", minActionForMessage: "warn" },
+          // Hermetic pin (see baseOptionsWithIntervention): keep audit path identical in CI and dev.
+          protocolEnforcement: { enabled: true, injectIntoSystem: false, auditToolCalls: true },
           closedLoop: { autoRemember: { enabled: false } },
         },
       } as PluginOptions);
