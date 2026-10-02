@@ -364,6 +364,41 @@ export class SqliteBackend implements AgentmemoryWriteBackend, AgentmemoryBacken
     return n
   }
 
+  /**
+   * Top lessons by confidence — session-start recall source (v0.53.1).
+   *
+   * WHY this exists: at session start there is no query context yet (no tool
+   * calls, no violations), so FTS `smartSearch` has nothing to match — an empty
+   * query returns `""` (no matches by design). Recall still needs the highest-
+   * value signal: `kind='lesson' AND confidence>=0.5` (the same P1 floor that
+   * keeps the 5311-row Action-continue spam class out of recall), ordered by
+   * confidence DESC then recency. Returns at most `limit` rows (default 3).
+   * Empty DB → empty array (caller injects nothing — zero noise).
+   */
+  topLessons(limit = 3): Promise<RawLesson[]> {
+    const rows = this.db.prepare(
+      `SELECT id, title, content, tags, files, confidence, advice FROM entries WHERE kind = 'lesson' AND confidence >= ` + MIN_LESSON_CONFIDENCE + ` ORDER BY confidence DESC, created_at DESC LIMIT ?`
+    ).all(limit) as Array<{
+      id: string
+      title: string
+      content: string
+      tags: string
+      files: string
+      confidence: number
+      advice: string | null
+    }>
+    return Promise.resolve(rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      content: r.content,
+      type: "lesson",
+      concepts: safeJsonArray(r.tags),
+      confidence: r.confidence,
+      files: safeJsonArray(r.files),
+      advice: (r.advice as RawLesson["advice"]) ?? "info",
+    })))
+  }
+
   // -------- AgentmemoryBackend (memory-aggregator interface) --------
 
   smartSearch(input: { query: string; limit?: number }): Promise<{

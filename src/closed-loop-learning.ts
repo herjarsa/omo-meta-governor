@@ -98,8 +98,13 @@ function severityMeetsThreshold(
  * Extract concepts from deviations for the lesson. Optionally include file
  * basenames from the broader filePaths list so FTS indexing covers all
  * recently changed files (Gap Q completeness, v0.17.2).
+ *
+ * v0.53.1 (conscience-content fix): exported for reuse by the auto-remember
+ * path so concepts derive from REAL rule deviations (categories + basenames)
+ * instead of the generic ['conscience','media'] pair. Generic concepts
+ * pollute FTS recall with noise; real categories keep recall precise.
  */
-function extractConcepts(
+export function extractConcepts(
   deviations: readonly Deviation[],
   filesChanged: readonly string[] = [],
 ): string[] {
@@ -109,13 +114,13 @@ function extractConcepts(
     concepts.add(d.severity)
     if (d.filePath) {
       // Index the basename for FTS lookup by tool/file name
-      const basename = d.filePath.split("/").pop() ?? d.filePath
-      concepts.add(basename)
+      const basename = basenameOf(d.filePath)
+      if (basename) concepts.add(basename)
     }
   }
   // v0.17.2: also index file basenames from broader file change set
   for (const filePath of filesChanged) {
-    const basename = filePath.split("/").pop() ?? filePath
+    const basename = basenameOf(filePath)
     if (basename) concepts.add(basename)
   }
   return [...concepts]
@@ -358,9 +363,57 @@ export function conscienceDedupeKey(input: ConscienceDedupeKeyInput): string {
 }
 
 /**
+ * Basename for FTS indexing — handles POSIX and Windows separators.
+ * Keeps whereToGo/concepts as real PLACES (file names) instead of
+ * meta-instructions about which tool to call.
+ */
+export function basenameOf(filePath: string): string {
+  const parts = filePath.split(/[\\/]/);
+  const base = parts.pop() ?? filePath;
+  return base.trim();
+}
+
+/**
+ * Derive the conscience `mistake` from REAL rule deviations — never the raw
+ * scoring reasoning. A raw dump like 'Stop (score: -0.552): primary concern:
+ * Iteration ratio...' describes the JUDGE ('the session is long'), not a
+ * learnable rule violation. The learnable unit is `${category}: ${detail}`
+ * from the first non-conscience deviation; when several exist they are joined
+ * with '; ' and truncated to ~300 chars so the saved lesson stays scannable.
+ */
+export function conscienceMistakeFromDeviations(deviations: readonly Deviation[]): string {
+  const real = deviations.filter((d) => d.category !== "conscience");
+  const source = real.length > 0 ? real : deviations;
+  const joined = source.map((d) => `${d.category}: ${d.detail}`).join("; ");
+  return joined.slice(0, 300);
+}
+
+/**
+ * Derive conscience `whereToGo` as a PLACE — basenames of changed files —
+ * never meta-instructions. The old value ('Persist via omo_remember; recall
+ * via omo_recall...') told the agent WHERE in tool-space, not where in the
+ * repo the rule applies. When no files exist, `session:<id>` scopes the
+ * lesson to the session instead of inventing a location.
+ */
+export function conscienceWhereToGo(files: readonly string[], sessionID: string): string {
+  const bases = files.map((f) => basenameOf(f)).filter((b) => b.length > 0);
+  const unique = [...new Set(bases)].slice(0, 3);
+  if (unique.length > 0) return unique.join(", ");
+  return `session:${sessionID}`;
+}
+
+/**
  * Structured conscience memory content (D4/D6). Built via buildLessonContent
  * + extractConcepts — never a raw dump. Delivery route is always the
  * Zod-validated omo_remember tool.
+ *
+ * v0.53.1 (conscience-content fix): content is pure lesson — no `ToolRoute:`
+ * self-reference. The agent already knows the tool from the preamble
+ * ('Conscience lesson — persist it via omo_remember'); persisting the route
+ * inside the lesson pollutes recall with meta-instructions. `toolRoute` is
+ * kept as an optional deprecated passthrough so old callers still compile,
+ * but it is NEVER rendered. Concepts derive from REAL deviations via
+ * extractConcepts, not the generic ['conscience','media'] pair.
  */
 export interface BuildConscienceMemoryContentInput {
   // Oracle note 3: real decision action - stop lessons must read Action stop, not escalate.
@@ -368,9 +421,21 @@ export interface BuildConscienceMemoryContentInput {
   readonly mistake: string
   readonly whatToDo: string
   readonly whereToGo: string
-  readonly toolRoute: "omo_remember"
+  /**
+   * Deprecated self-reference — accepted for compat but never rendered.
+   * The preamble already names omo_remember; the saved CONTENT must be
+   * pure lesson (mistake/whatToDo/whereToGo) without tool routing noise.
+   */
+  readonly toolRoute?: "omo_remember"
   readonly score: number
   readonly files: readonly string[]
+  /**
+   * Real rule deviations (category !== 'conscience'). Used for the lesson
+   * base + concepts so recall indexes violated rules, not the synthetic
+   * conscience wrapper. When omitted, falls back to the legacy synthetic
+   * single-deviation for backward compat with direct unit callers.
+   */
+  readonly deviations?: readonly Deviation[]
 }
 
 export interface ConscienceMemoryContent {
@@ -379,18 +444,19 @@ export interface ConscienceMemoryContent {
 }
 
 export function buildConscienceMemoryContent(input: BuildConscienceMemoryContentInput): ConscienceMemoryContent {
-  const deviations: Deviation[] = [
+  const provided = (input.deviations ?? []).filter((d) => d.category !== "conscience");
+  const deviations: readonly Deviation[] = provided.length > 0 ? provided : [
     { severity: "media", category: "conscience", detail: input.mistake },
   ]
   const decision: Decision = {
     action: input.action,
     score: input.score,
-    reasoning: `${input.whatToDo} -> ${input.whereToGo} via ${input.toolRoute}`,
+    reasoning: `${input.whatToDo} -> ${input.whereToGo}`,
     evidence: [],
     shouldEscalateTo: null,
   }
   const base = buildLessonContent(decision, deviations)
-  const content = `${base}\nMistake: ${input.mistake}\nWhatToDo: ${input.whatToDo}\nWhereToGo: ${input.whereToGo}\nToolRoute: ${input.toolRoute}`
+  const content = `${base}\nMistake: ${input.mistake}\nWhatToDo: ${input.whatToDo}\nWhereToGo: ${input.whereToGo}`
   const concepts = extractConcepts(deviations, input.files)
   return { content, concepts }
 }

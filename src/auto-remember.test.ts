@@ -194,6 +194,10 @@ describe("conscience auto-remember — escalate|stop fire for main agent only (s
         }),
       )(mockPluginInput(dir), baseOptionsWithIntervention());
       const transform = plugin["experimental.chat.messages.transform"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+      // v0.53.1: seed a REAL rule deviation — bare escalate without a violated
+      // rule is 'the session is long', not a learnable lesson (SKIP).
+      const before = (plugin as unknown as Record<string, unknown>)["tool.execute.before"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+      await before({ tool: "write", sessionID: sid, callID: "call-seed" }, { args: { filePath: "/tmp/seed.ts", content: "// @ts-ignore\nconst x = 1 as any;" } });
       storeDecision(sid, makeDecision("escalate", sid));
       await transform({}, midSessionOutput(sid));
       storeDecision(sid, makeDecision("escalate", sid));
@@ -226,6 +230,9 @@ describe("conscience auto-remember — escalate|stop fire for main agent only (s
         },
       } as PluginOptions);
       const transform = plugin["experimental.chat.messages.transform"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+      // v0.53.1: seed a REAL rule deviation (SKIP otherwise).
+      const before5 = (plugin as unknown as Record<string, unknown>)["tool.execute.before"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+      await before5({ tool: "write", sessionID: sid, callID: "call-seed" }, { args: { filePath: "/tmp/seed.ts", content: "// @ts-ignore\nconst x = 1 as any;" } });
       storeDecision(sid, makeDecision("escalate", sid));
       await transform({}, midSessionOutput(sid));
       const second = makeDecision("escalate", sid);
@@ -286,6 +293,9 @@ describe("conscience auto-remember — escalate|stop fire for main agent only (s
         }),
       )(mockPluginInput(dir), baseOptionsWithIntervention());
       const transform = plugin["experimental.chat.messages.transform"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+      // v0.53.1: seed a REAL rule deviation (SKIP otherwise).
+      const before7 = (plugin as unknown as Record<string, unknown>)["tool.execute.before"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+      await before7({ tool: "write", sessionID: sid, callID: "call-seed" }, { args: { filePath: "/tmp/seed.ts", content: "// @ts-ignore\nconst x = 1 as any;" } });
       await transform({}, midSessionOutput(sid));
       expect(autoRememberCalls.length).toBe(1);
       expect(autoRememberCalls[0]!.sessionID).toBe(sid);
@@ -322,6 +332,9 @@ describe("conscience auto-remember — escalate|stop fire for main agent only (s
         }),
       )(mockPluginInput(dir), baseOptionsWithIntervention());
       const transform = plugin["experimental.chat.messages.transform"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+      // v0.53.1: seed a REAL rule deviation (SKIP otherwise).
+      const before8 = (plugin as unknown as Record<string, unknown>)["tool.execute.before"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+      await before8({ tool: "write", sessionID: sid, callID: "call-seed" }, { args: { filePath: "/tmp/seed.ts", content: "// @ts-ignore\nconst x = 1 as any;" } });
       await transform({}, midSessionOutput(sid));
       expect(autoRememberCalls.length).toBe(1);
       expect(autoRememberCalls[0]!.sessionID).toBe(sid);

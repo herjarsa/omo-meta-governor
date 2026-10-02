@@ -123,7 +123,7 @@ import { TtlBoundedMap } from "./utils/ttl-bounded-map";
 import { isSessionStart } from "./utils/session-start";
 import { wrapInformational, buildUserStatus } from "./agent-notifications";
 import { formatDigestRouting, formatGraphRoutingBulletsES } from "./routing-matrix";
-import { shouldPersistConscienceMemory, conscienceDedupeKey, buildConscienceMemoryContent } from "./closed-loop-learning";
+import { shouldPersistConscienceMemory, conscienceDedupeKey, buildConscienceMemoryContent, conscienceMistakeFromDeviations, conscienceWhereToGo } from "./closed-loop-learning";
 import { bootstrapChoreSkills } from "./skills-bootstrap.js";
 
 import { DEFAULT_VERSION } from "./metrics";
@@ -220,11 +220,50 @@ __test_persistSessionMessage?: typeof import("./session-bridge").persistSessionM
    * off-track. Captures the full directive text so tests can assert content.
    */
   __test_reflectionPrompt?: (payload: { sessionID: string; text: string }) => void;
+  /**
+   * v0.53.1 (session-recall): test-only seam for session-start recall — lets
+   * hermetic tests point recall at a tmp SqliteBackend file instead of the
+   * prod DB (~/.omo-meta-governor/meta-governor.db). Prod passes nothing and
+   * recall reads getDefaultSqliteBackend().topLessons(). Shape mirrors
+   * SqliteBackend.topLessons so tmp + prod stay interchangeable.
+   */
+  __test_sessionRecallBackend?: {
+    topLessons: (limit: number) => Promise<readonly { id: string; title: string; content: string; confidence: number }[]>;
+  };
 }
 
 // v0.46.0 Phase 8: module-level Set tracking which sessions have received the
 // session-start directives (avoids re-firing on every system.transform call).
 const systemDirectivesSent = new Set<string>();
+// v0.53.1 (session-recall): once-per-session guard for LESSONS FROM PAST
+// SESSIONS. Mirrors graphPrimingSent/skillPrimingSent: main session only, one
+// injection, then silent. System-transform injection never creates a synthetic
+// assistant turn, so unlike messages.transform it is safe at session start
+// (no isSessionStart TUI-pause risk) — the recall still reaches the agent via
+// the system prompt on turn 0.
+const sessionRecallSent = new Set<string>();
+
+/**
+ * Build the session-start recall block from top lessons (v0.53.1).
+ *
+ * WHY: omo_recall is voluntary (START PROTOCOL step 1 suggests it, nothing
+ * executes it), so past lessons never surface unless the agent remembers to
+ * ask. Compaction already auto-injects top-3 lessons into its context for
+ * the same reason; session-start does the same via the system-transform
+ * surface (the simplest consistent mechanism — no new channel, no synthetic
+ * assistant message, no TUI pause). Empty input → null (zero noise: when the
+ * DB has no high-confidence lessons, nothing is injected).
+ *
+ * Format mirrors compaction ('### Past Lessons') but names the source so the
+ * agent can distinguish startup recall from compaction carry-over.
+ */
+export function buildSessionRecallBlock(
+  lessons: readonly { id: string; title: string; content: string; confidence: number }[],
+): string | null {
+  if (lessons.length === 0) return null;
+  const lines = lessons.slice(0, 5).map((l, i) => `${i + 1}. [${l.id}] ${l.title} (confidence=${l.confidence.toFixed(2)})\n   ${l.content.slice(0, 300)}`);
+  return ["", "[LESSONS FROM PAST SESSIONS — auto-retrieved top " + lessons.slice(0, 5).length + "]", "", ...lines, "", "Recall relevant lessons via omo_recall before similar decisions."].join("\n");
+}
 
 // - Helpers
 
@@ -2712,15 +2751,18 @@ metricsCollector.inc("interventions_delivered");
               logToFile("info", `auto-remember skipped (opt-in disabled) for ${currentSessionID}`);
             } else {
             // v0.50.x conscience fix (D3): single value-gate — warn/continue never reach here (D1).
-            // When no structured deviations were accumulated, the escalate/stop decision
-            // itself becomes the conscience deviation (media) so the gate judges the
-            // notable event rather than an empty list.
+            // v0.53.1 (conscience-content fix): SKIP when there is nothing to learn.
+            // A stop/escalate with NO real rule deviation (empty, or only the
+            // synthetic 'conscience' wrapper the system itself generates) is not
+            // a lesson — e.g. a stop by iteration-ratio means 'the session is
+            // long', not 'a rule was violated'. Firing here re-created the
+            // verbatim-dump spam (raw scoring reasoning as 'mistake').
             const recorded: readonly Deviation[] = curState?.accumulatedDeviations ?? [];
-            const deviations: readonly Deviation[] = recorded.length > 0 ? recorded : [{
-              severity: "media",
-              category: "conscience",
-              detail: (decision.historyEntry?.reasoning ?? decision.message).slice(0, 500),
-            }];
+            const realDeviations: readonly Deviation[] = recorded.filter((d) => d.category !== "conscience");
+            if (realDeviations.length === 0) {
+              logToFile("info", `auto-remember skipped (no real rule deviations) for ${currentSessionID}: ${decision.action}`);
+            } else {
+            const deviations: readonly Deviation[] = realDeviations;
             const evidenceSources = (decision.historyEntry?.decision?.evidence ?? []).map((e) => e.source);
             // Oracle note 2: requireNovelty is currently vacuous � novelty is a stub-true
             // until recall wiring lands (no real novelty check exists, so there is nothing
@@ -2743,17 +2785,24 @@ metricsCollector.inc("interventions_delivered");
               logToFile("info", `auto-remember value-gate rejected for ${currentSessionID}: ${decision.action}`);
             } else {
             // v0.50.x (D4): structured conscience content — never a raw dump.
-            const reasoning = decision.historyEntry?.reasoning ?? decision.message;
-            const mistake = reasoning.slice(0, 500);
+            // v0.53.1: mistake derives from REAL deviations (`category: detail`),
+            // never the raw scoring reasoning ('Stop (score: ...): Iteration
+            // ratio...'). whereToGo is a PLACE (file basenames or session:<id>),
+            // never meta-instructions naming omo_remember/omo_recall. Concepts
+            // derive from real categories + basenames via extractConcepts inside
+            // buildConscienceMemoryContent (no generic ['conscience','media']).
+            const mistake = conscienceMistakeFromDeviations(deviations);
             const escalateTo = decision.historyEntry?.decision?.shouldEscalateTo ?? null;
             const whatToDo = escalateTo === "oracle" ? "Request Oracle review before proceeding" : escalateTo === "user" ? "Ask the user for guidance before proceeding" : "Re-read the plan and continue with verification";
-            const whereToGo = "Persist via omo_remember; recall via omo_recall before similar decisions";
+            const deviationFiles = deviations.map((d) => d.filePath).filter((f): f is string => typeof f === "string");
+            const writeFiles = curState?.recentWriteFilePaths ?? [];
+            const files = [...deviationFiles, ...writeFiles];
+            const whereToGo = conscienceWhereToGo(files, currentSessionID);
             const score = decision.historyEntry?.decision?.score ?? 0;
-            const files = deviations.map((d) => d.filePath).filter((f): f is string => typeof f === "string");
             // Oracle note 3: thread the real decision action so stop lessons read
             // Action stop. Gate above already rejected warn/continue, so the fallback
             // branch is unreachable � it exists only to satisfy the "escalate"|"stop" type.
-            const memory = buildConscienceMemoryContent({ action: decision.action === "stop" ? "stop" : "escalate", mistake, whatToDo, whereToGo, toolRoute: "omo_remember", score, files });
+            const memory = buildConscienceMemoryContent({ action: decision.action === "stop" ? "stop" : "escalate", mistake, whatToDo, whereToGo, score, files, deviations });
             // v0.50.x (D5): stable dedupe key — action + evidence sources +
             // deviation categories only. Score floats are excluded: float jitter
             // previously defeated dedupe (spam-storm regression).
@@ -2801,6 +2850,7 @@ metricsCollector.inc("interventions_delivered");
               }, 0);
             }
             logToFile("info", `auto-remember queued for ${currentSessionID}: ${decision.action}`);
+            }
             }
             }
             }
@@ -3092,6 +3142,30 @@ metricsCollector.inc("interventions_delivered");
           dirLines.push("    4. Announce the skill, follow it exactly, complete its checklist.");
           dirLines.push("");
           sysOutput.system.push(dirLines.join("\n"));
+
+          // v0.53.1 (session-recall): automatic recall at session start — omo_recall
+          // is voluntary today (START PROTOCOL step 1 suggests it, nothing executes
+          // it), so past lessons never surface. Compaction already auto-injects
+          // top-3 lessons for the same reason; session-start mirrors it via the
+          // same system-transform surface (no new channel, no synthetic assistant
+          // message → no TUI pause on turn 0). Main session only (subagents stay
+          // log-only per the v0.43.0 scope guard), once per session via
+          // sessionRecallSent, silent when the DB is empty (zero noise).
+          if (!isMainSession(sessionID)) {
+            sessionRecallSent.add(sessionID);
+          } else if (!sessionRecallSent.has(sessionID)) {
+            sessionRecallSent.add(sessionID);
+            try {
+              const recallBackend = deps.__test_sessionRecallBackend ?? (() => { try { return getDefaultSqliteBackend(); } catch { return null; } })();
+              if (recallBackend) {
+                const topLessons = await recallBackend.topLessons(3);
+                const recallBlock = buildSessionRecallBlock(topLessons);
+                if (recallBlock) sysOutput.system.push(recallBlock);
+              }
+            } catch {
+              // Best-effort: recall never breaks session start.
+            }
+          }
 
         }
 

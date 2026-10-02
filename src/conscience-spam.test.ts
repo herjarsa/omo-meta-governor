@@ -142,6 +142,10 @@ describe("Wave 0 RED — conscience anti-spam contract (QA1–QA7)", () => {
         __test_autoRemember: (p: unknown) => { writes.push(p); },
       }, { autoRemember: { enabled: true, cooldownMs: 0, dedupe: true } });
       const transform = getTransform(plugin);
+      // v0.53.1: seed a REAL rule deviation — bare escalate without a violated
+      // rule is SKIP ('the session is long'), not a dedupe test.
+      const beforeStorm = (plugin as unknown as Record<string, unknown>)["tool.execute.before"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+      await beforeStorm({ tool: "write", sessionID: sid, callID: "call-seed" }, { args: { filePath: "/tmp/seed.ts", content: "// @ts-ignore\nconst x = 1 as any;" } });
       for (let i = 0; i < 10; i++) {
         const score = -0.5 - i * 0.01;
         storeDecision(sid, makeDecision("escalate", sid, { score }));
@@ -201,6 +205,8 @@ describe("Wave 0 RED — conscience anti-spam contract (QA1–QA7)", () => {
       const plugin = await makePlugin(dir, {
         __test_autoRemember: (p: { promptText: string }) => { writes.push(p); },
       }, { autoRemember: { enabled: true, cooldownMs: 0, dedupe: true } });
+      const beforeSeedMarker = (plugin as unknown as Record<string, unknown>)["tool.execute.before"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+      await beforeSeedMarker({ tool: "write", sessionID: sid, callID: "call-seed" }, { args: { filePath: "/tmp/seed.ts", content: "// @ts-ignore\nconst x = 1 as any;" } });
       storeDecision(sid, makeDecision("escalate", sid, { shouldEscalateTo: "oracle" }));
       await getTransform(plugin)({}, midSessionOutput(sid));
       expect(writes.length).toBeGreaterThan(0);
@@ -227,6 +233,8 @@ describe("Wave 0 RED — conscience anti-spam contract (QA1–QA7)", () => {
       const plugin = await makePlugin(dir, {
         __test_autoRemember: (p: { promptText: string }) => { writes.push(p); },
       }, { autoRemember: { enabled: true, cooldownMs: 0, dedupe: true } });
+      const beforeSeedStructured = (plugin as unknown as Record<string, unknown>)["tool.execute.before"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+      await beforeSeedStructured({ tool: "write", sessionID: sid, callID: "call-seed" }, { args: { filePath: "/tmp/seed.ts", content: "// @ts-ignore\nconst x = 1 as any;" } });
       storeDecision(sid, makeDecision("escalate", sid, { shouldEscalateTo: "oracle" }));
       await getTransform(plugin)({}, midSessionOutput(sid));
       expect(writes.length).toBeGreaterThan(0);
@@ -268,6 +276,8 @@ describe("Wave 0 RED — conscience anti-spam contract (QA1–QA7)", () => {
       const plugin = await makePlugin(dir, {
         __test_autoRemember: (p: unknown) => { writes.push(p); },
       }, { autoRemember: { enabled: true, cooldownMs: 0, dedupe: true } });
+      const beforeSeedJitter = (plugin as unknown as Record<string, unknown>)["tool.execute.before"] as unknown as (i: unknown, o: unknown) => Promise<void>;
+      await beforeSeedJitter({ tool: "write", sessionID: sid, callID: "call-seed" }, { args: { filePath: "/tmp/seed.ts", content: "// @ts-ignore\nconst x = 1 as any;" } });
       storeDecision(sid, makeDecision("escalate", sid, { score: -0.51, shouldEscalateTo: "oracle" }));
       await getTransform(plugin)({}, midSessionOutput(sid));
       storeDecision(sid, makeDecision("escalate", sid, { score: -0.53, shouldEscalateTo: "oracle" }));
