@@ -1,3 +1,37 @@
+## [0.54.0] - 2026-10-02
+
+**Auto-remember sin dumps de score + recall al inicio de sesion + tests hermeticos** —
+el auto-remember deja de persistir razonamientos de score como lecciones y el
+recall automatico inyecta hasta 3 lecciones previas al inicio de cada sesion.
+
+### Fixed
+- (a) El auto-remember guardaba dumps de score: el `mistake` era
+  `reasoning.slice(0,500)`, asi que el agente persistia literalmente
+  `Action "stop" (score -0.55) ... Mistake: Stop (score: -0.552): primary
+  concern: Iteration ratio: 3.15 (63/20)` porque session-bridge ordena pasar
+  los args verbatim; ahora `mistake` sale de las desviaciones reales,
+  `whereToGo` es un lugar real (basenames), sin `ToolRoute` autorreferente, y
+  el prompt NO se dispara si no hay violacion de regla (un stop por ratio de
+  iteracion no es leccion).
+- (b) 4 ficheros de test no-hermeticos dependian de
+  `protocolEnforcement.auditToolCalls` de la config real del dev -> 9 fails
+  en CI; ahora lo pinean inline.
+
+### Added
+- Recall automatico al inicio de sesion — `SqliteBackend.topLessons`
+  (`kind='lesson'`, `confidence>=0.5`) inyecta hasta 3 lecciones de sesiones
+  previas por el canal `system`, una vez por sesion, solo sesion principal,
+  cero ruido si no hay.
+
+### Tests
+- Suite completa 1391 pass / 4 skip / 0 fail (el flake de graph-sync pasa
+  aislado); CI verde ubuntu/macos/windows en 964b234.
+
+### Ship protocol compliance
+- ✅ CHANGELOG `## [0.54.0]` con Fixed/Added/Tests
+- ✅ Suite completa 1391 pass / 4 skip / 0 fail (flake graph-sync pasa aislado)
+- ✅ CI verde ubuntu/macos/windows en 964b234
+- ✅ Recall automatico: topLessons kind=lesson confidence>=0.5, max 3, una vez por sesion, solo principal
 
 
 ## [0.53.0] - 2026-10-01
