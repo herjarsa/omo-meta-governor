@@ -1,3 +1,44 @@
+## [0.55.0] - 2026-10-14
+
+**Recall-gate AND + enforceMode block por defecto** —
+escribir en prod exige skill AND recall salvo tiny-diff<=5 o directiva
+explicita; el modo block es ahora el default seguro.
+
+### Added
+- AND-gate skill+recall en `src/plugin.ts`: todo write a prod requiere
+  skill-priming y recall previos en el mismo turno salvo tiny-diff<=5 o
+  directiva explicita.
+- `isTrivialWrite` endurecido con tiny-diff<=5 y regla trivial-path; hint
+  de `omo_recall` en el mensaje de bloqueo.
+- Nuevo test recall-gate; bloqueo secure-by-default documentado.
+
+### Changed
+- **BREAKING**: `enforceMode` default pasa de `directive` a `block`.
+- Fixes de una sola linea en src ahora requieren skill+recall salvo
+  tiny-diff<=5 o directiva explicita.
+- Recall->write en el mismo turno bloquea por diseno (no es bug).
+
+### Fixed
+- Tests P1-6 de bash-redirect usaban rutas `/tmp` que ahora hacen bypass
+  por la regla trivial-path — movidos a `/app/src`.
+
+### Tests
+- Suites objetivo 101 pass / 0 fail
+  (workflow-gates+trivial+recall-gate+config); `plugin.test.ts` 32/32;
+  trivial 25/0; config 70/0; `tsc` clean; full 1391 pass previo;
+  CI verde ubuntu/macos/windows en d6b3b0c.
+
+### Config
+- `enforceMode` default `block` en
+  `config.ts`/types/schema/generator.
+
+### Ship protocol compliance
+- ✅ CHANGELOG `## [0.55.0]` con Added/Changed/Fixed/Tests/Config
+- ✅ Suites objetivo verdes 101 pass / 0 fail (plugin 32/32, trivial 25/0, config 70/0)
+- ✅ `bun run typecheck` clean (exit 0)
+- ✅ CI verde ubuntu/macos/windows en d6b3b0c
+- ✅ Oracle review sin blockers ses_ec50e3ac
+
 ## [0.54.0] - 2026-10-02
 
 **Auto-remember sin dumps de score + recall al inicio de sesion + tests hermeticos** —
