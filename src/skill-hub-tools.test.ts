@@ -527,6 +527,13 @@ describe("v0.35.3 Bug B - skill-find gate unlocks on omo_skill_add and omo_skill
       { title: "installed", output: "ok", metadata: {} },
     )
 
+    // Wave2-C recall gate: the skill-find family alone no longer unlocks the
+    // gate — the agent must also consult memory via omo_recall/omo_recall_mcp.
+    await after(
+      { tool: "omo_recall", sessionID: sid, callID: "c1r" },
+      { title: "recalled", output: "ok", metadata: {} },
+    )
+
     // The write should now be allowed
     await before(
       { tool: "write", sessionID: sid, callID: "c2" },

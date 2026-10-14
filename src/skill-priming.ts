@@ -164,15 +164,24 @@ export function shouldInjectSkillPriming(opts: {
  * skills before non-trivial implementation; it is over-restrictive for
  * throwaway scripts, scratch files, and small test edits.
  *
- * Bypass conditions (any one is sufficient):
- *   1. Path matches a known trivial pattern (test/, tmp/, scratch/, .scratch/).
- *   2. Tool is "write" and the new content is under TRIVIAL_MAX_LINES (50).
- *   3. Tool is an "edit" variant (edit_block / multi_edit / desktop-commander_edit_block):
- *      any in-place edit is considered low-stakes.
+ * Bypass conditions, checked in order (B-tightening: edit-family writes to
+ * non-trivial paths are NOT trivial):
+ *   (a) Path matches a known trivial pattern (test/, tmp/, scratch/, ...):
+ *       trivial for ANY tool, including edit-family tools.
+ *   (b) Tool is "write" / "desktop-commander_write_file" and the new content
+ *       is under TRIVIAL_MAX_LINES (50); missing or large content on a
+ *       non-trivial path is NOT trivial.
+ *   (c) Tool is an edit-family tool (edit / edit_block / multi_edit /
+ *       apply_patch / ast_grep_replace / refactor /
+ *       desktop-commander_edit_block) on a non-trivial path: NOT trivial,
+ *       EXCEPT a tiny-diff bypass - a single-hunk change of <=5 changed
+ *       lines measured from the oldString / newString / content / patch /
+ *       diff args. With no size signal the edit is NOT trivial.
  *
  * Bash redirects to files (>, tee, etc.) are NOT bypassed here; they are
  * caught upstream by bashHasFileWrite and the gate fires before this
- * helper is consulted.
+ * helper is consulted. (A command redirect target is still extracted as a
+ * path fallback so direct unit calls behave consistently.)
  */
 export const TRIVIAL_PATH_PATTERNS: readonly RegExp[] = [
   /[\\/](\.tmp|\.scratch|scratch|tmp|trash|throwaway)[\\/]/i,
@@ -185,25 +194,120 @@ export const TRIVIAL_PATH_PATTERNS: readonly RegExp[] = [
 ]
 export const TRIVIAL_MAX_LINES = 50
 
-export function isTrivialWrite(tool: string, args: unknown): boolean {
-  if (tool === "edit" || tool === "edit_block" || tool === "multi_edit"
-      || tool === "apply_patch" || tool === "ast_grep_replace" || tool === "refactor"
-      || tool === "desktop-commander_edit_block") {
-    return true
+/** Edit-family tools: in-place edits, subject to the tiny-diff bypass only. */
+const EDIT_FAMILY_TOOLS: readonly string[] = [
+  "edit",
+  "edit_block",
+  "multi_edit",
+  "apply_patch",
+  "ast_grep_replace",
+  "refactor",
+  "desktop-commander_edit_block",
+]
+
+function toArgsRecord(args: unknown): Record<string, unknown> | undefined {
+  if (typeof args === "object" && args !== null) {
+    return args as Record<string, unknown>
   }
-  if (tool !== "write" && tool !== "desktop-commander_write_file") return false
-  const a = args as Record<string, unknown> | undefined
-  const filePath = typeof a?.["filePath"] === "string"
-    ? (a["filePath"] as string)
-    : typeof a?.["path"] === "string"
-      ? (a["path"] as string)
-      : ""
+  return undefined
+}
+
+/**
+ * B-tightening: extract the target path from write/edit args. Checks
+ * filePath, then path, then file, then a shell redirect target in command
+ * (> / >>) so direct unit calls behave consistently with the upstream
+ * bashHasFileWrite gate.
+ */
+function extractWritePath(a: Record<string, unknown> | undefined): string {
+  if (a === undefined) return ""
+  const filePath = a["filePath"]
+  if (typeof filePath === "string" && filePath.length > 0) return filePath
+  const pathValue = a["path"]
+  if (typeof pathValue === "string" && pathValue.length > 0) return pathValue
+  const fileValue = a["file"]
+  if (typeof fileValue === "string" && fileValue.length > 0) return fileValue
+  const command = a["command"]
+  if (typeof command === "string") {
+    const redirect = />>?\s*([^;\s|&]+)/.exec(command)
+    if (redirect !== null && typeof redirect[1] === "string") return redirect[1]
+  }
+  return ""
+}
+
+function countLines(s: string): number {
+  return s.split("\n").length
+}
+
+/** Count changed (+/-) lines in a patch/diff string, ignoring +++ / --- headers. */
+function countDiffChangedLines(s: string): number {
+  const changed = s.split("\n").filter((line) => {
+    if (line.startsWith("+++") || line.startsWith("---")) return false
+    return line.startsWith("+") || line.startsWith("-")
+  }).length
+  return changed > 0 ? changed : countLines(s)
+}
+
+function countHunks(s: string): number {
+  const hunks = s.match(/^@@/gm)
+  return hunks === null ? 0 : hunks.length
+}
+
+function countTinyString(s: string): boolean {
+  const n = countLines(s)
+  return n >= 1 && n <= 5
+}
+
+/**
+ * B-tightening tiny-diff bypass: a single-hunk change of <=5 changed lines,
+ * measured from the oldString / newString / content / patch / diff args.
+ * No size signal at all means NOT trivial (fail closed).
+ */
+function isTinyDiff(a: Record<string, unknown> | undefined): boolean {
+  if (a === undefined) return false
+  const oldString = a["oldString"]
+  const newString = a["newString"]
+  if (typeof oldString === "string" || typeof newString === "string") {
+    const changed = Math.max(
+      typeof oldString === "string" ? countLines(oldString) : 0,
+      typeof newString === "string" ? countLines(newString) : 0,
+    )
+    return changed >= 1 && changed <= 5
+  }
+  const content = a["content"]
+  if (typeof content === "string") return countTinyString(content)
+  const patch = a["patch"]
+  if (typeof patch === "string") {
+    if (countHunks(patch) > 1) return false
+    const changed = countDiffChangedLines(patch)
+    return changed >= 1 && changed <= 5
+  }
+  const diff = a["diff"]
+  if (typeof diff === "string") {
+    if (countHunks(diff) > 1) return false
+    const changed = countDiffChangedLines(diff)
+    return changed >= 1 && changed <= 5
+  }
+  return false
+}
+
+export function isTrivialWrite(tool: string, args: unknown): boolean {
+  const a = toArgsRecord(args)
+  // (a) Trivial path bypasses for ANY tool, including edit-family tools.
+  const filePath = extractWritePath(a)
   if (filePath && TRIVIAL_PATH_PATTERNS.some((re) => re.test(filePath))) {
     return true
   }
-  const content = a?.["content"]
-  if (typeof content === "string" && content.split("\n").length <= TRIVIAL_MAX_LINES) {
-    return true
+  // (b) Write-family: only tiny content on a non-trivial path bypasses.
+  if (tool === "write" || tool === "desktop-commander_write_file") {
+    const content = a?.["content"]
+    if (typeof content === "string" && countLines(content) <= TRIVIAL_MAX_LINES) {
+      return true
+    }
+    return false
+  }
+  // (c) Edit-family on a non-trivial path: only a tiny single-hunk diff bypasses.
+  if (EDIT_FAMILY_TOOLS.includes(tool)) {
+    return isTinyDiff(a)
   }
   return false
 }

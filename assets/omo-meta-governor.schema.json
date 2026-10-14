@@ -458,12 +458,12 @@
         },
         "enforceMode": {
           "type": "string",
-          "description": "v0.34.0: enforcement mode. 'directive' (default) = opt-in nudge. 'block' = hard gate that prevents implementation tools (write/edit/apply_patch/...) from running until omo_skill_find has been called in the session.",
+          "description": "v0.34.0: enforcement mode. 'directive' = opt-in nudge. 'block' (default, secure-by-default) = hard gate that prevents implementation tools (write/edit/apply_patch/...) from running until omo_skill_find has been called in the session.",
           "enum": [
             "directive",
             "block"
           ],
-          "default": "directive"
+          "default": "block"
         }
       }
     },

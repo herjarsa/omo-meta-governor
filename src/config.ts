@@ -335,7 +335,7 @@ trigger?: SkillPrimingTrigger
     /** @default "both" */
     router?: SkillPrimingRouter
     /** v0.34.0: enforcement mode for the skill-priming directive. */
-    /** @default "directive" */
+    /** @default "block" */
     enforceMode?: "directive" | "block"
 }
   /** Skill hub config (v0.32.0): registry-backed catalog + hybrid search. */
@@ -605,8 +605,8 @@ export function loadOrchestratorConfig(
       enabled: full.skillPriming?.enabled ?? true,
       trigger: full.skillPriming?.trigger ?? "firstImplement",
       router: full.skillPriming?.router ?? "registry",
-      // v0.34.0: opt-in enforcement. Default 'directive' = backward-compat.
-      enforceMode: full.skillPriming?.enforceMode ?? "directive",
+      // v0.34.0: opt-in enforcement. Secure-by-default: 'block' hard-gates implementation tools.
+      enforceMode: full.skillPriming?.enforceMode ?? "block",
     },
 skillHub: {
       enabled: full.skillHub?.enabled ?? false,

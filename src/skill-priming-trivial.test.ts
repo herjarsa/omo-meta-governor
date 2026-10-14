@@ -15,24 +15,24 @@ import {
   TRIVIAL_MAX_LINES,
 } from "./skill-priming";
 
-describe("isTrivialWrite (v0.35.2)", () => {
-  it("treats edit_block as trivial regardless of args", () => {
-    expect(isTrivialWrite("edit_block", {})).toBe(true);
-    expect(isTrivialWrite("edit_block", { filePath: "/app/src/core.ts" })).toBe(true);
+describe("isTrivialWrite (v0.35.2, B-contract: edit-family non-trivial is NOT trivial)", () => {
+  it("S1: edit_block without tiny-diff is NOT trivial (B-contract)", () => {
+    expect(isTrivialWrite("edit_block", {})).toBe(false);
+    expect(isTrivialWrite("edit_block", { filePath: "/app/src/core.ts" })).toBe(false);
   });
 
-  it("treats multi_edit as trivial", () => {
-    expect(isTrivialWrite("multi_edit", { filePath: "/app/src/big-module.ts" })).toBe(true);
+  it("S1: multi_edit to src/*.ts is NOT trivial (B-contract)", () => {
+    expect(isTrivialWrite("multi_edit", { filePath: "/app/src/big-module.ts" })).toBe(false);
   });
 
-  it("treats desktop-commander_edit_block as trivial", () => {
-    expect(isTrivialWrite("desktop-commander_edit_block", {})).toBe(true);
+  it("S1: desktop-commander_edit_block without tiny-diff is NOT trivial (B-contract)", () => {
+    expect(isTrivialWrite("desktop-commander_edit_block", {})).toBe(false);
   });
 
-  it("treats apply_patch / ast_grep_replace / refactor as trivial", () => {
-    expect(isTrivialWrite("apply_patch", {})).toBe(true);
-    expect(isTrivialWrite("ast_grep_replace", {})).toBe(true);
-    expect(isTrivialWrite("refactor", {})).toBe(true);
+  it("S1: apply_patch / ast_grep_replace / refactor without tiny-diff are NOT trivial (B-contract)", () => {
+    expect(isTrivialWrite("apply_patch", {})).toBe(false);
+    expect(isTrivialWrite("ast_grep_replace", {})).toBe(false);
+    expect(isTrivialWrite("refactor", {})).toBe(false);
   });
 
   it("bypasses a small write under TRIVIAL_MAX_LINES lines", () => {
@@ -101,7 +101,7 @@ describe("isTrivialWrite (v0.35.2)", () => {
   });
 
   it("handles missing content by NOT bypassing (write would replace file)", () => {
-    // No content arg \u2014 we cannot prove this is a trivial write; refuse the bypass.
+    // No content arg — we cannot prove this is a trivial write; refuse the bypass.
     expect(
       isTrivialWrite("write", { filePath: "/app/src/core.ts" }),
     ).toBe(false);
@@ -109,6 +109,32 @@ describe("isTrivialWrite (v0.35.2)", () => {
 
   it("TRIVIAL_PATH_PATTERNS covers the documented set", () => {
     expect(TRIVIAL_PATH_PATTERNS.length).toBeGreaterThanOrEqual(5);
+  });
+});
+
+describe("isTrivialWrite B-tightening (RED)", () => {
+  it("S1: edit_block to src/*.ts is NOT trivial", () => {
+    expect(isTrivialWrite("edit_block", { filePath: "/app/src/core.ts" })).toBe(false);
+  });
+
+  it("S1: multi_edit to src/*.ts is NOT trivial", () => {
+    expect(isTrivialWrite("multi_edit", { filePath: "/app/src/big-module.ts" })).toBe(false);
+  });
+
+  it("S1: apply_patch to src/*.ts is NOT trivial", () => {
+    expect(isTrivialWrite("apply_patch", { filePath: "/app/src/core/engine.ts" })).toBe(false);
+  });
+
+  it("S2: edit to trivial path stays trivial", () => {
+    expect(isTrivialWrite("edit_block", { filePath: "/app/tmp/scratch-note.md" })).toBe(true);
+    expect(isTrivialWrite("edit_block", { filePath: "/app/src/foo.test.ts" })).toBe(true);
+  });
+
+  it("S2: tiny write (<=TRIVIAL_MAX_LINES) to src stays trivial", () => {
+    const tiny = Array.from({ length: TRIVIAL_MAX_LINES }, (_, i) => `line ${i}`).join("\n");
+    expect(
+      isTrivialWrite("write", { filePath: "/app/src/core.ts", content: tiny }),
+    ).toBe(true);
   });
 });
 

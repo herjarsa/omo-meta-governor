@@ -1288,14 +1288,16 @@ metricsCollector.inc("interventions_delivered");
 
         // v0.34.0: skill-priming enforcement gate. When enforceMode='block',
         // implementation tools (write/edit/apply_patch/...) are blocked until
-        // omo_skill_find has been called in this session.
+        // omo_skill_find AND omo_recall (or omo_recall_mcp) have been called
+        // in this session (Wave2-C recall gate).
         // v0.34.2 (P1-6): also block bash with redirects (> file, 	ee file).
         // Without this, ash would bypass the skill-priming gate entirely.
         if (
           mergedConfig.skillPriming.enabled &&
           mergedConfig.skillPriming.enforceMode === "block" &&
           toolInput.tool !== "omo_skill_find" &&
-          !skillFindCalled.has(toolInput.sessionID) &&
+          (!skillFindCalled.has(toolInput.sessionID) ||
+            !omoRecallCalled.has(toolInput.sessionID)) &&
           (IMPLEMENTATION_TOOLS.includes(toolInput.tool) ||
             bashHasFileWrite(toolInput)) &&
           // v0.35.2: bypass the gate for trivial writes so agents do not stall
@@ -1305,6 +1307,7 @@ metricsCollector.inc("interventions_delivered");
           const query = suggestSkillFindQuery(toolInput.tool, _output?.args)
           throw new Error(
             `[meta-governor] skill-priming required: run \`${query}\` to discover relevant skills before using "${toolInput.tool}". ` +
+            `Also run \`omo_recall "<context>"\` to consult persistent memory before implementing. ` +
             `Pass the candidates to a sub-agent via \`task(category='<category>', load_skills=[...])\` to load 2-3 capabilities. ` +
             `Set skillPriming.enforceMode='directive' in your config to bypass this gate, or write to a tmp/test/scratch path for trivial edits.`,
           );

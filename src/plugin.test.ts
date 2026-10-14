@@ -455,9 +455,11 @@ auditToolCalls: false,
 })
 
 
-// v0.34.0: skill-priming enforcement (enforceMode='block'). When enabled,
-// implementation tools (write/edit/apply_patch/...) are blocked at
-// tool.execute.before until omo_skill_find is invoked in the same session.
+// v0.34.0: skill-priming enforcement (enforceMode='block', default since
+// Wave2 secure-by-default). When enabled, implementation tools
+// (write/edit/apply_patch/...) are blocked at tool.execute.before until
+// BOTH omo_skill_find AND omo_recall (or omo_recall_mcp) have been invoked
+// in the same session (Wave2-C recall gate).
 describe("skill-priming enforceMode='block' (v0.34.0)", () => {
   const blockOptions: PluginOptions = {
     meta_governor: {
@@ -478,26 +480,70 @@ describe("skill-priming enforceMode='block' (v0.34.0)", () => {
         { args: { filePath: "/app/src/core/widget.ts", content: Array.from({ length: 60 }, (_, i) => `line ${i}`).join("\n") } },
       ),
     ).rejects.toThrow(/skill-priming required|omo_skill_find/)
+    // Wave2-C: the block message names the recall conjunction.
+    let blocked: Error | null = null
+    try {
+      await before(
+        { tool: "write", sessionID: "block-test-1", callID: "c2" },
+        { args: { filePath: "/app/src/core/widget.ts", content: Array.from({ length: 60 }, (_, i) => `line ${i}`).join("\n") } },
+      )
+    } catch (e) {
+      blocked = e as Error
+    }
+    expect(blocked).not.toBeNull()
+    expect(blocked!.message).toContain("omo_recall")
   })
 
-  it("then allows write tool AFTER omo_skill_find has been called in this session", async () => {
+  it("then allows non-trivial write AFTER omo_skill_find AND omo_recall have been called in this session", async () => {
+    clearAll()
+    const plugin = createHermeticPlugin()
+    // Isolate the skill-priming gate: the requirePlan workflow gate also
+    // blocks non-trivial writes and would mask this test.
+    const allowOptions: PluginOptions = {
+      meta_governor: {
+        ...blockOptions.meta_governor,
+        workflowGates: { enabled: false, requirePlan: false },
+      },
+    }
+    const hooks = await plugin(mockPluginInput, allowOptions)
+    const before = hooks["tool.execute.before"]!
+    const after = hooks["tool.execute.after"]!
+    // First, the agent queries the skill catalog and consults memory.
+    // Wave2-C: the gate requires BOTH the skill-find family AND the recall
+    // family — skill-find alone no longer unlocks non-trivial writes.
+    await after(
+      { tool: "omo_skill_find", sessionID: "block-test-2", callID: "c1", args: { query: "x" } },
+      { title: "", output: "ok", metadata: {} },
+    )
+    await after(
+      { tool: "omo_recall", sessionID: "block-test-2", callID: "c2", args: { query: "x" } },
+      { title: "", output: "ok", metadata: {} },
+    )
+    // Now a non-trivial write should pass through the gate.
+    await expect(
+      before(
+        { tool: "write", sessionID: "block-test-2", callID: "c3" },
+        { args: { filePath: "/app/src/core/widget.ts", content: Array.from({ length: 60 }, (_, i) => `line ${i}`).join("\n") } },
+      ),
+    ).resolves.toBeUndefined()
+  })
+
+  it("then still blocks non-trivial write when only omo_skill_find ran (recall conjunction)", async () => {
     clearAll()
     const plugin = createHermeticPlugin()
     const hooks = await plugin(mockPluginInput, blockOptions)
     const before = hooks["tool.execute.before"]!
     const after = hooks["tool.execute.after"]!
-    // First, the agent queries the skill catalog.
     await after(
-      { tool: "omo_skill_find", sessionID: "block-test-2", callID: "c1", args: { query: "x" } },
+      { tool: "omo_skill_find", sessionID: "block-test-4", callID: "c1", args: { query: "x" } },
       { title: "", output: "ok", metadata: {} },
     )
-    // Now write should pass through the gate.
     await expect(
       before(
-        { tool: "write", sessionID: "block-test-2", callID: "c2" },
-        { args: { filePath: "/tmp/x.ts", content: "x" } },
+        { tool: "write", sessionID: "block-test-4", callID: "c2" },
+        { args: { filePath: "/app/src/core/widget.ts", content: Array.from({ length: 60 }, (_, i) => `line ${i}`).join("\n") } },
       ),
-    ).resolves.toBeUndefined()
+    ).rejects.toThrow(/omo_recall/)
   })
 
   it("then allow omo_skill_find itself (it's not in IMPLEMENTATION_TOOLS)", async () => {
@@ -536,10 +582,13 @@ expect(caught).not.toBeNull()
 expect(caught!.message).toContain("load_skills")
 expect(caught!.message).toContain("task(")
 expect(caught!.message).not.toMatch(/skill tool/i)
+// Wave2-C: the block message also names the recall precondition.
+expect(caught!.message).toContain("omo_recall")
 })
 })
 
-// v0.34.0: enforceMode='directive' (default) preserves the legacy opt-in path.
+// v0.34.0: enforceMode='directive' (explicit opt-in legacy; 'block' is the
+// default since Wave2 secure-by-default) preserves the legacy path.
 // No blocking even when omo_skill_find has not been called.
 describe("skill-priming enforceMode='directive' backward compat (v0.34.0)", () => {
   const directiveOptions: PluginOptions = {

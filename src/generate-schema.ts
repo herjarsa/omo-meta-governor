@@ -193,7 +193,7 @@ export function generateSchema(): JsonSchema {
           enabled: { type: "boolean", description: "Master switch for skill priming injection. v0.33.1: defaults to true so the skill workflow fires out of the box.", default: true },
           trigger: { type: "string", description: "When to inject: 'sessionStart' (first transform call) or 'firstImplement' (once implementation work begins).", enum: ["firstImplement", "sessionStart"], default: "firstImplement" },
           router: { type: "string", description: "Which skill system(s) the directive references. v0.33.1: 'aas' is deprecated (AAS MCP retired in v0.32.0) and aliased to 'registry'. 'registry' = skill-hub (omo_skill_find/get/add); 'superpowers' = external plugin; 'both' = registry + superpowers.", enum: ["registry", "superpowers", "both", "aas"], default: "registry" },
-          enforceMode: { type: "string", description: "v0.34.0: enforcement mode. 'directive' (default) = opt-in nudge. 'block' = hard gate that prevents implementation tools (write/edit/apply_patch/...) from running until omo_skill_find has been called in the session.", enum: ["directive", "block"], default: "directive" },
+          enforceMode: { type: "string", description: "v0.34.0: enforcement mode. 'directive' = opt-in nudge. 'block' (default, secure-by-default) = hard gate that prevents implementation tools (write/edit/apply_patch/...) from running until omo_skill_find has been called in the session.", enum: ["directive", "block"], default: "block" },
         },
       },
       skillHub: {
