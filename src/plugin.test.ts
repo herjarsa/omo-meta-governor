@@ -633,8 +633,8 @@ describe('bash redirect bypass (P1-6)', () => {
     const before = hooks['tool.execute.before']!
     await expect(
       before(
-        { tool: 'bash', sessionID: 'bash-block-1', callID: 'c1', args: { command: 'echo hi > /tmp/x' } },
-        { args: { command: 'echo hi > /tmp/x' } },
+        { tool: 'bash', sessionID: 'bash-block-1', callID: 'c1', args: { command: 'echo hi > /app/src/out.txt' } },
+        { args: { command: 'echo hi > /app/src/out.txt' } },
       ),
     ).rejects.toThrow(/skill-priming required|omo_skill_find/)
   })
@@ -646,8 +646,8 @@ describe('bash redirect bypass (P1-6)', () => {
     const before = hooks['tool.execute.before']!
     await expect(
       before(
-        { tool: 'bash', sessionID: 'bash-block-2', callID: 'c1', args: { command: 'cat foo | tee /tmp/y' } },
-        { args: { command: 'cat foo | tee /tmp/y' } },
+        { tool: 'bash', sessionID: 'bash-block-2', callID: 'c1', args: { command: 'cat foo | tee /app/src/out2.txt' } },
+        { args: { command: 'cat foo | tee /app/src/out2.txt' } },
       ),
     ).rejects.toThrow(/skill-priming required|omo_skill_find/)
   })
