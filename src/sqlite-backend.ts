@@ -237,6 +237,12 @@ export class SqliteBackend implements AgentmemoryWriteBackend, AgentmemoryBacken
     if (!entryCols.some((c) => c.name === "dedupe_key")) {
       this.db.exec("ALTER TABLE entries ADD COLUMN dedupe_key TEXT DEFAULT NULL")
     }
+    // v0.56.0 (F4 usage loop): additive migration - last_used tracks when a
+    // lesson was last returned by recall. Unused lessons expire via
+    // expireUnusedLessons instead of accumulating forever.
+    if (!entryCols.some((c) => c.name === "last_used")) {
+      this.db.exec("ALTER TABLE entries ADD COLUMN last_used INTEGER DEFAULT 0")
+    }
     // Index creation lives OUTSIDE SCHEMA_SQL on purpose: a CREATE INDEX
     // inside the schema bundle would fail on pre-existing DBs that have
     // not been migrated yet (no such column). IF NOT EXISTS keeps fresh
@@ -365,6 +371,92 @@ export class SqliteBackend implements AgentmemoryWriteBackend, AgentmemoryBacken
   }
 
   /**
+   * Expire stale unused lessons (v0.56.0 F4 usage loop). Deletes lessons that
+   * were created before `cutoffMs` AND never recalled since (last_used older
+   * than cutoff, 0 = never recalled). Recalled lessons prove their value on
+   * every smartSearch/topLessons hit via recordLessonUse and survive.
+   * Returns the number of rows deleted. FTS trigger keeps entries_fts in sync.
+   */
+  expireUnusedLessons(cutoffMs: number): number {
+    const countRow = this.db.prepare(
+      "SELECT COUNT(*) AS n FROM entries WHERE kind = 'lesson' AND created_at < ? AND (last_used IS NULL OR last_used < ?)",
+    ).get(cutoffMs, cutoffMs) as { n: number } | undefined
+    const n = countRow?.n ?? 0
+    if (n > 0) {
+      this.db.prepare(
+        "DELETE FROM entries WHERE kind = 'lesson' AND created_at < ? AND (last_used IS NULL OR last_used < ?)",
+      ).run(cutoffMs, cutoffMs)
+    }
+    return n
+  }
+
+  /** Mark lessons as used at recall time (v0.56.0 F4). Best-effort, never throws. */
+  recordLessonUse(ids: readonly string[]): void {
+    if (ids.length === 0) return
+    try {
+      const now = Date.now()
+      const stmt = this.db.prepare("UPDATE entries SET last_used = ? WHERE id = ?")
+      for (const id of ids) stmt.run(now, id)
+    } catch {
+      // Usage tracking is observability — never fail recall on it.
+    }
+  }
+
+  /**
+   * Consolidate near-duplicate lessons (v0.56.0 Nivel 1 self-curation).
+   * Groups lessons by identical sorted-tags signature; groups of 2+ merge
+   * into the newest row (longest content wins, confidence bumps +0.05 per
+   * absorbed sibling capped at 0.9 — repeated independent confirmation IS
+   * signal), the rest are deleted. FTS trigger keeps entries_fts in sync.
+   * Returns { groups, merged } — rows deleted.
+   */
+  consolidateLessons(): { groups: number; merged: number } {
+    const rows = this.db.prepare(
+      "SELECT id, content, tags, confidence, created_at FROM entries WHERE kind = 'lesson'",
+    ).all() as Array<{ id: string; content: string; tags: string; confidence: number; created_at: number }>
+    const bySignature = new Map<string, typeof rows>()
+    for (const row of rows) {
+      let tags: string[] = []
+      try {
+        const parsed: unknown = JSON.parse(row.tags ?? "[]")
+        if (Array.isArray(parsed)) tags = parsed.filter((t): t is string => typeof t === "string")
+      } catch {
+        tags = []
+      }
+      const signature = [...new Set(tags)].sort().join("\u0001")
+      const group = bySignature.get(signature) ?? []
+      group.push(row)
+      bySignature.set(signature, group)
+    }
+    let groups = 0
+    let merged = 0
+    for (const group of bySignature.values()) {
+      if (group.length < 2) continue
+      groups++
+      const sorted = [...group].sort((a, b) => b.created_at - a.created_at)
+      const keeper = sorted[0]!
+      const longest = [...group].sort((a, b) => b.content.length - a.content.length)[0]!
+      const maxConf = Math.max(...group.map((g) => g.confidence))
+      const bumped = Math.min(0.9, maxConf + 0.05 * (group.length - 1))
+      const mergedContent =
+        longest.content.length > keeper.content.length
+          ? longest.content
+          : keeper.content
+      this.db.prepare("UPDATE entries SET content = ?, confidence = ?, last_used = ? WHERE id = ?").run(
+        mergedContent + `\n(Consolidated from ${group.length} similar lessons.)`,
+        bumped,
+        Date.now(),
+        keeper.id,
+      )
+      const removeIds = sorted.slice(1).map((g) => g.id)
+      const placeholders = removeIds.map(() => "?").join(",")
+      this.db.prepare(`DELETE FROM entries WHERE id IN (${placeholders})`).run(...removeIds)
+      merged += removeIds.length
+    }
+    return { groups, merged }
+  }
+
+  /**
    * Top lessons by confidence — session-start recall source (v0.53.1).
    *
    * WHY this exists: at session start there is no query context yet (no tool
@@ -429,6 +521,9 @@ export class SqliteBackend implements AgentmemoryWriteBackend, AgentmemoryBacken
       files: safeJsonArray(r.files),
       advice: (r.advice as RawLesson["advice"]) ?? "info",
     }))
+    // v0.56.0 (F4 usage loop): recalled lessons prove value — survivors of
+    // future expireUnusedLessons runs.
+    this.recordLessonUse(lessons.map((l) => l.id))
     return Promise.resolve({ lessons, crystals: [] as RawCrystal[] })
   }
 

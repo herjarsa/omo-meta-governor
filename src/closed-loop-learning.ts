@@ -95,45 +95,185 @@ function severityMeetsThreshold(
 }
 
 /**
- * Extract concepts from deviations for the lesson. Optionally include file
- * basenames from the broader filePaths list so FTS indexing covers all
- * recently changed files (Gap Q completeness, v0.17.2).
- *
- * v0.53.1 (conscience-content fix): exported for reuse by the auto-remember
- * path so concepts derive from REAL rule deviations (categories + basenames)
- * instead of the generic ['conscience','media'] pair. Generic concepts
- * pollute FTS recall with noise; real categories keep recall precise.
+ * Collapse repeated deviations of the same rule into ONE representative per
+ * category (v0.56.0 spam-fix F2). The Files-changed-(3)(4)(5)(6) spam class
+ * was N verbatim copies of the same rule concatenated with "; " — a lesson
+ * must name the rule once with a ×N count and keep only the latest detail.
  */
+export function collapseDeviationsForLesson(
+  deviations: readonly Deviation[],
+): Deviation[] {
+  const byCategory = new Map<string, Deviation[]>()
+  for (const d of deviations) {
+    const group = byCategory.get(d.category) ?? []
+    group.push(d)
+    byCategory.set(d.category, group)
+  }
+  const collapsed: Deviation[] = []
+  for (const [category, group] of byCategory) {
+    if (group.length === 1) {
+      collapsed.push(group[0]!)
+    } else {
+      // Highest severity wins; latest detail is the most current signal.
+      const order = (s: string) => SEVERITY_ORDER[s] ?? 0
+      const worst = [...group].sort((a, b) => order(b.severity) - order(a.severity))[0]!
+      const latest = group[group.length - 1]!
+      collapsed.push({
+        severity: worst.severity,
+        category,
+        detail: `${latest.detail} (×${group.length} repeats this session)`,
+        ...(latest.filePath !== undefined ? { filePath: latest.filePath } : {}),
+      })
+    }
+  }
+  return collapsed
+}
+
+/**
+ * Extract concepts for FTS indexing (rule categories + file basenames).
+ *
+ * v0.53.1: concepts derive from REAL rule deviations, not the generic
+ * ['conscience','media'] pair. v0.56.0: severity tokens stoplisted, cap 5.
+ */
+const CONCEPT_STOPLIST = new Set(["leve", "media", "grave", "conscience"])
 export function extractConcepts(
   deviations: readonly Deviation[],
   filesChanged: readonly string[] = [],
 ): string[] {
   const concepts = new Set<string>()
   for (const d of deviations) {
-    concepts.add(d.category)
-    concepts.add(d.severity)
+    // v0.56.0: severity tokens ("media"/"leve"/"grave") and the synthetic
+    // "conscience" wrapper are stoplisted — they match everything in FTS
+    // recall and re-created the spam class. Only REAL rule categories index.
+    if (!CONCEPT_STOPLIST.has(d.category)) concepts.add(d.category)
     if (d.filePath) {
       // Index the basename for FTS lookup by tool/file name
       const basename = basenameOf(d.filePath)
-      if (basename) concepts.add(basename)
+      if (basename && !CONCEPT_STOPLIST.has(basename)) concepts.add(basename)
     }
   }
   // v0.17.2: also index file basenames from broader file change set
   for (const filePath of filesChanged) {
     const basename = basenameOf(filePath)
-    if (basename) concepts.add(basename)
+    if (basename && !CONCEPT_STOPLIST.has(basename)) concepts.add(basename)
   }
-  return [...concepts]
+  // v0.56.0: cap at 5 — unbounded concept lists dilute FTS precision.
+  return [...concepts].slice(0, 5)
 }
 
 /**
  * Build the lesson content string from a decision and its deviations.
+ * v0.56.0: deviations collapse by rule first — repeated identical violations
+ * persist as ONE line with a ×N count, never N verbatim dumps.
  */
 function buildLessonContent(decision: Decision, deviations: readonly Deviation[]): string {
-  const deviationSummary = deviations
+  const collapsed = collapseDeviationsForLesson(deviations)
+  const deviationSummary = collapsed
     .map((d) => `[${d.severity}] ${d.category}: ${d.detail}`)
     .join("; ")
   return `Action "${decision.action}" (score ${decision.score.toFixed(2)}) after deviations: ${deviationSummary}. Reasoning: ${decision.reasoning}`
+}
+
+/**
+ * Generic fallback whatToDo used only when no escalation target and no known
+ * rule guides the lesson. v0.56.0 (F3 value gate): a lesson carrying ONLY this
+ * fallback teaches nothing and must not persist unless grounded. Single
+ * canonical constant so the gate and the producer can never drift apart.
+ */
+export const GENERIC_WHAT_TO_DO = "Re-read the plan and continue with verification"
+
+/**
+ * Per-rule corrective guidance (v0.56.0 F5 judge-synthesis). Each protocol
+ * rule maps to the SPECIFIC corrective action — never the generic "re-read
+ * the plan". The plugin orients with the violated rule's own remedy, grounded
+ * in the deviation evidence, instead of emitting template commands.
+ */
+const RULE_GUIDANCE: Record<string, string> = {
+  "no-type-suppression":
+    "Remove the `as any`/`@ts-ignore` suppression and fix the underlying type with proper narrowing",
+  "no-empty-catch":
+    "Log the error or handle it gracefully — an empty catch hides failures",
+  "memory-first":
+    "Query memory (`omo_recall`, then `omo_recall_mcp`) before asking the user — the answer may already be known",
+  "empty-result-escalation":
+    "On empty recall, escalate to `omo_recall_mcp` before asking the user",
+  "codebase-graph-first":
+    "Query the code graph (`omo_search`) before grep/glob for architecture or symbol questions",
+  "continuation-discipline":
+    'Resume via `task(task_id="ses_...")` instead of starting a fresh task — preserves context and saves tokens',
+  "save-discovery-to-memory":
+    "Persist the non-obvious finding via `omo_remember` so future sessions benefit",
+  "no-batch-todo-completion":
+    "Mark each todo `completed` immediately after finishing it — do not batch-complete",
+  "oracle-verification":
+    "Request Oracle review before proceeding",
+}
+
+/**
+ * Synthesize an evidence-grounded whatToDo (v0.56.0 F5). Escalation targets
+ * keep their specific directives; otherwise the worst-severity deviation's
+ * rule guidance wins. GENERIC_WHAT_TO_DO is the last resort (unknown rule),
+ * and the value gate will reject it unless the lesson is grounded.
+ */
+export function synthesizeWhatToDo(
+  deviations: readonly Deviation[],
+  escalateTo: "oracle" | "user" | null,
+): string {
+  if (escalateTo === "oracle") return "Request Oracle review before proceeding"
+  if (escalateTo === "user") return "Ask the user for guidance before proceeding"
+  const order = (s: string) => SEVERITY_ORDER[s] ?? 0
+  const worst = [...deviations].sort((a, b) => order(b.severity) - order(a.severity))[0]
+  if (worst && RULE_GUIDANCE[worst.category] !== undefined) return RULE_GUIDANCE[worst.category]!
+  return GENERIC_WHAT_TO_DO
+}
+
+/**
+ * Value gate for conscience lessons (v0.56.0 F3). Returns false when the
+ * lesson is not actionable: a mistake body too short to carry signal, or the
+ * generic fallback whatToDo on an ungrounded lesson (no file/place scope and
+ * no grave deviation — "re-read the plan" applies to every stop ever and
+ * teaches nothing). A generic whatToDo on a GROUNDED lesson (real files) or
+ * a grave deviation still persists: the mistake names a real rule + place.
+ */
+export function isActionableConscienceLesson(
+  mistake: string,
+  whatToDo: string,
+  deviations: readonly Deviation[],
+  files: readonly string[] = [],
+): boolean {
+  if (mistake.trim().length < 20) return false
+  if (whatToDo === GENERIC_WHAT_TO_DO) {
+    if (deviations.some((d) => d.severity === "grave")) return true
+    return files.some((f) => f.trim().length > 0)
+  }
+  return true
+}
+
+/**
+ * Novelty check against already-recalled lessons (v0.56.0 F3). Token-overlap
+ * (Jaccard) between the candidate mistake and each recalled lesson's
+ * title+concepts; overlap >= threshold means "already known — don't persist".
+ * Pure function; the caller owns recall (observeAndLearn threads memoryRead,
+ * the auto-remember path threads its own recall when wired).
+ */
+export function isNovelAgainstRecall(
+  mistake: string,
+  recalled: readonly { title?: string; concepts?: readonly string[] }[],
+  threshold = 0.7,
+): boolean {
+  const tokensOf = (s: string) =>
+    new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2))
+  const candidate = tokensOf(mistake)
+  if (candidate.size === 0) return false
+  for (const lesson of recalled) {
+    const other = tokensOf(`${lesson.title ?? ""} ${(lesson.concepts ?? []).join(" ")}`)
+    if (other.size === 0) continue
+    let intersection = 0
+    for (const t of candidate) if (other.has(t)) intersection++
+    const jaccard = intersection / (candidate.size + other.size - intersection)
+    if (jaccard >= threshold) return false
+  }
+  return true
 }
 
 /**
@@ -231,6 +371,15 @@ export async function observeAndLearn(
       const lessonConfidence = lessonConfidenceForDecision(decision)
       if (lessonConfidence < MIN_LESSON_CONFIDENCE) {
         lessonSkipReason = "confidence below threshold (" + lessonConfidence.toFixed(2) + " < " + MIN_LESSON_CONFIDENCE.toFixed(2) + ")"
+      } else if (
+        // v0.56.0 (F3 novelty): the candidate lesson restates an already-recalled
+        // lesson (Jaccard overlap on title+concepts) — persisting it teaches nothing.
+        !isNovelAgainstRecall(
+          buildLessonContent(decision, deviationsFromEvidence),
+          input.memoryRead?.agentmemory?.lessons ?? [],
+        )
+      ) {
+        lessonSkipReason = "not novel vs recalled lessons (already known)"
       } else {
         const concepts = extractConcepts(deviationsFromEvidence, filesChanged)
         const content = buildLessonContent(decision, deviationsFromEvidence)
@@ -344,9 +493,12 @@ export function shouldPersistConscienceMemory(input: ShouldPersistConscienceMemo
 }
 
 /**
- * Stable dedupe key (D5). Hash of stable fields only — action + sorted
- * evidence sources + sorted deviation categories. Score floats are
+ * Stable dedupe key (D5). Hash of stable fields only — action + sorted UNIQUE
+ * evidence sources + sorted UNIQUE deviation categories. Score floats are
  * deliberately excluded: float jitter previously defeated dedupe.
+ * v0.56.0: multiplicity-insensitive — ["oracle-verification" ×4] and
+ * ["oracle-verification" ×1] hash identically (uniq before join), otherwise
+ * the accumulating deviation list defeats dedupe exactly when it matters most.
  */
 export interface ConscienceDedupeKeyInput {
   readonly action: string
@@ -355,8 +507,8 @@ export interface ConscienceDedupeKeyInput {
 }
 
 export function conscienceDedupeKey(input: ConscienceDedupeKeyInput): string {
-  const sources = [...input.evidenceSources].sort().join(",")
-  const categories = [...input.deviationCategories].sort().join(",")
+  const sources = [...new Set(input.evidenceSources)].sort().join(",")
+  const categories = [...new Set(input.deviationCategories)].sort().join(",")
   const stable = `${input.action}|${sources}|${categories}`
   const hash = stable.split("").reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0)
   return `C-${Math.abs(hash).toString(36)}`
