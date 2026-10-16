@@ -1,3 +1,38 @@
+## [0.57.0] - 2026-10-16
+
+**Nivel 2 self-improvement: lesson-patterns -> draft skills con aprobacion
+humana** — los patrones recurrentes de lecciones consolidadas (3+, conf
+media >=0.6) se convierten en borradores `DRAFT-SKILL.md`; la activacion
+exige aprobacion explicita. Sin auto-promocion, sin auto-tuning.
+
+### Added
+- `SqliteBackend.listLessons()` + `findSkillCandidates()` puro (S1).
+- `synthesizeSlug`, `draftSkillBody` (frontmatter + trigger + procedimiento
+  + lecciones origen citadas), `writeDraftSkill` (solo DRAFT-SKILL.md;
+  bloquea sobre SKILL.md real, idempotente), `promoteDraftSkill`
+  (`confirmed=true` obligatorio) (S2).
+- Tools MCP `omo_skill_propose` (detecta + draftea, nada activo) y
+  `omo_skill_promote` (gate explicito); registrados en `mcp-tools.ts` +
+  `MCP_TOOL_NAMES` (S3).
+- Docs: README tier 4 Synthesized, STRUCTURE, PLAN-skill-synthesis.md.
+
+### Tests
+- Nuevo `src/skill-synthesis.test.ts` S1a-S3b, 8/8 GREEN.
+- `bun run typecheck` clean; full suite 1417 pass / 4 fail preexistentes
+  (`skills-bootstrap`, timeouts tar en HEAD limpio) + flakes de timeout
+  5s variables por carga.
+- CI PR #26 verde: test, test-macos, test-windows, test-windows-flaky.
+
+### Config
+- Sin cambios de schema.
+
+### Ship protocol compliance
+- ✅ CHANGELOG `## [0.57.0]` con Added/Tests/Config
+- ✅ Suite 1417 pass / 0 regresiones atribuibles
+- ✅ `bun run typecheck` clean (exit 0)
+- ✅ CI verde ubuntu/macos/windows en PR #26
+- ⚠️ Oracle review gate OMITIDO por orden explicita del usuario
+
 ## [0.56.0] - 2026-10-16
 
 **Spam-free audit, structured judge-synthesis, self-curation (Nivel 1)** —
