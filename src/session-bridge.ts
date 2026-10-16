@@ -346,7 +346,15 @@ export function buildEscalationPrompt(options: {
       `Please invoke the \`task\` tool with \`subagent_type=oracle\` to ` +
       `perform a verification pass on the current session state. ` +
       `Decision context: ${options.evidenceCount} evidence unit(s). ` +
-      `After Oracle returns, you should continue with the recommended action.`
+      `After Oracle returns, you should continue with the recommended action.\n\n` +
+      // v0.56.0 (F5 Oracle piggyback): the Oracle verdict ALSO returns a
+      // structured lesson block (zero extra invocations — Oracle is already
+      // running). The agent persists it via omo_remember so the reviewed
+      // finding becomes durable memory instead of evaporating with the turn.
+      `Ask Oracle to close its verdict with a LESSON block in this exact shape:\n` +
+      `LESSON | Mistake: <what rule/process failed> | WhatToDo: <specific corrective action> | WhereToGo: <file/area>. ` +
+      `Persist that block via \`omo_remember\` (mistake/whatToDo/whereToGo verbatim). ` +
+      `Skip the LESSON block when the verdict is PASS with no findings.`
     );
   }
   return (

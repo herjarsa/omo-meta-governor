@@ -214,6 +214,9 @@ export function buildDecisionContext(
     iterationRatio,
     lessonsRelevant: memoryRead.agentmemory.lessons,
     slotMemory,
+    // v0.56.0 (F4 goal-alignment): thread boulder plan progress so scoring
+    // can reward on-plan advancement instead of only punishing deviations.
+    planProgress: memoryRead.boulderState?.planProgress,
     ambient: {
       sessionID: input.sessionID,
       directory: ".",
@@ -241,8 +244,13 @@ export async function runMetaGovernor(
   input: MetaGovernorInput,
   config: Partial<OrchestratorConfig> = {},
 ): Promise<MetaGovernorOutput> {
+  // v0.56.0 (spam-fix F2 single-writer): honor config threaded via input
+  // (the plugin passes its merged config there). Previously input.config was
+  // silently ignored, so closedLoop.saveLessons/maxLessonsPerSession set by
+  // the user never reached observeAndLearn. Explicit 2nd param still wins.
   const mergedConfig: OrchestratorConfig = {
     ...defaultOrchestratorConfig(),
+    ...input.config,
     ...config,
   };
 

@@ -201,6 +201,18 @@ export interface AuditContext {
   memorySaved?: boolean
 /** Number of times todo was batch-completed in this session */
   batchCompletions?: number
+/**
+ * Oracle invocation frequency (mirrors scoring.oracleFrequency / oracle.frequency).
+ * v0.56.0 (spam-fix F2): the oracle-verification audit is frequency-aware.
+ * With "final-only" (default) the PLUGIN invokes Oracle at the final-gate and
+ * mid-work invocation is forbidden — auditing "Oracle was not invoked" on
+ * every mid-work write punishes the agent for obeying the system's own rule
+ * and produced the Files-changed-(3)(4)(5)(6) lesson spam. "off" likewise
+ * never audits. Only "per-stop" audits mid-work (agent must invoke manually
+ * at the stop band). Defaults to "final-only" (suppress) when unset so
+ * legacy callers without frequency context stop emitting noise.
+ */
+  oracleFrequency?: "per-stop" | "final-only" | "off"
 }
 
 // ─── codebase-graph-first scoping (P2: over-fire fix) ────────────
@@ -485,7 +497,15 @@ export function auditToolCall(
   // piling up noise in the context window. The rule is meaningful only when a
   // file has just been touched.
   // v0.38.3 (G1): use IMPLEMENTATION_TOOLS — same set as plugin.ts filesChanged.
+  // v0.56.0 (spam-fix F2): frequency-aware. With oracle.frequency="final-only"
+  // (default) or "off", mid-work Oracle invocation is suppressed BY DESIGN
+  // (selectEscalationTarget returns null; the final-gate invokes Oracle), so
+  // auditing "Oracle was not invoked" here punishes obedience and generated
+  // the Files-changed-(3)(4)(5)(6) AgentMemory spam class. Only "per-stop"
+  // audits mid-work, where the agent must invoke Oracle manually at stop band.
+  const oracleFrequency = context.oracleFrequency ?? "final-only"
   if (
+    oracleFrequency === "per-stop" &&
     context.filesChanged >= 3 &&
     !context.oracleInvoked &&
     IMPLEMENTATION_TOOLS.includes(toolName)
@@ -496,7 +516,7 @@ export function auditToolCall(
       severity: "media",
       detail:
         `Files changed (${context.filesChanged}) >= 3 but Oracle was not invoked. ` +
-        "The POST-TASK ORACLE VERIFICATION protocol requires Oracle invocation on multi-file changes.",
+        "Oracle review is required at the stop band (per-stop frequency) or the final-gate.",
     })
   }
 

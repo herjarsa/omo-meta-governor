@@ -62,7 +62,10 @@ const DEFAULT_WEIGHTS: Record<string, number> = {
   "deviation-detector": 0.20,
   "iteration-budget": 0.15,
   "lesson-recall": 0.10,
-  "token-predictor": 0.10,
+  // v0.56.0 (F4 goal-alignment): fills the previously unallocated 0.10 slot
+  // (weights summed to 0.90). Rewards on-plan advancement; 0 when no plan
+  // signal, so legacy behavior is unchanged when planProgress is absent.
+  "goal-progress": 0.10,
 }
 
 // ─── Default config ────────────────────────────────────────────────
@@ -154,6 +157,20 @@ function scoreSignals(ctx: DecisionContext, nowMs: number): EvidenceContribution
       : "No relevant lessons",
   })
 
+  // 6. Goal progress (v0.56.0 F4): plan completion from boulder-state.
+  // Near-complete plans are strong continue signal; stalled plans (0 progress
+  // deep into the iteration budget) are a mild negative. Absent signal = 0.
+  const goalScore = scoreGoalProgress(ctx.planProgress, ctx.iterationRatio)
+  contributions.push({
+    source: "goal-progress",
+    rawScore: goalScore,
+    weight: DEFAULT_WEIGHTS["goal-progress"],
+    weightedScore: goalScore * DEFAULT_WEIGHTS["goal-progress"],
+    description: ctx.planProgress === undefined
+      ? "No plan progress signal"
+      : `Plan progress: ${(ctx.planProgress * 100).toFixed(0)}%`,
+  })
+
   return contributions
 }
 
@@ -192,6 +209,20 @@ function scoreIterationBudget(ratio: number): number {
   // Linear ramp: 0.0 → 0.0, 0.5 → -0.3, 1.0 → -0.8
   if (ratio <= 0.5) return -ratio * 0.6
   return -0.3 - (ratio - 0.5) * 1.0
+}
+
+/**
+ * Goal-progress signal (v0.56.0 F4). Rewards verifiable advancement toward
+ * the session plan; penalizes mild stall (zero progress deep into budget).
+ * Undefined/NaN planProgress = no signal (0) — legacy fixtures unaffected.
+ */
+function scoreGoalProgress(planProgress: number | undefined, iterationRatio: number): number {
+  if (planProgress === undefined || Number.isNaN(planProgress)) return 0
+  const p = Math.max(0, Math.min(1, planProgress))
+  if (p >= 0.75) return 0.6
+  if (p >= 0.4) return 0.2
+  if (p <= 0 && iterationRatio > 0.5) return -0.3
+  return 0
 }
 
 function scoreLessons(lessons: readonly RelevantLesson[]): number {

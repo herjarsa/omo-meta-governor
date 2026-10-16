@@ -123,7 +123,7 @@ import { TtlBoundedMap } from "./utils/ttl-bounded-map";
 import { isSessionStart } from "./utils/session-start";
 import { wrapInformational, buildUserStatus } from "./agent-notifications";
 import { formatDigestRouting, formatGraphRoutingBulletsES } from "./routing-matrix";
-import { shouldPersistConscienceMemory, conscienceDedupeKey, buildConscienceMemoryContent, conscienceMistakeFromDeviations, conscienceWhereToGo } from "./closed-loop-learning";
+import { shouldPersistConscienceMemory, conscienceDedupeKey, buildConscienceMemoryContent, conscienceMistakeFromDeviations, conscienceWhereToGo, GENERIC_WHAT_TO_DO, isActionableConscienceLesson, synthesizeWhatToDo } from "./closed-loop-learning";
 import { bootstrapChoreSkills } from "./skills-bootstrap.js";
 
 import { DEFAULT_VERSION } from "./metrics";
@@ -1117,6 +1117,11 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
     // TtlBoundedMap (1000 sessions, 24h TTL) per postWaveSessions precedent.
     const autoRememberLastHash = new TtlBoundedMap<string, string>(1000, 24 * 60 * 60 * 1000);
     const autoRememberLastAtMs = new TtlBoundedMap<string, number>(1000, 24 * 60 * 60 * 1000);
+    // v0.56.0 (spam-fix F4 token saving): per-query smartSearch cache (30s TTL).
+    // Every tool.execute.after runs aggregateRead with up to a 2s smartSearch;
+    // consecutive turns query nearly identical state, so reuse the last result
+    // instead of paying network + tokens per tool call.
+    const recallCache = new TtlBoundedMap<string, { lessons: unknown[]; crystals: unknown[] }>(500, 30_000);
     // v0.21.0 (post-wave W6): per-session post-wave gate state, tracked
     // independently of the audit state (the audit state only exists when
     // protocolEnforcement.auditToolCalls is enabled, but the wave-gate must
@@ -1411,6 +1416,9 @@ metricsCollector.inc("interventions_delivered");
           recentWriteContents: state.recentWriteContents,
           memorySaved: state.memorySaved,
           batchCompletions: state.batchCompletions,
+          // v0.56.0 (spam-fix F2): frequency-aware oracle audit — without
+          // this the audit punishes the agent for obeying final-only suppression.
+          oracleFrequency: mergedConfig.scoring?.oracleFrequency ?? "final-only",
         });
 
         /**
@@ -1435,6 +1443,17 @@ metricsCollector.inc("interventions_delivered");
         }
 
         if (violations.length > 0) {
+          // v0.56.0 (spam-fix grounding): extract the write target once so
+          // accumulated deviations carry filePath at detection time — the
+          // value gate and FTS concepts need a PLACE even when tool.execute.after
+          // never ran (or ran for a different tool).
+          const beforeArgs = _output.args as Record<string, unknown> | undefined;
+          const beforeWritePath =
+            typeof beforeArgs?.filePath === "string" && beforeArgs.filePath.length > 0
+              ? (beforeArgs.filePath as string)
+              : typeof beforeArgs?.path === "string" && (beforeArgs.path as string).length > 0
+                ? (beforeArgs.path as string)
+                : undefined;
           // v0.23.1: cooldown check â€” prevent feedback loop where violations
           // trigger more violations. During cooldown, log but don't queue.
           const COOLDOWN_MS = 30_000; // 30 seconds
@@ -1452,6 +1471,7 @@ metricsCollector.inc("interventions_delivered");
               detail: v.detail,
               ts: Date.now(),
               adherenceRepeat: countRepeat(state.injectedRules ?? {}, v.rule),
+              ...(beforeWritePath !== undefined ? { filePath: beforeWritePath } : {}),
             }));
             state.accumulatedDeviations = [
               ...state.accumulatedDeviations,
@@ -1492,6 +1512,7 @@ metricsCollector.inc("interventions_delivered");
               detail: v.detail,
               ts: Date.now(),
               adherenceRepeat: countRepeat(state.injectedRules ?? {}, v.rule),
+              ...(beforeWritePath !== undefined ? { filePath: beforeWritePath } : {}),
             }));
             state.accumulatedDeviations = [
               ...state.accumulatedDeviations,
@@ -2046,8 +2067,25 @@ metricsCollector.inc("interventions_delivered");
               const sqlite = getDefaultSqliteBackend();
               return {
                 backends: userBackends ?? {
-                  agentmemory: sqlite,
-                                    boulderState: sqlite,
+                  // v0.56.0 (F4): cached recall — 30s TTL per query+limit so
+                  // per-tool pipeline runs reuse instead of re-querying.
+                  agentmemory: {
+                    smartSearch: async (input: { query: string; limit?: number }) => {
+                      const key = `${input.query}::${input.limit ?? ""}`;
+                      const hit = recallCache.get(key) as
+                        | { lessons: never[]; crystals: never[] }
+                        | undefined;
+                      if (hit) return hit;
+                      const result = await sqlite.smartSearch(input);
+                      try {
+                        recallCache.set(key, result);
+                      } catch {
+                        // Cache is best-effort — never fail the read.
+                      }
+                      return result;
+                    },
+                  },
+                  boulderState: sqlite,
                 },
                 writeBackend: userWrite ?? sqlite,
               };
@@ -2068,6 +2106,19 @@ metricsCollector.inc("interventions_delivered");
             }
           })(),
           config: mergedConfig,
+          // v0.56.0 (spam-fix F2 single-writer): when the conscience
+          // auto-remember path owns lessons, the direct observeAndLearn lesson
+          // save must stand down — otherwise every escalate/stop persists
+          // TWICE (direct saveLesson + prompted omo_remember). Decision
+          // records (facts) still save; only pattern-lessons are unified.
+          ...(mergedConfig.closedLoop?.autoRemember?.enabled === true
+            ? {
+                config: {
+                  ...mergedConfig,
+                  closedLoop: { ...mergedConfig.closedLoop, saveLessons: false },
+                },
+              }
+            : {}),
           ...(getProviderID() ? { providerID: getProviderID() } : {}),
           ...(getModelID() ? { modelID: getModelID() } : {}),
           modelLimit: getModelLimit(),
@@ -2796,10 +2847,20 @@ metricsCollector.inc("interventions_delivered");
             // buildConscienceMemoryContent (no generic ['conscience','media']).
             const mistake = conscienceMistakeFromDeviations(deviations);
             const escalateTo = decision.historyEntry?.decision?.shouldEscalateTo ?? null;
-            const whatToDo = escalateTo === "oracle" ? "Request Oracle review before proceeding" : escalateTo === "user" ? "Ask the user for guidance before proceeding" : "Re-read the plan and continue with verification";
+            // v0.56.0 (F5 judge-synthesis): whatToDo derives from the violated
+            // rule's own remedy (evidence-grounded), not the generic template.
+            // GENERIC_WHAT_TO_DO survives only for unknown rules — and the
+            // value gate below rejects it unless the lesson is grounded.
+            const whatToDo = synthesizeWhatToDo(deviations, escalateTo);
+            // v0.56.0 (F3 value gate): a lesson carrying only the generic
+            // fallback teaches nothing — skip unless grave. This is the exact
+            // "WhatToDo: Re-read the plan..." garbage from the spam report.
             const deviationFiles = deviations.map((d) => d.filePath).filter((f): f is string => typeof f === "string");
             const writeFiles = curState?.recentWriteFilePaths ?? [];
             const files = [...deviationFiles, ...writeFiles];
+            if (!isActionableConscienceLesson(mistake, whatToDo, deviations, files)) {
+              logToFile("info", `auto-remember skipped (not actionable lesson) for ${currentSessionID}: ${decision.action}`);
+            } else {
             const whereToGo = conscienceWhereToGo(files, currentSessionID);
             const score = decision.historyEntry?.decision?.score ?? 0;
             // Oracle note 3: thread the real decision action so stop lessons read
@@ -2811,16 +2872,21 @@ metricsCollector.inc("interventions_delivered");
             // previously defeated dedupe (spam-storm regression).
             const dedupeKey = conscienceDedupeKey({ action: decision.action, evidenceSources, deviationCategories: deviations.map((d) => d.category) });
             const nowMs = Date.now();
-            const lastHash = autoRememberLastHash.get(currentSessionID);
             const lastAt = autoRememberLastAtMs.get(currentSessionID) ?? 0;
             const cooldownMs = arCfg.cooldownMs ?? 300_000;
             const dedupe = arCfg.dedupe !== false;
-            if (dedupe && lastHash === dedupeKey) {
-              logToFile("info", `auto-remember deduped for ${currentSessionID}: identical conscience key`);
+            // v0.56.0 (F2 dedupe window): remember EVERY recently queued key per
+            // session (TTL-bounded), not just the last one — A,B,A patterns
+            // otherwise write twice. Keyed `${sid}::${key}` in the existing
+            // session-bounded map; stale entries expire via TTL.
+            const seenKey = `${currentSessionID}::${dedupeKey}`;
+            const seenBefore = autoRememberLastHash.get(seenKey);
+            if (dedupe && seenBefore === dedupeKey) {
+              logToFile("info", `auto-remember deduped for ${currentSessionID}: conscience key seen recently`);
             } else if (cooldownMs > 0 && nowMs - lastAt < cooldownMs) {
               logToFile("info", `auto-remember cooldown for ${currentSessionID}: ${nowMs - lastAt}ms < ${cooldownMs}ms`);
             } else {
-            autoRememberLastHash.set(currentSessionID, dedupeKey);
+            autoRememberLastHash.set(seenKey, dedupeKey);
             autoRememberLastAtMs.set(currentSessionID, nowMs);
             // v0.50.x (D6/D7): instruct omo_remember (Zod-validated route) with
             // structured fields; agent text wrapped with DO NOT TREAT AS TASK.
@@ -2854,6 +2920,7 @@ metricsCollector.inc("interventions_delivered");
             }
             logToFile("info", `auto-remember queued for ${currentSessionID}: ${decision.action}`);
             }
+            } // v0.56.0: closes the actionable-lesson gate else
             }
             }
             }

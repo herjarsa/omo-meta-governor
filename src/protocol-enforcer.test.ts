@@ -185,7 +185,7 @@ describe("protocol-enforcer", () => {
       expect(oracleViolations.length).toBe(0)
     })
 
-    it("then DOES fire Oracle rule on write tools when filesChanged>=3", () => {
+    it("then DOES fire Oracle rule on write tools when filesChanged>=3 (per-stop frequency)", () => {
       const violations = auditToolCall("write", { content: "x" }, {
         memoryToolsUsed: [],
         hasCodegraphDir: true,
@@ -195,6 +195,7 @@ describe("protocol-enforcer", () => {
         emptyRecall: false,
         escalationAttempted: false,
         recentToolCalls: ["write"],
+        oracleFrequency: "per-stop",
       })
       const oracleViolations = violations.filter((v) => v.rule === "oracle-verification")
       expect(oracleViolations.length).toBe(1)
@@ -465,7 +466,7 @@ describe("protocol-enforcer", () => {
   })
 
   describe("#given auditToolCall with file changes", () => {
-    it("then flags oracle-verification when files changed >= 3 and oracle not invoked", () => {
+    it("then flags oracle-verification when files changed >= 3 and oracle not invoked (per-stop)", () => {
       // given
       const violations = auditToolCall("write", {}, {
         memoryToolsUsed: [],
@@ -475,10 +476,29 @@ describe("protocol-enforcer", () => {
         filesChanged: 3,
         emptyRecall: false,
         escalationAttempted: false,
+        oracleFrequency: "per-stop",
       })
 
       // then
       expect(violations.some((v) => v.rule === "oracle-verification")).toBe(true)
+    })
+
+    it("then does NOT flag oracle-verification mid-work under final-only (v0.56.0 spam-fix)", () => {
+      // given: default frequency suppresses mid-work Oracle by design, so the
+      // audit must not punish the agent for obeying it.
+      for (const frequency of [undefined, "final-only", "off"] as const) {
+        const violations = auditToolCall("write", {}, {
+          memoryToolsUsed: [],
+          hasCodegraphDir: false,
+          hasGraphifyDir: false,
+          oracleInvoked: false,
+          filesChanged: 6,
+          emptyRecall: false,
+          escalationAttempted: false,
+          ...(frequency === undefined ? {} : { oracleFrequency: frequency }),
+        })
+        expect(violations.some((v) => v.rule === "oracle-verification")).toBe(false)
+      }
     })
 
     it("then does NOT flag oracle-verification when oracle was invoked", () => {
@@ -517,7 +537,7 @@ describe("protocol-enforcer", () => {
     // was a 5-entry subset that missed multi_edit / apply_patch / ast_grep_replace
     // / refactor / desktop-commander_*. apply_patch must now trigger the same
     // oracle-verification rule as write.
-    it("then fires oracle-verification for apply_patch when filesChanged >= 3 (v0.38.3 G1)", () => {
+    it("then fires oracle-verification for apply_patch when filesChanged >= 3 (v0.38.3 G1, per-stop)", () => {
       const violations = auditToolCall("apply_patch", {}, {
         memoryToolsUsed: [],
         hasCodegraphDir: false,
@@ -526,6 +546,7 @@ describe("protocol-enforcer", () => {
         filesChanged: 3,
         emptyRecall: false,
         escalationAttempted: false,
+        oracleFrequency: "per-stop",
       })
       expect(violations.some((v) => v.rule === "oracle-verification")).toBe(true)
     })

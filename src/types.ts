@@ -41,6 +41,11 @@ export interface DecisionContext {
   readonly lessonsRelevant: readonly RelevantLesson[];
   /** Cross-session memory snapshot from the meta_state slot. */
   readonly slotMemory: SlotMemory;
+  /**
+   * Plan completion 0..1 from boulder-state (v0.56.0 F4 goal-alignment).
+   * Optional — absent means "no plan signal" (0 contribution, legacy behavior).
+   */
+  readonly planProgress?: number;
   /** Free-form context the calling site can attach (sessionID, directory, mode). */
   readonly ambient: AmbientContext;
 }
@@ -112,7 +117,8 @@ export type EvidenceSource =
   | "lesson-recall"
   | "slot-memory"
   | "ambient"
-  | "token-predictor";
+  | "token-predictor"
+  | "goal-progress";
 
 /**
  * A deviation from expected behavior. Severity follows the prior
