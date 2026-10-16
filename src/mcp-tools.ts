@@ -53,6 +53,7 @@ import {
 import { buildOmoSkillLocalLinkTool } from "./skills-local-link-tool"
 import { buildOmoSkillSemanticFindTool } from "./skills-semantic-find-tool"
 import { buildOmoSkillCreateTool } from "./skills-create-tool"
+import { buildOmoSkillProposeTool, buildOmoSkillPromoteTool } from "./skill-synthesis"
 try {
   migrateOldToNew({ oldPaths: oldPluginPaths(), newPaths: newPluginPaths() })
 } catch {
@@ -191,6 +192,10 @@ function buildAdapters(): readonly McpAdapter[] {
       model: "bge-m3",
     }),
     adapt(buildOmoSkillCreateTool as PluginToolBuilder, "omo_skill_create", { cwd }),
+    // v0.57.0 (Nivel 2 skill-synthesis): propose drafts, promote activates
+    // ONLY with explicit user-confirmed approval. No auto-promotion path.
+    adapt(buildOmoSkillProposeTool as PluginToolBuilder, "omo_skill_propose", { sqlite, cwd }),
+    adapt(buildOmoSkillPromoteTool as PluginToolBuilder, "omo_skill_promote", { cwd }),
     adapt(buildOmoUpgradeCheckTool as PluginToolBuilder, "omo_upgrade_check", { cwd }),
     adapt(buildOmoUpgradeRunTool as PluginToolBuilder, "omo_upgrade_run", { cwd }),
   ]
@@ -228,6 +233,8 @@ export const MCP_TOOL_NAMES = [
   "omo_skill_local_link",
   "omo_skill_semantic_find",
   "omo_skill_create",
+  "omo_skill_propose",
+  "omo_skill_promote",
   "omo_upgrade_check",
   "omo_upgrade_run",
 ] as const
