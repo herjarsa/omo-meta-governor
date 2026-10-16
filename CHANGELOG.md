@@ -1,3 +1,55 @@
+## [0.56.0] - 2026-10-16
+
+**Spam-free audit, structured judge-synthesis, self-curation (Nivel 1)** —
+elimina la clase de spam AgentMemory `Files changed (3)(4)(5)(6)`; las
+alertas pasan de comandos genericos a sintesis estructurada por regla; la
+memoria expira lo no usado y consolida duplicados.
+
+### Added
+- Audit frequency-aware: `oracle-verification` solo emite mid-work con
+  `oracle.frequency=per-stop`; `final-only/off` ya no castigan obediencia.
+- `collapseDeviationsForLesson()` (xN por regla), concepts con stoplist
+  (sin severity) y cap 5, `conscienceDedupeKey` por sets unicos, ventana
+  de keys vistas por sesion, single-writer conscience (`saveLessons:false`
+  cuando auto-remember posee lecciones), `filePath` en desviaciones desde
+  `tool.execute.before`.
+- Value gate (`GENERIC_WHAT_TO_DO` solo grounded/grave) +
+  `isNovelAgainstRecall()` (Jaccard) en `observeAndLearn`.
+- `RULE_GUIDANCE` + `synthesizeWhatToDo()`: whatToDo especifico por regla.
+- Oracle piggyback: `buildEscalationPrompt` pide bloque LESSON estructurado
+  (cero invocaciones extra).
+- Scoring `goal-progress` (w=0.10, slot antes sin asignar) desde
+  `boulderState.planProgress`; cache `smartSearch` 30s TTL.
+- sqlite: columna `last_used` (migracion aditiva), `recordLessonUse`,
+  `expireUnusedLessons()`, `consolidateLessons()` (Nivel 1 self-curation).
+- `runMetaGovernor` respeta `input.config` (los toggles `closedLoop` eran
+  letra muerta en produccion).
+- Docs: `PLAN-spam-fix.md`, `PLAN-skill-synthesis.md` (Nivel 2, v0.57).
+
+### Fixed
+- Doble escritura escalate/stop (directa + `omo_remember`).
+- `purgeNoiseLessons` intacto (se restauro escaping tras edicion difusa).
+
+### Tests
+- Nuevo `src/spam-oracle-dump.test.ts` T1-T12 (RED 4fail/1pass -> GREEN).
+- `protocol-enforcer.test.ts` oracle pineado a per-stop + companero
+  final-only suppression.
+- `bun run typecheck` clean; suite 1410 pass / 4 fail preexistentes
+  (`skills-bootstrap`, timeouts tar, fallan en HEAD limpio).
+- CI PR #25 verde: test, test-macos, test-windows, test-windows-flaky.
+
+### Config
+- Sin cambios de schema (todo via comportamiento + `oracle.frequency`
+  existente). `goal-progress` usa `planProgress` ya leido de boulder.
+
+### Ship protocol compliance
+- ✅ CHANGELOG `## [0.56.0]` con Added/Fixed/Tests/Config
+- ✅ Suite 1410 pass / 0 regresiones (4 fail preexistentes documentados)
+- ✅ `bun run typecheck` clean (exit 0)
+- ✅ CI verde ubuntu/macos/windows en PR #25
+- ⚠️ Oracle review gate OMITIDO por orden explicita del usuario
+  (MERGE Y PUBLICAR SIN ORACLE)
+
 ## [0.55.0] - 2026-10-14
 
 **Recall-gate AND + enforceMode block por defecto** —
