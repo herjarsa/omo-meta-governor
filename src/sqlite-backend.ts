@@ -403,6 +403,33 @@ export class SqliteBackend implements AgentmemoryWriteBackend, AgentmemoryBacken
   }
 
   /**
+   * List all lessons (v0.57 skill-synthesis S1). Read-only snapshot for
+   * candidate grouping — the pure grouping lives in skill-synthesis.ts.
+   */
+  listLessons(): Promise<
+    Array<{
+      id: string
+      title: string
+      content: string
+      tags: string[]
+      confidence: number
+      created_at: number
+    }>
+  > {
+    const rows = this.db.prepare(
+      "SELECT id, title, content, tags, confidence, created_at FROM entries WHERE kind = 'lesson' ORDER BY created_at ASC",
+    ).all() as Array<{
+      id: string
+      title: string
+      content: string
+      tags: string
+      confidence: number
+      created_at: number
+    }>
+    return Promise.resolve(rows.map((r) => ({ ...r, tags: safeJsonArray(r.tags) })))
+  }
+
+  /**
    * Consolidate near-duplicate lessons (v0.56.0 Nivel 1 self-curation).
    * Groups lessons by identical sorted-tags signature; groups of 2+ merge
    * into the newest row (longest content wins, confidence bumps +0.05 per

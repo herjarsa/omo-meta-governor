@@ -301,6 +301,10 @@ The plugin resolves skills from three tiers, in this precedence:
    to `<cwd>/.agents/skills/<slug>/SKILL.md` when the agent calls `omo_skill_get`.
 3. **Custom (project-local)** — written by the agent via the `writing-skills`
    chore skill when no hub match exists.
+4. **Synthesized (v0.57.0)** — recurring lesson patterns (3+ similar lessons)
+   become draft skills via `omo_skill_propose` (writes `DRAFT-SKILL.md`,
+   invisible to the resolver); `omo_skill_promote` activates one ONLY with
+   explicit user approval. No auto-promotion, ever.
 The plugin recommends skills to the agent; it never injects skill content into
 prompts. The agent decides which skill to use per task.
 
