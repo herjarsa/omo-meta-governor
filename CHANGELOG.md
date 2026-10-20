@@ -1,3 +1,65 @@
+## [0.61.0] - 2026-10-20
+
+**F0: el plugin captura la leccion del Oracle** + **F6: la ventana de
+contexto real**. Dos caras del mismo theme: el plugin deja de SUPO[NER] lo
+que el modelo dijo y lo lee de verdad.
+
+### Added
+- `src/oracle-lesson.ts`: parser puro del bloque LESSON. Acepta el shape
+  pedido al Oracle (`LESSON | Mistake: X | WhatToDo: Y | WhereToGo: Z`) y las
+  variantes en prosa (`Mistake: X. What to do: Y. Where: Z.`). Rechaza texto
+  sin leccion, campos vacios, y el remedio generico (`GENERIC_WHAT_TO_DO`).
+  Incluye `buildOracleLessonContent()` (contenido canonico, byte-identico
+  para el mismo triple) y `oracleLessonKey()` (clave de dedupe por contenido,
+  no por sesion).
+- `src/model-context.ts`: resuelve la ventana de contexto real desde el
+  registro de modelos de opencode (`~/.cache/opencode/models.json` ->
+  `limit.context`). Precedencia: override explicito > registro > 200k.
+- `closedLoop.oracleLessonCapture` (default `true`): el plugin escribe la
+  leccion del Oracle cuando el agente NO la persistio.
+- `deps.modelLimit?()`: seam para que el host inyecte la ventana real.
+
+### Changed
+- **El plugin ahora lee el veredicto del Oracle.** El Oracle corre como
+  subagente `task`, asi que su veredicto pasa por `tool.execute.after`.
+  Antes el plugin NUNCA lo leia: `promptAgent` solo devuelve `messageID`, y
+  el piggyback del LESSON dependia de que el AGENTE llamara `omo_remember`.
+  Si el agente ignoraba la instruccion, la leccion se perdia EN SILENCIO
+  (sin error, sin log, sin memoria).
+- La escritura sigue pasando por el writer unico (`writeLessonOnce` ->
+  agentmemory) y por el value gate (`isActionableConscienceLesson`): el gate
+  es el filtro. El plugin no escribe cuando el agente ya persistio (no hay
+  doble fila).
+- `getModelLimit()` ya no hardcodea 200_000.
+
+### Fixed
+- **La prediccion de overflow mellia.** El token-predictor mide la tasa de
+  quema contra `modelLimit`, que estaba hardcodeado en 200_000. En el modelo
+  configurado por el usuario (`muse-spark-1.3-contributor`) la ventana real
+  es **1.048.576** tokens: el predictor creia que el contexto era 5.2x mas
+  pequeno de lo que es. En un modelo de 128k creia lo contrario y predecía
+  overflows que nunca llegan. El overflow es justamente lo que hace parar al
+  agente antes de que se trunque.
+
+### Tests
+- Nuevo `src/oracle-lesson.test.ts` (L1-L9): shape exacto, variantes, sin
+  leccion, campos vacios, remedio generico rechazado, el gate de valor, el
+  parser es puro, y el `WhereToGo` ausente es valido.
+- Nuevo `src/model-context.test.ts` (M1-M7): override gana, id bare y
+  qualified, busqueda entre providers, fallback, registry ausente, y limit
+  malformado ignorado.
+- `bun run typecheck` clean.
+
+### Config
+- `closedLoop.oracleLessonCapture` (nuevo, default `true`).
+- `modelOverride.modelLimit` ahora es un override explicito sobre la
+  ventana real (antes era el unico valor).
+
+### Ship protocol compliance
+- ✅ CHANGELOG `## [0.61.0]` con Added/Changed/Fixed/Tests/Config
+- ✅ `bun run typecheck` clean (exit 0)
+- ⚠️ Oracle review gate OMITIDO por orden explicita del usuario
+
 ## [0.60.0] - 2026-10-20
 
 **F5: la historia del proyecto como senal del juez** — todas las senales

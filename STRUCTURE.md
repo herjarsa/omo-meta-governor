@@ -88,6 +88,8 @@ All source files live flat in `src/` — no subdirectories. Files are organized 
 | `skill-quality.ts` | v0.59.0: the quality gate — what a lesson must be to become a skill (protocol rules, project scope, evidence count, duplicates) |
 | `autonomous-skills.ts` | v0.59.0: autonomous creation — gate + write SKILL.md, no human step; report of created vs rejected |
 | `project-signals.ts` | v0.60.0 (F5): the project's history (recurring errors, co-changes, profile) as a judge signal — cached per project, informative by default |
+| `oracle-lesson.ts` | v0.61.0 (F0): parse the Oracle's LESSON block out of its verdict — pure; the plugin writes it when the agent did not |
+| `model-context.ts` | v0.61.0 (F6): resolve the model's real context window from opencode's registry (`limit.context`) |
 | `skills-tier3-reminder.ts` | Zero-results advisory → system reminder |
 | `skills-fs-watcher.ts` | chokidar watcher on `<cwd>/.agents/skills/` |
 ### Observability

@@ -97,6 +97,16 @@ export interface MetaGovernorPluginConfig {
     maxLessonsPerSession?: number
     saveDecisions?: boolean
     saveLessons?: boolean
+    /**
+     * v0.61.0 (F0): capture the Oracle's LESSON block in the PLUGIN.
+     *
+     * Default true. The Oracle's verdict already flows through
+     * tool.execute.after, so the plugin parses it and writes the lesson
+     * itself when the agent did not — subject to the same value gates as
+     * every other lesson. Set false to keep the old behavior (rely on the
+     * agent calling omo_remember).
+     */
+    oracleLessonCapture?: boolean
     /** v0.49.1: anti-loop guard for the Phase 4 auto-remember prompt. */
     autoRemember?: {
       enabled?: boolean
@@ -504,6 +514,10 @@ export function loadOrchestratorConfig(
       ...(full.closedLoop?.saveLessons !== undefined
         ? { saveLessons: full.closedLoop.saveLessons }
         : {}),
+      // v0.61.0 (F0): the plugin captures the Oracle's LESSON block itself.
+      // Default true — the lesson no longer depends on the agent's
+      // compliance with the piggyback instruction.
+      oracleLessonCapture: full.closedLoop?.oracleLessonCapture !== false,
       // v0.50.0 (D2): autoRemember canonical defaults — OPT-IN.
       // baseClosedLoop still defaults enabled:true (owned by T4); the
       // projection overrides to false so unset config never enables memory

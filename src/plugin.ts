@@ -147,6 +147,14 @@ import {
   type ProjectSignals,
 } from "./project-signals";
 import {
+  buildOracleLessonContent,
+  looksLikeOracleLesson,
+  oracleLessonKey,
+  parseOracleLesson,
+  type OracleLesson,
+} from "./oracle-lesson";
+import { resolveModelLimit } from "./model-context";
+import {
   buildOmoSkillSynthesizeTool,
   buildOmoSkillPruneTool,
 } from "./skill-synthesis";
@@ -203,6 +211,15 @@ export interface MetaGovernorPluginDeps {
   writeBackend?: AgentmemoryWriteBackend;
   providerID?: () => string | undefined;
   modelID?: () => string | undefined;
+  /**
+   * v0.61.0 (F6): the REAL context window of the model in use, in tokens.
+   *
+   * The token-predictor computes the burn rate against this number, so a
+   * wrong value makes the overflow prediction lie. Before this seam
+   * existed, the predictor used a hardcoded 200_000 regardless of the
+   * actual model.
+   */
+  modelLimit?: () => number | undefined;
   // v0.11.0: test-only hooks for hermetic assertions. NOT part of the
   // public contract; used by integration tests to verify the plugin
   // triggered an event without depending on filesystem state.
@@ -967,8 +984,27 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
       mergedConfig.modelOverride?.providerID ?? deps.providerID?.();
     const getModelID = (): string | undefined =>
       mergedConfig.modelOverride?.modelID ?? deps.modelID?.();
-    const getModelLimit = (): number =>
-      mergedConfig.modelOverride?.modelLimit ?? 200_000;
+    // v0.61.0 (F6): precedence = explicit override > the real model's
+    // context window (from opencode's own registry) > the 200k fallback.
+    // The token-predictor measures the burn rate against this number, so a
+    // stale hardcoded value makes the overflow prediction wrong on any
+    // model with a different window.
+    // v0.61.0 (F6): the registry is read LAZILY and RESOLVED ONCE. The
+    // token-predictor asks for the context window on EVERY tool call, and
+    // the registry is 5MB of JSON — reading it per call (or per plugin
+    // creation) is a tax that pushed several 5s-timeout tests over the
+    // edge. The resolution is memoized: the first call pays the read, every
+    // later call is a number.
+    let resolvedModelLimit: number | undefined
+    const getModelLimit = (): number => {
+      if (resolvedModelLimit !== undefined) return resolvedModelLimit
+      resolvedModelLimit = resolveModelLimit({
+        override: mergedConfig.modelOverride?.modelLimit ?? deps.modelLimit?.(),
+        modelID: getModelID(),
+        providerID: getProviderID(),
+      })
+      return resolvedModelLimit
+    }
 
     const providerID = getProviderID() ?? "unknown";
     const modelID = getModelID() ?? "unknown";
@@ -1201,6 +1237,12 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
     // consecutive turns query nearly identical state, so reuse the last result
     // instead of paying network + tokens per tool call.
     const recallCache = new TtlBoundedMap<string, { lessons: unknown[]; crystals: unknown[] }>(500, 30_000);
+  // v0.61.0 (F0): the LESSON blocks the AGENT persisted itself. The Oracle
+  // piggyback asks the agent to call omo_remember; when it complies, the
+  // plugin must NOT write the same lesson again (one writer, one row).
+  // Keyed by the lesson content so the comparison is exact.
+  const agentPersistedLessons = new TtlBoundedMap<string, string>(1000, 24 * 60 * 60 * 1000);
+
   // v0.60.0 (F5): project-history signals, cached per project (5 min TTL).
   // These describe the project's HISTORY — they do not change within a
   // session, so one read per project is enough. Never per tool call.
@@ -1720,6 +1762,76 @@ metricsCollector.inc("interventions_delivered");
         }
 
         const sessionState = auditSessions.get(toolInput.sessionID);
+
+        // ─── v0.61.0 (F0): capture the Oracle's LESSON block ───────────
+        //
+        // The Oracle runs as a `task` subagent, so its verdict comes back
+        // through tool.execute.after. Until now the plugin NEVER read it:
+        // promptAgent returns only a messageID, and the LESSON piggyback
+        // relied on the AGENT choosing to call omo_remember. When the agent
+        // ignored the instruction, the lesson was lost silently.
+        //
+        // Here the plugin parses the verdict itself and — if the agent did
+        // NOT persist it — writes it through the single writer
+        // (writeLessonOnce → agentmemory), subject to the same quality
+        // gates as every other lesson. The gate is the filter; this is
+        // just a more reliable source.
+        if (toolInput.tool === "task" && mergedConfig.closedLoop?.oracleLessonCapture !== false) {
+          try {
+            const verdict = (toolOutput.output ?? "").toString();
+            if (looksLikeOracleLesson(verdict)) {
+              const lesson = parseOracleLesson(verdict);
+              if (lesson) {
+                const alreadyPersisted = agentPersistedLessons.get(toolInput.sessionID) ?? "";
+                const agentWroteIt =
+                  alreadyPersisted.length > 0 &&
+                  (alreadyPersisted.includes(lesson.mistake) || alreadyPersisted.includes(lesson.whatToDo));
+                if (agentWroteIt) {
+                  logToFile(
+                    "info",
+                    `oracle lesson already persisted by agent (${toolInput.sessionID}) — no duplicate write`,
+                  );
+                } else {
+                  // The value gate: a lesson must name a real mistake AND a
+                  // real remedy. The generic fallback teaches nothing.
+                  const deviations = sessionState?.accumulatedDeviations ?? [];
+                  const files = sessionState?.recentWriteFilePaths ?? [];
+                  if (isActionableConscienceLesson(lesson.mistake, lesson.whatToDo, deviations, files)) {
+                    const key = oracleLessonKey(lesson);
+                    const projectName = resolveProjectName(sessionProjectDir);
+                    void (async () => {
+                      try {
+                        const res = await writeLessonOnce(memoryClient, memoryState, {
+                          sessionID: toolInput.sessionID,
+                          project: projectName,
+                          key,
+                          content: buildOracleLessonContent(lesson),
+                          context: `project:${projectName}`,
+                          confidence: 0.7,
+                          tags: ["oracle", "lesson"],
+                        });
+                        logToFile(
+                          "info",
+                          `oracle lesson captured (${toolInput.sessionID}): action=${res.action ?? "none"} skipped=${res.skipped ?? false}`,
+                        );
+                      } catch (err) {
+                        logToFile("warn", `oracle lesson write failed: ${String(err)}`);
+                      }
+                    })();
+                  } else {
+                    logToFile(
+                      "info",
+                      `oracle lesson rejected by value gate (${toolInput.sessionID})`,
+                    );
+                  }
+                }
+              }
+            }
+          } catch (err) {
+            logToFile("warn", `oracle lesson capture failed: ${String(err)}`);
+          }
+        }
+
         if (sessionState) {
           // v0.17.2: increment per-session iteration so the iteration-budget
           // signal (weight 0.15) actually fires downstream.
@@ -1751,6 +1863,21 @@ metricsCollector.inc("interventions_delivered");
               sessionState.recentWriteFilePaths = [filePath]
                 .concat(sessionState.recentWriteFilePaths)
                 .slice(0, 10);
+            }
+          }
+
+          // v0.61.0 (F0): record the lessons the agent persisted itself, so
+          // the plugin can tell "the agent complied" from "the agent ignored
+          // the piggyback" and never write the same lesson twice.
+          if (toolInput.tool === "omo_remember") {
+            try {
+              const args = toolInput.args as { content?: string; mistake?: string; whatToDo?: string; whereToGo?: string } | undefined;
+              const content = (args?.content ?? "").toString();
+              if (content.length > 0) {
+                agentPersistedLessons.set(toolInput.sessionID, content);
+              }
+            } catch {
+              // best-effort
             }
           }
 

@@ -377,6 +377,48 @@ Config (`omo-meta-governor.jsonc`):
 }
 ```
 
+### The Oracle's lesson is captured by the plugin (v0.61.0, F0)
+
+The LESSON piggyback asks the **agent** to persist the Oracle's lesson via
+`omo_remember`. That was fragile: `promptAgent` returns only a `messageID`,
+so the plugin never read what the Oracle actually said, and when the agent
+ignored the instruction the lesson was **lost silently** — no error, no log,
+no memory.
+
+v0.61.0 closes the loop. The Oracle runs as a `task` subagent, so its
+verdict already flows through `tool.execute.after`. The plugin parses it:
+
+- If the agent **did** persist the lesson → the plugin writes nothing (no
+  duplicate row).
+- If the agent **did not** → the plugin writes it itself, through the same
+  single writer (`writeLessonOnce` → agentmemory), subject to the same
+  value gate as every other lesson.
+
+The gate is still the filter: a lesson with no real mistake, or with the
+generic remedy, is rejected either way.
+
+```jsonc
+"closedLoop": {
+  "oracleLessonCapture": true   // default true; false = old behavior
+}
+```
+
+### The real context window (v0.61.0, F6)
+
+The token-predictor measures the burn rate against `modelLimit` to predict
+overflow. That number was a hardcoded `200_000`, so the prediction was wrong
+in both directions: on a 1M-window model it believed the context was 5x
+smaller than it is; on a 128k model it predicted overflows that never come.
+
+v0.61.0 resolves it from opencode's own model registry
+(`~/.cache/opencode/models.json` → `limit.context`):
+
+| Precedence | Source |
+|---|---|
+| 1 | `modelOverride.modelLimit` (explicit user config) |
+| 2 | The real model's `limit.context` in opencode's registry |
+| 3 | `200_000` fallback |
+
 ### Project history as a signal (v0.60.0, F5)
 
 Every signal the judge uses today describes the **current session**. F5 adds
