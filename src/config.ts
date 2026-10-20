@@ -73,6 +73,21 @@ export interface MetaGovernorPluginConfig {
      * Users should set `oracle.frequency` in opencode.jsonc, not this field.
      */
     oracleFrequency?: "per-stop" | "final-only" | "off"
+    /**
+     * v0.60.0 (F5): the project's history as a scoring signal. Reads
+     * agentmemory (recurring errors, co-changes, project profile), cached
+     * per project.
+     *
+     * `weight` defaults to 0 = INFORMATIVE ONLY: the signals appear in the
+     * judge's digest but do not move the score. Raise it deliberately once
+     * you trust them on your project.
+     */
+    projectSignals?: {
+      enabled?: boolean
+      minFrequency?: number
+      weight?: number
+      cacheTtlMs?: number
+    }
   }
 
   /** Closed-loop learning (PR 3) */
@@ -452,6 +467,14 @@ export function loadOrchestratorConfig(
       ...(full.scoring?.defaultEscalationTarget !== undefined
         ? { defaultEscalationTarget: full.scoring.defaultEscalationTarget }
         : {}),
+      // v0.60.0 (F5): project-history signals. weight=0 by default →
+      // informative only (surfaced in the digest, score untouched).
+      projectSignals: {
+        enabled: full.scoring?.projectSignals?.enabled ?? true,
+        minFrequency: full.scoring?.projectSignals?.minFrequency ?? 3,
+        weight: full.scoring?.projectSignals?.weight ?? 0,
+        cacheTtlMs: full.scoring?.projectSignals?.cacheTtlMs ?? 300_000,
+      },
       // Oracle invocation frequency is DERIVED from `oracle.frequency`
       // (canonical). `scoring.oracleFrequency` is a deprecated read-only
       // fallback for pre-v0.38.4 configs — never a user knob. Fallback order:

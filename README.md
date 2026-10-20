@@ -377,6 +377,45 @@ Config (`omo-meta-governor.jsonc`):
 }
 ```
 
+### Project history as a signal (v0.60.0, F5)
+
+Every signal the judge uses today describes the **current session**. F5 adds
+the **project's history**, read from agentmemory:
+
+| Source | Endpoint | What it finds |
+|---|---|---|
+| Recurring errors | `POST /patterns` | `error_repeat` — the same error across sessions (e.g. "x16") |
+| Co-changes | `POST /patterns` | `co_change` — files that always change together |
+| Project profile | `GET /profile` | `commonErrors`, `conventions`, top concepts |
+| Insights | `GET /insights` | higher-order patterns agentmemory already distilled |
+
+The difference matters: a per-turn signal reacts **after** the agent repeats
+a mistake; these let the score be low **before** it happens, with the
+concrete remedy attached.
+
+Design constraints:
+- **No LLM.** These are local HTTP reads, cached per project (5 min TTL) —
+  never per tool call.
+- **Informative by default.** `weight` defaults to `0`: the signals appear
+  in the judge's digest but do not move the score. Raise it deliberately
+  once you trust them on your project.
+- **Honest about scope.** agentmemory detects patterns across ALL sessions,
+  so a pattern may describe another project. Unscoped patterns are marked
+  `(machine-wide)` in the digest.
+
+```jsonc
+{
+  "scoring": {
+    "projectSignals": {
+      "enabled": true,
+      "minFrequency": 3,
+      "weight": 0,        // 0 = informative only
+      "cacheTtlMs": 300000
+    }
+  }
+}
+```
+
 ### Multi-phase plans
 
 For work plans with multiple phases (e.g. Sisyphus/Prometheus work

@@ -1,3 +1,55 @@
+## [0.60.0] - 2026-10-20
+
+**F5: la historia del proyecto como senal del juez** — todas las senales
+del scoring describian la sesion ACTUAL. Estas describen lo que pasa en ESTE
+proyecto entre sesiones (errores recurrentes, co-changes, perfil del
+proyecto), leidas de agentmemory.
+
+### Added
+- `src/project-signals.ts`: las senales del proyecto. `buildProjectSignals`
+  (puro), `scoreProjectSignals` (negativo, cap -0.6), `formatProjectSignals`
+  (digest, cap 8 lineas) y `ProjectSignalCache` (TTL 5 min por proyecto).
+- `AgentmemoryClient.patterns()` (POST-only: GET da 404),
+  `.projectProfile()` (GET, `project` obligatorio) y `.projectInsights()`.
+- `DecisionContext.projectSignals` + `.projectSignalsWeight`;
+  `MetaGovernorInput` equivalents; nueva evidencia `project-signals`.
+- `scoring.projectSignals` config: `enabled` (true), `minFrequency` (3),
+  `weight` (**0 = informativo**), `cacheTtlMs` (300000).
+- El digest del juez incluye las senales del proyecto.
+
+### Changed
+- La lectura de `/patterns` es GLOBAL, no por proyecto: agentmemory hace
+  scope por el campo `project` de cada SESION (el directorio donde corrio),
+  no por el nombre del repo. Scoping por el nombre del plugin escaneaba 14
+  observaciones y no encontraba nada; la lectura global escanea 1130 y
+  encuentra un `error_repeat` con frecuencia 16.
+- La contribucion `project-signals` se emite SOLO con peso > 0 (toda
+  contribucion del engine tiene weight > 0 por contrato). Con el default 0
+  las senales son informativas: aparecen en el digest sin mover el score.
+
+### Fixed
+- La senal marca su alcance: los patrones que agentmemory detecta entre
+  todas las sesiones pueden describir otro proyecto. Los no anclados al
+  proyecto se marcan `(machine-wide)` en el digest, y `projectScoped` queda
+  exposed para consumo futuro.
+
+### Tests
+- Nuevo `src/project-signals.test.ts` (S1-S8): umbral de frecuencia,
+  separacion de tipos, profile/insights, score negativo y capado, digest
+  capado, cache (1 lectura por proyecto), config disabled, y el efecto en
+  el score (weight 0 = score intacto; weight > 0 = score baja).
+- `bun run typecheck` clean.
+
+### Config
+- `scoring.projectSignals` (nuevo). `weight` default 0.
+
+### Ship protocol compliance
+- ✅ CHANGELOG `## [0.60.0]` con Added/Changed/Fixed/Tests/Config
+- ✅ `bun run typecheck` clean (exit 0)
+- ✅ Verificado live contra agentmemory (:3111): detecta `error_repeat` x16
+  y lo inyecta en el digest
+- ⚠️ Oracle review gate OMITIDO por orden explicita del usuario
+
 ## [0.59.0] - 2026-10-20
 
 **Sintesis autonoma de skills, con gate de calidad** — el agente crea sus

@@ -78,6 +78,46 @@ export interface AgentmemorySearchResult {
   mode?: string
 }
 
+/**
+ * A recurring pattern detected by agentmemory across sessions.
+ * Shapes verified against agentmemory v0.9.30 (POST /patterns).
+ */
+export interface AgentmemoryPattern {
+  type?: string
+  description?: string
+  frequency?: number
+  files?: string[]
+  sessions?: string[]
+  confidence?: number
+  rule?: string
+}
+
+/**
+ * Project profile — what keeps happening in this project.
+ * Shapes verified against agentmemory v0.9.30 (GET /profile?project=).
+ */
+export interface AgentmemoryProfile {
+  project?: string
+  commonErrors?: string[]
+  conventions?: string[]
+  topConcepts?: Array<{ concept: string; frequency: number }>
+  topFiles?: Array<{ file?: string; count?: number }>
+  recentActivity?: string[]
+  sessionCount?: number
+  totalObservations?: number
+  updatedAt?: string
+}
+
+/** A higher-order insight synthesized by agentmemory. */
+export interface AgentmemoryInsight {
+  id?: string
+  text?: string
+  insight?: string
+  title?: string
+  confidence?: number
+  sourceIds?: string[]
+}
+
 export interface AgentmemorySaveLessonInput {
   content: string
   context?: string
@@ -310,22 +350,46 @@ export class AgentmemoryClient {
     return Array.isArray(res?.lessons) ? res.lessons : []
   }
 
-  async profile(project: string): Promise<Record<string, unknown> | null> {
-    return this.get<Record<string, unknown>>("/profile", { project })
-  }
-
-  async patterns(project: string): Promise<Record<string, unknown> | null> {
-    return this.get<Record<string, unknown>>("/patterns", { project })
-  }
-
-  async insights(project: string): Promise<Array<Record<string, unknown>>> {
-    const res = await this.get<{ insights?: Array<Record<string, unknown>> }>("/insights", { project })
-    return Array.isArray(res?.insights) ? res.insights : []
-  }
-
   async counts(): Promise<Record<string, number> | null> {
     const res = await this.get<{ counts?: Record<string, number> }>("/counts")
     return res?.counts ?? null
+  }
+
+  // ─── F5: project-history signals ─────────────────────────────────
+  //
+  // These answer questions the per-turn signals CANNOT: what keeps
+  // happening in THIS project across sessions.
+
+  /**
+   * Recurring patterns across sessions. NOTE: this endpoint is POST-only
+   * (GET returns 404) — verified against agentmemory v0.9.30.
+   */
+  async patterns(input?: { project?: string; limit?: number }): Promise<AgentmemoryPattern[]> {
+    const res = await this.post<{
+      patterns?: AgentmemoryPattern[]
+      observationsScanned?: number
+    }>("/patterns", {
+      ...(input?.project ? { project: input.project } : {}),
+      ...(input?.limit !== undefined ? { limit: input.limit } : {}),
+    })
+    return Array.isArray(res?.patterns) ? res.patterns : []
+  }
+
+  /**
+   * Project profile: common errors, conventions, top concepts/files.
+   * `project` is REQUIRED by agentmemory (400 without it).
+   */
+  async projectProfile(project: string): Promise<AgentmemoryProfile | null> {
+    const res = await this.get<{ profile?: AgentmemoryProfile }>("/profile", { project })
+    return res?.profile ?? null
+  }
+
+  /** Higher-order insights synthesized by agentmemory. */
+  async projectInsights(project?: string): Promise<AgentmemoryInsight[]> {
+    const res = await this.get<{ insights?: AgentmemoryInsight[] }>("/insights", {
+      ...(project ? { project } : {}),
+    })
+    return Array.isArray(res?.insights) ? res.insights : []
   }
 
   // ─── Write ───────────────────────────────────────────────────────

@@ -43,6 +43,7 @@
  */
 
 import type {
+  ProjectSignalsView,
   DecisionContext,
   Decision,
   Evidence,
@@ -157,7 +158,25 @@ function scoreSignals(ctx: DecisionContext, nowMs: number): EvidenceContribution
       : "No relevant lessons",
   })
 
-  // 6. Goal progress (v0.56.0 F4): plan completion from boulder-state.
+  // 6. Project history (v0.60.0 F5): what keeps happening in THIS project.
+  // The contribution is emitted ONLY when it carries a real weight — a
+  // zero-weight contribution is not a contribution (every contribution in
+  // this list has weight > 0 by contract). With the default weight of 0
+  // the signals are still surfaced in the judge's digest, but the score
+  // is untouched until the weight is raised deliberately.
+  const projectWeight = ctx.projectSignalsWeight ?? 0
+  if (projectWeight > 0) {
+    const projectRaw = scoreProjectSignals(ctx.projectSignals)
+    contributions.push({
+      source: "project-signals",
+      rawScore: projectRaw,
+      weight: projectWeight,
+      weightedScore: projectRaw * projectWeight,
+      description: describeProjectSignals(ctx.projectSignals),
+    })
+  }
+
+  // 7. Goal progress (v0.56.0 F4): plan completion from boulder-state.
   // Near-complete plans are strong continue signal; stalled plans (0 progress
   // deep into the iteration budget) are a mild negative. Absent signal = 0.
   const goalScore = scoreGoalProgress(ctx.planProgress, ctx.iterationRatio)
@@ -209,6 +228,36 @@ function scoreIterationBudget(ratio: number): number {
   // Linear ramp: 0.0 → 0.0, 0.5 → -0.3, 1.0 → -0.8
   if (ratio <= 0.5) return -ratio * 0.6
   return -0.3 - (ratio - 0.5) * 1.0
+}
+
+/**
+ * Project-history signal (v0.60.0 F5). Negative when the project has a
+ * recurring error the agent is likely to hit again. Zero when there is no
+ * signal or when the weight is 0 (informative-only mode).
+ */
+function scoreProjectSignals(signals: ProjectSignalsView | undefined): number {
+  if (!signals || signals.empty) return 0
+  const recurring = signals.recurringErrors.length
+  const coChange = signals.coChanges.length
+  if (recurring === 0 && coChange === 0) return 0
+  // Capped: a project with a known recurring error is not by itself a
+  // reason to stop the agent.
+  return -Math.min(0.6, 0.2 * recurring + 0.1 * coChange)
+}
+
+function describeProjectSignals(signals: ProjectSignalsView | undefined): string {
+  if (!signals || signals.empty) return "No project history signal"
+  const parts: string[] = []
+  if (signals.recurringErrors.length > 0) {
+    parts.push(`${signals.recurringErrors.length} recurring error(s)`)
+  }
+  if (signals.coChanges.length > 0) {
+    parts.push(`${signals.coChanges.length} co-change pattern(s)`)
+  }
+  if (signals.commonErrors.length > 0) {
+    parts.push(`${signals.commonErrors.length} known project error(s)`)
+  }
+  return parts.length > 0 ? parts.join(", ") : "No project history signal"
 }
 
 /**

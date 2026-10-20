@@ -92,7 +92,9 @@ describe("agentmemory-client F1 — degradation + mapping", () => {
       fetch: async () => jsonResponse({ error: "boom" }, false, 500),
     });
     expect(await client.listLessons({ project: "p" })).toEqual([]);
-    expect(await client.insights("p")).toEqual([]);
+    expect(await client.projectInsights("p")).toEqual([]);
+    expect(await client.patterns({ project: "p" })).toEqual([]);
+    expect(await client.projectProfile("p")).toBeNull();
   });
 
   it("T4a: context maps agentmemory payload", async () => {
