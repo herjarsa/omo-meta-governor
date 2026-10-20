@@ -12,6 +12,12 @@ import { join } from "node:path"
 import { tool, type ToolResult } from "@opencode-ai/plugin"
 import { z } from "zod"
 import { projectSkillsRoot } from "./skills-catalog.js"
+import {
+  formatSynthesisReport,
+  runAutonomousSynthesis,
+  type AutonomousSkillConfig,
+} from "./autonomous-skills.js"
+import { proposeSkills, type LessonInput } from "./skill-quality.js"
 import type { SqliteBackend } from "./sqlite-backend"
 import type { AgentmemoryClient } from "./agentmemory-client"
 
@@ -336,3 +342,199 @@ export function buildOmoSkillPromoteTool(deps: OmoSkillPromoteDeps) {
     },
   })
 }
+
+// ---------------------------------------------------------------------------
+// v0.59.0 — autonomous synthesis tool + legacy garbage prune
+// ---------------------------------------------------------------------------
+
+export interface OmoSkillSynthesizeDeps {
+  agentmemory?: AgentmemoryClient
+  sqlite?: SqliteBackend
+  cwd: string
+  project?: string
+  globalDir?: string
+  /** Skill synthesis config (from closedLoop.autonomousSkills). */
+  config?: AutonomousSkillConfig
+}
+
+/**
+ * omo_skill_synthesize — the agent creates its own skills from the lessons
+ * in agentmemory. NO human approval: the quality gate decides. The output
+ * lists what was created AND what was rejected (with reasons), so the
+ * behaviour is auditable.
+ */
+export function buildOmoSkillSynthesizeTool(deps: OmoSkillSynthesizeDeps) {
+  return tool({
+    description:
+      "Create skills from your own recurring lessons (autonomous, gated). " +
+      "Reads the lessons in agentmemory, groups them by rule + place, and " +
+      "writes a SKILL.md for every pattern that passes the quality gate " +
+      "(project-specific rule, 3+ independent occurrences, real remedy, " +
+      "not already covered by an existing skill). " +
+      "Protocol rules are never turned into skills. " +
+      "Use it when you notice the same project-specific mistake recurring.",
+    args: {
+      dryRun: z
+        .boolean()
+        .default(false)
+        .describe("Report what would be created without writing anything."),
+    },
+    async execute(args, _ctx): Promise<ToolResult> {
+      try {
+        let lessons: LessonInput[] = []
+        if (deps.agentmemory) {
+          // v0.59.0: scan ALL projects. A rule learned in one repo often
+          // applies in another (the same mistake, a different file). The
+          // project scope is NOT a filter for synthesis — it is for the
+          // memory WRITE. Filtering here would hide real patterns.
+          const stored = await deps.agentmemory.listLessons({ limit: 500 })
+          lessons = stored.map((l) => ({
+            id: l.id,
+            content: l.content ?? "",
+            confidence: typeof l.confidence === "number" ? l.confidence : 0.5,
+            tags: Array.isArray(l.tags) ? l.tags : [],
+            reinforcements: typeof l.reinforcements === "number" ? l.reinforcements : 0,
+          }))
+        } else if (deps.sqlite) {
+          const rows = await deps.sqlite.listLessons()
+          lessons = rows.map((l) => ({
+            id: l.id,
+            content: l.content,
+            confidence: l.confidence,
+            tags: l.tags,
+            reinforcements: 0,
+          }))
+        }
+        if (lessons.length === 0) {
+          return {
+            title: "omo_skill_synthesize: no lessons",
+            output: "No lessons in memory yet — nothing to synthesize.",
+            metadata: { tool: "omo_skill_synthesize", ok: true, scanned: 0 },
+          }
+        }
+        const synthesis = await runAutonomousSynthesis({
+          lessons,
+          cwd: deps.cwd,
+          config: args.dryRun ? { ...deps.config, enabled: false } : deps.config,
+          globalDir: deps.globalDir,
+        })
+        return {
+          title: `omo_skill_synthesize: ${synthesis.written.length} created, ${synthesis.rejected.length} rejected`,
+          output: formatSynthesisReport(synthesis),
+          metadata: {
+            tool: "omo_skill_synthesize",
+            ok: true,
+            scanned: synthesis.scannedLessons,
+            created: synthesis.written.map((w) => w.slug),
+            rejected: synthesis.rejected.map((r) => ({ slug: r.slug, reasons: r.reasons })),
+          },
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return {
+          title: "omo_skill_synthesize: error",
+          output: `Synthesis failed: ${msg}`,
+          metadata: { tool: "omo_skill_synthesize", ok: false, error: msg },
+        }
+      }
+    },
+  })
+}
+
+export interface OmoSkillPruneDeps {
+  agentmemory?: AgentmemoryClient
+  project?: string
+  /** When false, only report. Default false (dry-run). */
+  apply?: boolean
+}
+
+/**
+ * omo_skill_prune — delete the lessons that CANNOT become a skill (the
+ * legacy garbage: protocol rules, no project scope, generic remedy). This
+ * keeps agentmemory clean so the recall stays precise. Dry-run by default.
+ */
+export function buildOmoSkillPruneTool(deps: OmoSkillPruneDeps) {
+  return tool({
+    description:
+      "Delete from agentmemory the lessons that are useless as skills " +
+      "(protocol rules already enforced, lessons with no project scope, " +
+      "generic remedies). This is the cleanup of a legacy garbage class. " +
+      "Dry-run by default — pass apply=true to actually delete.",
+    args: {
+      apply: z
+        .boolean()
+        .default(false)
+        .describe("Actually delete. Default false = report only."),
+    },
+    async execute(args, _ctx): Promise<ToolResult> {
+      try {
+        if (!deps.agentmemory) {
+          return {
+            title: "omo_skill_prune: no agentmemory",
+            output: "agentmemory client unavailable — nothing to prune.",
+            metadata: { tool: "omo_skill_prune", ok: false },
+          }
+        }
+        const stored = await deps.agentmemory.listLessons({ limit: 500 })
+        const proposals = proposeSkills(
+          stored.map((l) => ({
+            id: l.id,
+            content: l.content ?? "",
+            confidence: typeof l.confidence === "number" ? l.confidence : 0.5,
+            tags: Array.isArray(l.tags) ? l.tags : [],
+            reinforcements: typeof l.reinforcements === "number" ? l.reinforcements : 0,
+          })),
+        )
+        // A lesson is garbage when its proposal was rejected for a
+        // QUALITY reason (not merely for lacking more evidence).
+        const qualityReasons = new Set([
+          "protocol-rule",
+          "no-project-scope",
+          "generic-remedy",
+          "malformed-lesson",
+        ])
+        const garbage: string[] = []
+        for (const proposal of proposals) {
+          if (proposal.rejections.some((r) => qualityReasons.has(r))) {
+            garbage.push(...proposal.lessonIds)
+          }
+        }
+        if (garbage.length === 0) {
+          return {
+            title: "omo_skill_prune: nothing to prune",
+            output: `No garbage lessons found (${stored.length} lesson(s) checked).`,
+            metadata: { tool: "omo_skill_prune", ok: true, candidates: 0 },
+          }
+        }
+        if (!args.apply) {
+          return {
+            title: `omo_skill_prune: ${garbage.length} candidate(s) (dry run)`,
+            output:
+              `Would delete ${garbage.length} garbage lesson(s):\n` +
+              garbage.map((id) => `  - ${id}`).join("\n") +
+              `\n\nRe-run with apply=true to delete them.`,
+            metadata: { tool: "omo_skill_prune", ok: true, candidates: garbage.length, applied: false },
+          }
+        }
+        let deleted = 0
+        for (const id of garbage) {
+          const res = await deps.agentmemory.deleteLesson(id)
+          if (res) deleted++
+        }
+        return {
+          title: `omo_skill_prune: deleted ${deleted} lesson(s)`,
+          output: `Deleted ${deleted}/${garbage.length} garbage lesson(s).`,
+          metadata: { tool: "omo_skill_prune", ok: true, deleted, candidates: garbage.length, applied: true },
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return {
+          title: "omo_skill_prune: error",
+          output: `Prune failed: ${msg}`,
+          metadata: { tool: "omo_skill_prune", ok: false, error: msg },
+        }
+      }
+    },
+  })
+}
+

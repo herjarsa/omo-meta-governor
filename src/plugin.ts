@@ -137,6 +137,14 @@ import {
   type AgentmemoryBridgeState,
 } from "./agentmemory-bridge";
 import { getAgentmemoryClient, isTestEnvironment, NullAgentmemoryClient, type AgentmemoryClient } from "./agentmemory-client";
+import {
+  formatSynthesisReport,
+  runAutonomousSynthesis,
+} from "./autonomous-skills";
+import {
+  buildOmoSkillSynthesizeTool,
+  buildOmoSkillPruneTool,
+} from "./skill-synthesis";
 import { bootstrapChoreSkills } from "./skills-bootstrap.js";
 
 import { DEFAULT_VERSION } from "./metrics";
@@ -453,6 +461,18 @@ export function createMetaGovernorPlugin(
     onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
       deliveryRegistry.register({ sessionID, mcpTool, mcpArgs });
     },
+  });
+  // v0.59.0: autonomous skill synthesis + legacy garbage prune. The agent
+  // creates its own skills (gated, no human step) and can clean up the
+  // lessons that are useless as skills.
+  const omoSkillSynthesizeTool = buildOmoSkillSynthesizeTool({
+    agentmemory: memoryClient,
+    cwd,
+    project: resolveProjectName(process.cwd()),
+  });
+  const omoSkillPruneTool = buildOmoSkillPruneTool({
+    agentmemory: memoryClient,
+    project: resolveProjectName(process.cwd()),
   });
   const omoPathTool = buildOmoPathTool({ cwd });
   const omoExplainTool = buildOmoExplainTool({ cwd });
@@ -887,6 +907,9 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
           omo_impact: omoImpactTool,
           omo_remember: omoRememberTool,
           omo_recall_mcp: omoRecallMcpTool,
+          // v0.59.0: autonomous skill synthesis (gated, no human approval).
+          omo_skill_synthesize: omoSkillSynthesizeTool,
+          omo_skill_prune: omoSkillPruneTool,
           omo_path: omoPathTool,
           omo_explain: omoExplainTool,
           omo_files: omoFilesTool,
@@ -1857,6 +1880,31 @@ metricsCollector.inc("interventions_delivered");
                     "info",
                     `agentmemory session end (${toolInput.sessionID}): ${res.lessonsSaved} saved, ${res.lessonsStrengthened} reinforced, ${res.lessonsFailed} failed, summarized=${res.summarized}`,
                   );
+                  // v0.59.0: autonomous skill synthesis. The agent creates its
+                  // OWN skills from the lessons it just learned — no human
+                  // step. The quality gate (src/skill-quality.ts) decides
+                  // what is worth a skill: protocol rules excluded, project
+                  // scope required, 3+ independent occurrences, real remedy.
+                  const skillCfg = mergedConfig.closedLoop?.autonomousSkills ?? {};
+                  if (skillCfg.enabled !== false) {
+                    // Scan ALL projects: a rule learned elsewhere applies here too.
+                    const stored = await memoryClient.listLessons({ limit: 500 });
+                    const synthesis = await runAutonomousSynthesis({
+                      lessons: stored.map((l) => ({
+                        id: l.id,
+                        content: l.content ?? "",
+                        confidence: typeof l.confidence === "number" ? l.confidence : 0.5,
+                        tags: Array.isArray(l.tags) ? l.tags : [],
+                        reinforcements: typeof l.reinforcements === "number" ? l.reinforcements : 0,
+                      })),
+                      cwd: sessionProjectDir,
+                      config: skillCfg,
+                    });
+                    logToFile(
+                      "info",
+                      `autonomous skills (${toolInput.sessionID}): ${synthesis.written.length} created, ${synthesis.rejected.length} rejected — ${synthesis.written.map((w) => w.slug).join(", ") || "none"}`,
+                    );
+                  }
                 } catch (err) {
                   logToFile("warn", `agentmemory session end failed: ${String(err)}`);
                 }
@@ -3153,6 +3201,9 @@ metricsCollector.inc("interventions_delivered");
         omo_impact: omoImpactTool,
         omo_remember: omoRememberTool,
         omo_recall_mcp: omoRecallMcpTool,
+        // v0.59.0: autonomous skill synthesis (gated, no human approval).
+        omo_skill_synthesize: omoSkillSynthesizeTool,
+        omo_skill_prune: omoSkillPruneTool,
         omo_path: omoPathTool,
         omo_explain: omoExplainTool,
         omo_files: omoFilesTool,

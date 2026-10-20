@@ -77,6 +77,7 @@ import {
 import { getDefaultGraphRetrieval, type GraphRetrieval } from "./graph-retrieval";
 import { getDefaultSqliteBackend, type SqliteBackend } from "./sqlite-backend";
 import { getAgentmemoryClient, type AgentmemoryClient } from "./agentmemory-client";
+import { buildOmoSkillSynthesizeTool, buildOmoSkillPruneTool } from "./skill-synthesis"
 import { createMetricsCollector, type MetricsCollector } from "./metrics";
 import { LOG_PATH, logToFile } from "./file-logger";
 import { newPluginPaths } from "./utils/migrate";
@@ -136,6 +137,8 @@ export const OMO_TOOL_NAMES: readonly string[] = [
   "omo_impact",
   "omo_remember",
   "omo_recall_mcp",
+  "omo_skill_synthesize",
+  "omo_skill_prune",
   "omo_path",
   "omo_explain",
   "omo_files",
@@ -426,6 +429,20 @@ export function registerOmoTools(
         }),
     },
     { name: "omo_recall_mcp", build: () => buildOmoRecallMcpTool({ onDispatch }) },
+    // v0.59.0: autonomous skill synthesis (gated) + garbage prune.
+    {
+      name: "omo_skill_synthesize",
+      build: () =>
+        buildOmoSkillSynthesizeTool({
+          agentmemory: deps.agentmemory ?? getAgentmemoryClient(),
+          cwd,
+        }),
+    },
+    {
+      name: "omo_skill_prune",
+      build: () =>
+        buildOmoSkillPruneTool({ agentmemory: deps.agentmemory ?? getAgentmemoryClient() }),
+    },
     { name: "omo_path", build: () => buildOmoPathTool({ cwd }) },
     { name: "omo_explain", build: () => buildOmoExplainTool({ cwd }) },
     { name: "omo_files", build: () => buildOmoFilesTool({ graphRetrieval, cwd }) },
