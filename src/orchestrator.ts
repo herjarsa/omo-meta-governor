@@ -217,6 +217,9 @@ export function buildDecisionContext(
     // v0.56.0 (F4 goal-alignment): thread boulder plan progress so scoring
     // can reward on-plan advancement instead of only punishing deviations.
     planProgress: memoryRead.boulderState?.planProgress,
+    // v0.60.0 (F5): the project's history signals + their weight.
+    projectSignals: input.projectSignals,
+    projectSignalsWeight: input.projectSignalsWeight,
     ambient: {
       sessionID: input.sessionID,
       directory: ".",

@@ -87,6 +87,7 @@ All source files live flat in `src/` — no subdirectories. Files are organized 
 | `skill-synthesis.ts` | v0.57.0 Nivel 2: lesson-pattern → DRAFT-SKILL.md + `omo_skill_propose`/`omo_skill_promote` (human approval gate) |
 | `skill-quality.ts` | v0.59.0: the quality gate — what a lesson must be to become a skill (protocol rules, project scope, evidence count, duplicates) |
 | `autonomous-skills.ts` | v0.59.0: autonomous creation — gate + write SKILL.md, no human step; report of created vs rejected |
+| `project-signals.ts` | v0.60.0 (F5): the project's history (recurring errors, co-changes, profile) as a judge signal — cached per project, informative by default |
 | `skills-tier3-reminder.ts` | Zero-results advisory → system reminder |
 | `skills-fs-watcher.ts` | chokidar watcher on `<cwd>/.agents/skills/` |
 ### Observability

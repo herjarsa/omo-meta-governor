@@ -46,6 +46,17 @@ export interface DecisionContext {
    * Optional — absent means "no plan signal" (0 contribution, legacy behavior).
    */
   readonly planProgress?: number;
+  /**
+   * v0.60.0 (F5): the project's history signals (recurring errors,
+   * co-changes, profile). Optional — absent means "no project signal".
+   */
+  readonly projectSignals?: ProjectSignalsView;
+  /**
+   * Weight of the project-signals contribution. Default 0 (informative
+   * only) — the signals are surfaced in the digest but do not move the
+   * score until the weight is raised deliberately.
+   */
+  readonly projectSignalsWeight?: number;
   /** Free-form context the calling site can attach (sessionID, directory, mode). */
   readonly ambient: AmbientContext;
 }
@@ -118,7 +129,8 @@ export type EvidenceSource =
   | "slot-memory"
   | "ambient"
   | "token-predictor"
-  | "goal-progress";
+  | "goal-progress"
+  | "project-signals";
 
 /**
  * A deviation from expected behavior. Severity follows the prior
@@ -154,6 +166,21 @@ export interface ProtocolViolation {
   readonly tool: string;
   readonly severity: "leve" | "media" | "grave";
   readonly detail: string;
+}
+
+/**
+ * The project's history signals, as seen by the judge (v0.60.0 F5).
+ * A structural subset of the full ProjectSignals so types.ts stays
+ * dependency-free.
+ */
+export interface ProjectSignalsView {
+  readonly recurringErrors: readonly { description: string; frequency: number }[]
+  readonly coChanges: readonly { description: string; frequency: number }[]
+  readonly derivedRules: readonly string[]
+  readonly commonErrors: readonly string[]
+  readonly conventions: readonly string[]
+  readonly insights: readonly string[]
+  readonly empty: boolean
 }
 
 /**
@@ -736,6 +763,30 @@ export interface ScoringConfig {
    * - `"off"`: Oracle NEVER invoked automatically (set oracleVerified manually).
    */
   readonly oracleFrequency: OracleFrequency;
+  /**
+   * v0.60.0 (F5): the project's history as a scoring signal. The signals
+   * come from agentmemory (recurring errors, co-changes, project profile).
+   *
+   * weight defaults to 0 = INFORMATIVE ONLY: the signals are surfaced in
+   * the judge's digest but do not move the score. Raise it once the
+   * signals are validated on real sessions — a signal nobody has checked
+   * should not silently change the verdict.
+   */
+  readonly projectSignals?: ProjectSignalScoringConfig;
+}
+
+/**
+ * Project-signal scoring config (v0.60.0 F5).
+ */
+export interface ProjectSignalScoringConfig {
+  /** Master switch. Default true. */
+  readonly enabled?: boolean;
+  /** Minimum pattern frequency to count. Default 3. */
+  readonly minFrequency?: number;
+  /** Score weight. Default 0 (informative only). */
+  readonly weight?: number;
+  /** Cache TTL in ms. Default 300000. */
+  readonly cacheTtlMs?: number;
 }
 
 /**
@@ -934,6 +985,13 @@ export interface MetaGovernorInput {
   readonly config?: Partial<OrchestratorConfig>;
   /** v0.17.0 (F5.4): current lesson count for this session. Used to enforce maxLessonsPerSession. */
   readonly currentLessonCount?: number;
+  /**
+   * v0.60.0 (F5): the project's history signals (recurring errors,
+   * co-changes, profile) — read from agentmemory, cached per project.
+   */
+  readonly projectSignals?: ProjectSignalsView;
+  /** v0.60.0 (F5): the weight of the project-signals contribution. 0 = informative only. */
+  readonly projectSignalsWeight?: number;
 }
 
 /**

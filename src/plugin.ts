@@ -142,6 +142,11 @@ import {
   runAutonomousSynthesis,
 } from "./autonomous-skills";
 import {
+  formatProjectSignals,
+  ProjectSignalCache,
+  type ProjectSignals,
+} from "./project-signals";
+import {
   buildOmoSkillSynthesizeTool,
   buildOmoSkillPruneTool,
 } from "./skill-synthesis";
@@ -1196,6 +1201,10 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
     // consecutive turns query nearly identical state, so reuse the last result
     // instead of paying network + tokens per tool call.
     const recallCache = new TtlBoundedMap<string, { lessons: unknown[]; crystals: unknown[] }>(500, 30_000);
+  // v0.60.0 (F5): project-history signals, cached per project (5 min TTL).
+  // These describe the project's HISTORY — they do not change within a
+  // session, so one read per project is enough. Never per tool call.
+  const projectSignalCache = new ProjectSignalCache(300_000);
     // v0.21.0 (post-wave W6): per-session post-wave gate state, tracked
     // independently of the audit state (the audit state only exists when
     // protocolEnforcement.auditToolCalls is enabled, but the wave-gate must
@@ -2172,6 +2181,24 @@ metricsCollector.inc("interventions_delivered");
         const sessionHistory = getDecisionHistory(toolInput.sessionID)
         const consecutiveStops = countConsecutiveStops(sessionHistory)
 
+        // v0.60.0 (F5): the project's history signals. Read once per project
+        // (cached 5 min) — NOT per tool call. The read is async and
+        // degrades to "no signal" when agentmemory is down.
+        let projectSignals: ProjectSignals | undefined
+        const psCfg = mergedConfig.scoring?.projectSignals
+        if (psCfg?.enabled !== false) {
+          try {
+            const projectName = resolveProjectName(sessionProjectDir)
+            projectSignals = await projectSignalCache.getOrFetch(memoryClient, projectName, {
+              enabled: psCfg?.enabled,
+              minFrequency: psCfg?.minFrequency,
+              cacheTtlMs: psCfg?.cacheTtlMs,
+            })
+          } catch {
+            projectSignals = undefined
+          }
+        }
+
         const orchestratorInput: MetaGovernorInput = {
           sessionID: toolInput.sessionID,
           toolName: toolInput.tool,
@@ -2258,6 +2285,9 @@ metricsCollector.inc("interventions_delivered");
           modelLimit: getModelLimit(),
           // v0.17.0 (F5.4): thread current lesson count for maxLessonsPerSession cap
           currentLessonCount: sessionState?.lessonCount ?? 0,
+          // v0.60.0 (F5): project history + its weight (0 = informative only).
+          projectSignals,
+          projectSignalsWeight: mergedConfig.scoring?.projectSignals?.weight ?? 0,
         };
 
         let output: MetaGovernorOutput | undefined
@@ -3419,6 +3449,23 @@ metricsCollector.inc("interventions_delivered");
             lines.push(`  - [${v.severity}] ${v.category}: ${v.detail.slice(0, 200)}`);
           }
           lines.push("");
+        }
+
+        // v0.60.0 (F5): the project's history — what keeps happening in
+        // this project across sessions. Read from the cache (populated by
+        // the tool.execute.after pipeline), so this block is free.
+        try {
+          const psProject = resolveProjectName(sessionProjectDir);
+          const ps = projectSignalCache.get(psProject);
+          if (ps) {
+            const psBlock = formatProjectSignals(ps);
+            if (psBlock) {
+              lines.push(psBlock);
+              lines.push("");
+            }
+          }
+        } catch {
+          // Never break the digest on a signals read.
         }
 
         // Recent decisions (capped: history<=5 non-continue actions).
