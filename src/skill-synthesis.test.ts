@@ -17,6 +17,7 @@ import { SqliteBackend } from "./sqlite-backend";
 import {
   buildOmoSkillPromoteTool,
   buildOmoSkillProposeTool,
+  buildOmoSkillSynthesizeTool,
   draftSkillBody,
   findSkillCandidates,
   promoteDraftSkill,
@@ -165,6 +166,64 @@ describe("skill synthesis S3 — propose/promote tools", () => {
       expect(ok.title).toContain("promoted");
       const { existsSync } = await import("node:fs");
       expect(existsSync(join(cwd, ".agents", "skills", "memory-first", "SKILL.md"))).toBe(true);
+    } finally {
+      try { backend.close(); } catch {}
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("v0.59.0 — autonomous synthesis tool + prune tool", () => {
+  it("S1: omo_skill_synthesize writes a skill from real agentmemory lessons", async () => {
+    const dbPath = tmpDb();
+    const backend = new SqliteBackend(dbPath);
+    const cwd = mkdtempSync(join(tmpdir(), "synth-tool-"));
+    try {
+      for (let i = 0; i < 3; i++) {
+        await backend.saveLesson({
+          content:
+            "Mistake: mock.module leaks across Bun workers sharing a file\n" +
+            "What to do: Use a DI seam (__test_x) so the factory test can inject fakes\n" +
+            "Where: src/plugin.ts",
+          context: "session:s",
+          confidence: 0.8,
+          tags: ["di-seam"],
+          dedupeKey: `synth-tool-${i}-${Date.now()}`,
+        });
+      }
+      const t = buildOmoSkillSynthesizeTool({ sqlite: backend, cwd });
+      const result = await (t.execute as any)({ dryRun: false }, { sessionID: "x" });
+      expect(result.title).toContain("1 created");
+      const { existsSync } = await import("node:fs");
+      expect(existsSync(join(cwd, ".agents", "skills", "di-seam-plugin", "SKILL.md"))).toBe(true);
+    } finally {
+      try { backend.close(); } catch {}
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("S2: omo_skill_synthesize dryRun writes nothing but reports", async () => {
+    const dbPath = tmpDb();
+    const backend = new SqliteBackend(dbPath);
+    const cwd = mkdtempSync(join(tmpdir(), "synth-dry-"));
+    try {
+      for (let i = 0; i < 3; i++) {
+        await backend.saveLesson({
+          content:
+            "Mistake: mock.module leaks across Bun workers sharing a file\n" +
+            "What to do: Use a DI seam (__test_x) so the factory test can inject fakes\n" +
+            "Where: src/plugin.ts",
+          context: "session:s",
+          confidence: 0.8,
+          tags: ["di-seam"],
+          dedupeKey: `synth-dry-${i}-${Date.now()}`,
+        });
+      }
+      const t = buildOmoSkillSynthesizeTool({ sqlite: backend, cwd });
+      const result = await (t.execute as any)({ dryRun: true }, { sessionID: "x" });
+      expect(result.output).toContain("REJECTED");
+      const { existsSync } = await import("node:fs");
+      expect(existsSync(join(cwd, ".agents", "skills", "di-seam-plugin", "SKILL.md"))).toBe(false);
     } finally {
       try { backend.close(); } catch {}
       rmSync(cwd, { recursive: true, force: true });

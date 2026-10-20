@@ -85,6 +85,8 @@ All source files live flat in `src/` — no subdirectories. Files are organized 
 | `skills-resolver.ts` | Unified `findSkill` + `searchSkills` (3-tier precedence) |
 | `skills-materialize.ts` | Hub skill write to `<cwd>/.agents/skills/<slug>/SKILL.md` |
 | `skill-synthesis.ts` | v0.57.0 Nivel 2: lesson-pattern → DRAFT-SKILL.md + `omo_skill_propose`/`omo_skill_promote` (human approval gate) |
+| `skill-quality.ts` | v0.59.0: the quality gate — what a lesson must be to become a skill (protocol rules, project scope, evidence count, duplicates) |
+| `autonomous-skills.ts` | v0.59.0: autonomous creation — gate + write SKILL.md, no human step; report of created vs rejected |
 | `skills-tier3-reminder.ts` | Zero-results advisory → system reminder |
 | `skills-fs-watcher.ts` | chokidar watcher on `<cwd>/.agents/skills/` |
 ### Observability

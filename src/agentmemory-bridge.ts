@@ -217,6 +217,13 @@ export function extractLessonsForSession(
   const lessons: Array<{ content: string; context: string; confidence: number; tags: string[] }> = []
   for (const deviation of collapsed) {
     const mistake = `${deviation.category}: ${deviation.detail}`.slice(0, 300)
+    // v0.59.0 (F1 lesson canónica): the content MUST be byte-identical for
+    // the same (rule, where, remedy) triple. The old format embedded the
+    // scoring float ("score -0.50" vs "-0.51") and the target file
+    // ("seed.ts" vs "bad.ts"), so agentmemory's SHA-256 fingerprint saw 5
+    // DIFFERENT lessons where there was one rule — that is the 5-rows-of-
+    // garbage class observed in production. Confidence is metadata, not
+    // content, and never enters the fingerprint.
     const content = `Mistake: ${mistake}\nWhat to do: ${input.whatToDo}\nWhere: ${input.whereToGo}`.slice(
       0,
       900,
@@ -232,6 +239,31 @@ export function extractLessonsForSession(
     })
   }
   return lessons
+}
+
+/**
+ * Parse the structured block out of a lesson (v0.59.0). Lessons written
+ * before v0.59 carry a scoring dump prefix ("Action \"escalate\" (score
+ * -0.50) after deviations: ...\nReasoning: ...\n"); the synthesizer must
+ * only see the structured part, never the dump.
+ */
+export interface ParsedLesson {
+  readonly mistake: string
+  readonly whatToDo: string
+  readonly whereToGo: string
+}
+
+export function parseLessonContent(content: string): ParsedLesson {
+  const marker = content.indexOf("Mistake:")
+  const scoped = marker >= 0 ? content.slice(marker) : content
+  const mistakeLine = scoped.split("\n").find((l) => l.startsWith("Mistake:")) ?? ""
+  const whatLine = scoped.split("\n").find((l) => l.startsWith("What to do:")) ?? ""
+  const whereLine = scoped.split("\n").find((l) => l.startsWith("Where:")) ?? ""
+  return {
+    mistake: mistakeLine.replace(/^Mistake:\s*/, "").trim(),
+    whatToDo: whatLine.replace(/^What to do:\s*/, "").trim(),
+    whereToGo: whereLine.replace(/^Where:\s*/, "").trim(),
+  }
 }
 
 

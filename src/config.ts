@@ -101,6 +101,21 @@ export interface MetaGovernorPluginConfig {
       toolRoute?: "omo_remember"
       requireNovelty?: boolean
     }
+    /**
+     * v0.59.0: autonomous skill synthesis. The agent writes its own skills
+     * from recurring lessons; the quality gate (src/skill-quality.ts) is the
+     * safety net. Default enabled=true — the agent is autonomous, the gate
+     * keeps it honest. Set enabled:false to disable entirely.
+     */
+    autonomousSkills?: {
+      enabled?: boolean
+      minLessons?: number
+      minConfidence?: number
+      minPromotionConfidence?: number
+      writeProjectSkills?: boolean
+      writeGlobalSkills?: boolean
+      mirrorGlobal?: boolean
+    }
   }
 
   /** Model override for MetaGovernor internal LLM usage. */
@@ -493,6 +508,17 @@ export function loadOrchestratorConfig(
           : {}),
         toolRoute: full.closedLoop?.conscience?.toolRoute ?? "omo_remember",
         requireNovelty: full.closedLoop?.conscience?.requireNovelty ?? true,
+      },
+      // v0.59.0: autonomous skill synthesis — enabled by default (the agent
+      // is autonomous; the quality gate is the safety net).
+      autonomousSkills: {
+        enabled: full.closedLoop?.autonomousSkills?.enabled ?? true,
+        minLessons: full.closedLoop?.autonomousSkills?.minLessons ?? 3,
+        minConfidence: full.closedLoop?.autonomousSkills?.minConfidence ?? 0.6,
+        minPromotionConfidence: full.closedLoop?.autonomousSkills?.minPromotionConfidence ?? 0.7,
+        writeProjectSkills: full.closedLoop?.autonomousSkills?.writeProjectSkills ?? true,
+        writeGlobalSkills: full.closedLoop?.autonomousSkills?.writeGlobalSkills ?? false,
+        mirrorGlobal: full.closedLoop?.autonomousSkills?.mirrorGlobal ?? false,
       },
     // Cast: ClosedLoopConfig.conscience lands in parallel T1 — the cast keeps
     // this compiling before/after without drift. Safe to drop once T1's

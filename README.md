@@ -336,6 +336,47 @@ Rules:
 Config: `AGENTMEMORY_URL` (default `http://localhost:3111`) and
 `AGENTMEMORY_SECRET` (falls back to `~/.agentmemory/.env` / `~/.agentmemory/secret`).
 
+### Autonomous skill synthesis (v0.59.0)
+
+The agent creates its own skills from what it learns. **No human approval
+step** — a quality gate makes that safe:
+
+| Gate | What it rejects |
+|---|---|
+| `protocol-rule` | Rules already in the system prompt (no `as any`, memory-first, …) — a skill repeating them adds tokens, not knowledge |
+| `no-project-scope` | Lessons with no real place (`session:<id>`) — nothing to apply them to |
+| `generic-remedy` | "Re-read the plan" — true of every stop ever |
+| `not-enough-evidence` | Fewer than 3 occurrences (an anecdote is not a pattern) |
+| `low-confidence` | Below 0.6 (never really learned) |
+| `duplicate-skill` / `near-duplicate-skill` | Already covered by an existing skill |
+
+A pattern's evidence is counted as **rows + agentmemory reinforcements** —
+agentmemory collapses three identical saves into one row with
+`reinforcements: 2`, so counting rows would never see the pattern.
+
+Tools: `omo_skill_synthesize` (create from your own lessons; `dryRun` to
+preview) and `omo_skill_prune` (delete the lessons that can never become a
+skill — dry-run by default). Synthesis also runs automatically at session
+end.
+
+Config (`omo-meta-governor.jsonc`):
+
+```jsonc
+{
+  "closedLoop": {
+    "autonomousSkills": {
+      "enabled": true,            // kill-switch (default true)
+      "minLessons": 3,            // occurrences required
+      "minConfidence": 0.6,
+      "minPromotionConfidence": 0.7,
+      "writeProjectSkills": true, // <cwd>/.agents/skills/<slug>/SKILL.md
+      "writeGlobalSkills": false, // ~/.agents/skills (opt-in)
+      "mirrorGlobal": false
+    }
+  }
+}
+```
+
 ### Multi-phase plans
 
 For work plans with multiple phases (e.g. Sisyphus/Prometheus work

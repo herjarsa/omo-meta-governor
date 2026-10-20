@@ -295,6 +295,33 @@ export interface ClosedLoopConfig {
   readonly autoRemember?: AutoRememberConfig;
   /** Conscience memory persistence (opt-in, default disabled). */
   readonly conscience?: ConscienceConfig;
+  /**
+   * v0.59.0: autonomous skill synthesis. The agent creates its own skills
+   * from recurring lessons, gated by the quality rules in
+   * `src/skill-quality.ts`. No human approval step — the gate is the
+   * safety net. Set enabled:false to turn it off.
+   */
+  readonly autonomousSkills?: AutonomousSkillsConfig;
+}
+
+/**
+ * Autonomous skill synthesis config (v0.59.0).
+ */
+export interface AutonomousSkillsConfig {
+  /** Master switch. Default true (the agent may create skills). */
+  readonly enabled?: boolean;
+  /** Minimum independent lessons required for a skill. Default 3. */
+  readonly minLessons?: number;
+  /** Minimum confidence to consider a pattern. Default 0.6. */
+  readonly minConfidence?: number;
+  /** Minimum confidence to auto-promote. Default 0.7. */
+  readonly minPromotionConfidence?: number;
+  /** Write skills to the project (.agents/skills). Default true. */
+  readonly writeProjectSkills?: boolean;
+  /** Write skills to the global chore dir. Default false. */
+  readonly writeGlobalSkills?: boolean;
+  /** Also mirror project skills globally. Default false. */
+  readonly mirrorGlobal?: boolean;
 }
 
 /**

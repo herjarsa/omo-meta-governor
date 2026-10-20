@@ -53,7 +53,12 @@ import {
 import { buildOmoSkillLocalLinkTool } from "./skills-local-link-tool"
 import { buildOmoSkillSemanticFindTool } from "./skills-semantic-find-tool"
 import { buildOmoSkillCreateTool } from "./skills-create-tool"
-import { buildOmoSkillProposeTool, buildOmoSkillPromoteTool } from "./skill-synthesis"
+import {
+  buildOmoSkillProposeTool,
+  buildOmoSkillPromoteTool,
+  buildOmoSkillSynthesizeTool,
+  buildOmoSkillPruneTool,
+} from "./skill-synthesis"
 import { getAgentmemoryClient } from "./agentmemory-client"
 try {
   migrateOldToNew({ oldPaths: oldPluginPaths(), newPaths: newPluginPaths() })
@@ -203,6 +208,14 @@ function buildAdapters(): readonly McpAdapter[] {
       cwd,
     }),
     adapt(buildOmoSkillPromoteTool as PluginToolBuilder, "omo_skill_promote", { cwd }),
+    // v0.59.0: autonomous synthesis (gated) + garbage prune.
+    adapt(buildOmoSkillSynthesizeTool as PluginToolBuilder, "omo_skill_synthesize", {
+      agentmemory: getAgentmemoryClient(),
+      cwd,
+    }),
+    adapt(buildOmoSkillPruneTool as PluginToolBuilder, "omo_skill_prune", {
+      agentmemory: getAgentmemoryClient(),
+    }),
     adapt(buildOmoUpgradeCheckTool as PluginToolBuilder, "omo_upgrade_check", { cwd }),
     adapt(buildOmoUpgradeRunTool as PluginToolBuilder, "omo_upgrade_run", { cwd }),
   ]
@@ -242,6 +255,8 @@ export const MCP_TOOL_NAMES = [
   "omo_skill_create",
   "omo_skill_propose",
   "omo_skill_promote",
+  "omo_skill_synthesize",
+  "omo_skill_prune",
   "omo_upgrade_check",
   "omo_upgrade_run",
 ] as const

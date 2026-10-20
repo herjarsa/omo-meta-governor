@@ -1,3 +1,56 @@
+## [0.59.0] - 2026-10-20
+
+**Sintesis autonoma de skills, con gate de calidad** — el agente crea sus
+propias skills a partir de su experiencia SIN aprobacion humana; el gate
+decide que merece ser skill y que es basura.
+
+### Added
+- `src/skill-quality.ts`: el gate. Rechaza por razon explicita
+  (`protocol-rule`, `no-project-scope`, `generic-remedy`,
+  `not-enough-evidence`, `low-confidence`, `duplicate-skill`,
+  `near-duplicate-skill`). Una skill que falla cualquier gate no se escribe.
+- `src/autonomous-skills.ts`: creacion autonoma (escribe `SKILL.md`
+  directo, sin paso humano) + reporte auditable de creadas vs rechazadas.
+  `enabled:false` es el kill-switch.
+- Tools `omo_skill_synthesize` (crear desde las propias lecciones, con
+  `dryRun`) y `omo_skill_prune` (borrar las lecciones que nunca podran ser
+  skill, dry-run por defecto). Registradas en plugin V1, V2 y MCP.
+- `closedLoop.autonomousSkills`: `enabled` (default true), `minLessons`
+  (3), `minConfidence` (0.6), `minPromotionConfidence` (0.7),
+  `writeProjectSkills` (true), `writeGlobalSkills` (false), `mirrorGlobal`.
+- `AgentmemoryClient.deleteLesson()` (`POST /agentmemory/lessons/delete`).
+- La sintesis corre automaticamente al cerrar la sesion.
+
+### Fixed
+- La leccion ya no lleva el score en el `content`: agentmemory deduplica por
+  SHA-256 del contenido, y `score -0.50` vs `-0.51` creaba 5 filas
+  distintas para la MISMA regla (la clase de basura observada en
+  produccion: 5 lecciones `no-type-suppression` con conf 0.78-0.97).
+- La evidencia de un patron se cuenta como filas + `reinforcements` de
+  agentmemory: tres guardados identicos colapsan en UNA fila con
+  `reinforcements: 2`, asi que contar filas nunca habria visto el patron.
+- `isRenderableSkillBody`: la extraccion de secciones ya no se corta en el
+  `##` del encabezado siguiente, y el criterio de paso valido es la
+  longitud de la linea (exigia 10 caracteres SIN ESPACIO consecutivos, que
+  ninguna frase tiene -> rechazaba todos los bodies validos).
+
+### Tests
+- Nuevo `src/skill-quality.test.ts` (G1-G9) y `src/autonomous-skills.test.ts`
+  (A1-A6); `src/skill-synthesis.test.ts` extended (S1-S2).
+- Verificado contra agentmemory real: 5 lecciones basura
+  (`no-type-suppression`, projects de test) RECHAZADAS por 3 gates a la vez;
+  1 patron proyecto-especifico con 3 ocurrencias -> skill CREADA
+  automaticamente; 5 lecciones basura borradas con prune.
+
+### Config
+- `closedLoop.autonomousSkills` (nuevo, default enabled=true).
+
+### Ship protocol compliance
+- ✅ CHANGELOG `## [0.59.0]` con Added/Fixed/Tests/Config
+- ✅ `bun run typecheck` clean (exit 0)
+- ✅ Verificado end-to-end contra el agentmemory real (:3111)
+- ⚠️ Oracle review gate OMITIDO por orden explicita del usuario
+
 ## [0.58.0] - 2026-10-20
 
 **agentmemory como UNICA memoria del plugin** — el plugin deja de mantener

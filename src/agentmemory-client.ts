@@ -60,8 +60,10 @@ export interface AgentmemoryLesson {
   confidence: number
   tags: string[]
   project?: string
+  /** v0.59.0: how many times this lesson was re-confirmed. */
   reinforcements?: number
   createdAt?: string
+  lastReinforcedAt?: string
 }
 
 export interface AgentmemoryContextResult {
@@ -357,6 +359,19 @@ export class AgentmemoryClient {
       id: res.lesson?.id,
       confidence: res.lesson?.confidence,
     }
+  }
+
+  /**
+   * Soft-delete a lesson (agentmemory v0.9.30: POST /lessons/delete).
+   * Deleted lessons are excluded from recall and list.
+   */
+  async deleteLesson(lessonId: string): Promise<boolean> {
+    if (!lessonId || lessonId.trim().length === 0) return false
+    const res = await this.post<{ success?: boolean; lesson?: { deleted?: boolean } }>(
+      "/lessons/delete",
+      { lessonId },
+    )
+    return res?.success === true || res?.lesson?.deleted === true
   }
 
   /** Session summary at close. */
