@@ -318,6 +318,16 @@ export interface ClosedLoopConfig {
   /** v0.17.2: whether to save lessons. Default true. Independent of saveDecisions
    *  so users can disable lessons while keeping decision records, or vice versa. */
   readonly saveLessons?: boolean;
+  /**
+   * v0.61.0 (F0): whether the PLUGIN captures the Oracle's LESSON block
+   * itself. Default true.
+   *
+   * The Oracle's verdict already flows through tool.execute.after, so the
+   * plugin can parse it and write the lesson when the agent did not — the
+   * lesson no longer depends on the agent complying with the piggyback
+   * instruction. The same value gates apply.
+   */
+  readonly oracleLessonCapture?: boolean;
   /** v0.49.1: anti-loop guard for the Phase 4 auto-remember prompt. */
   readonly autoRemember?: AutoRememberConfig;
   /** Conscience memory persistence (opt-in, default disabled). */
