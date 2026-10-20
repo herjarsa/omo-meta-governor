@@ -76,6 +76,7 @@ import {
 } from "./custom-tools";
 import { getDefaultGraphRetrieval, type GraphRetrieval } from "./graph-retrieval";
 import { getDefaultSqliteBackend, type SqliteBackend } from "./sqlite-backend";
+import { getAgentmemoryClient, type AgentmemoryClient } from "./agentmemory-client";
 import { createMetricsCollector, type MetricsCollector } from "./metrics";
 import { LOG_PATH, logToFile } from "./file-logger";
 import { newPluginPaths } from "./utils/migrate";
@@ -119,6 +120,8 @@ export interface RegisterOmoToolsDeps {
     mcpTool: string;
     mcpArgs: Record<string, unknown>;
   }) => void;
+  /** v0.58.0: agentmemory client (the single long-term memory). */
+  agentmemory?: AgentmemoryClient;
 }
 
 // ---------------------------------------------------------------------------
@@ -405,14 +408,23 @@ export function registerOmoTools(
 
   const specs: Array<{ name: string; build: () => V1ToolLike }> = [
     { name: "omo_search", build: () => buildOmoSearchTool({ graphRetrieval, cwd }) },
-    { name: "omo_recall", build: () => buildOmoRecallTool({ sqlite }) },
+    // v0.58.0: recall reads agentmemory (single long-term memory); SQLite is
+    // a read-only degraded fallback.
+    { name: "omo_recall", build: () => buildOmoRecallTool({ agentmemory: deps.agentmemory ?? getAgentmemoryClient(), sqlite }) },
     {
       name: "omo_health",
       build: () => buildOmoHealthTool({ metrics, logFilePath, healthFilePath }),
     },
     { name: "omo_find", build: () => buildOmoFindTool({ cwd }) },
     { name: "omo_impact", build: () => buildOmoImpactTool({ cwd }) },
-    { name: "omo_remember", build: () => buildOmoRememberTool({ onDispatch }) },
+    {
+      name: "omo_remember",
+      build: () =>
+        buildOmoRememberTool({
+          onDispatch,
+          agentmemory: deps.agentmemory ?? getAgentmemoryClient(),
+        }),
+    },
     { name: "omo_recall_mcp", build: () => buildOmoRecallMcpTool({ onDispatch }) },
     { name: "omo_path", build: () => buildOmoPathTool({ cwd }) },
     { name: "omo_explain", build: () => buildOmoExplainTool({ cwd }) },

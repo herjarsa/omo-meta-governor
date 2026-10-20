@@ -308,6 +308,34 @@ The plugin resolves skills from three tiers, in this precedence:
 The plugin recommends skills to the agent; it never injects skill content into
 prompts. The agent decides which skill to use per task.
 
+### Memory: agentmemory only (v0.58.0)
+
+The plugin used to keep a **parallel** SQLite lesson store with its own
+auto-capture, while the `agentmemory-capture` plugin also observed every tool
+call. Two memories doing the same job produce two sources of truth and double
+the noise. v0.58.0 removes the duplication:
+
+| When | What the plugin does | Endpoint |
+|---|---|---|
+| Task start | Fetches context related to the task and injects it into the agent's system prompt (empty context → nothing injected) | `POST /agentmemory/context`, `POST /agentmemory/enrich` |
+| Task end | Writes the validated lessons (the 0.56 value/novelty gates still decide what is worth writing) and closes the session | `POST /agentmemory/lessons`, `POST /agentmemory/summarize`, `POST /agentmemory/session/end` |
+| On demand | `omo_recall` searches agentmemory; `omo_remember` writes a lesson directly (no LLM round-trip) | `POST /agentmemory/smart-search`, `POST /agentmemory/lessons` |
+
+Rules:
+- **One capturer.** The `agentmemory-capture` plugin owns observation capture;
+  this plugin never observes tool calls for memory purposes.
+- **One writer.** The orchestrator no longer writes lessons or decisions
+  (`saveLessons:false`, `saveDecisions:false`) — the session-end path owns
+  every long-term write.
+- **agentmemory owns the dedupe.** Saving a lesson that already exists
+  *reinforces* it (confidence rises, one row) instead of creating a duplicate.
+- **Degrade, never fork.** If agentmemory is down the plugin injects no
+  context and writes nothing — it does not fall back to a second memory store.
+  `omo_recall` may read the local SQLite lessons as a degraded fallback.
+
+Config: `AGENTMEMORY_URL` (default `http://localhost:3111`) and
+`AGENTMEMORY_SECRET` (falls back to `~/.agentmemory/.env` / `~/.agentmemory/secret`).
+
 ### Multi-phase plans
 
 For work plans with multiple phases (e.g. Sisyphus/Prometheus work

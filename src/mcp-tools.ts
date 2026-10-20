@@ -54,6 +54,7 @@ import { buildOmoSkillLocalLinkTool } from "./skills-local-link-tool"
 import { buildOmoSkillSemanticFindTool } from "./skills-semantic-find-tool"
 import { buildOmoSkillCreateTool } from "./skills-create-tool"
 import { buildOmoSkillProposeTool, buildOmoSkillPromoteTool } from "./skill-synthesis"
+import { getAgentmemoryClient } from "./agentmemory-client"
 try {
   migrateOldToNew({ oldPaths: oldPluginPaths(), newPaths: newPluginPaths() })
 } catch {
@@ -194,7 +195,13 @@ function buildAdapters(): readonly McpAdapter[] {
     adapt(buildOmoSkillCreateTool as PluginToolBuilder, "omo_skill_create", { cwd }),
     // v0.57.0 (Nivel 2 skill-synthesis): propose drafts, promote activates
     // ONLY with explicit user-confirmed approval. No auto-promotion path.
-    adapt(buildOmoSkillProposeTool as PluginToolBuilder, "omo_skill_propose", { sqlite, cwd }),
+    // v0.58.0: lessons come from agentmemory (the single long-term memory);
+    // SQLite stays as a degraded fallback.
+    adapt(buildOmoSkillProposeTool as PluginToolBuilder, "omo_skill_propose", {
+      agentmemory: getAgentmemoryClient(),
+      sqlite,
+      cwd,
+    }),
     adapt(buildOmoSkillPromoteTool as PluginToolBuilder, "omo_skill_promote", { cwd }),
     adapt(buildOmoUpgradeCheckTool as PluginToolBuilder, "omo_upgrade_check", { cwd }),
     adapt(buildOmoUpgradeRunTool as PluginToolBuilder, "omo_upgrade_run", { cwd }),
