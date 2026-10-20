@@ -46,6 +46,8 @@ All source files live flat in `src/` — no subdirectories. Files are organized 
 
 | File | Purpose |
 |------|---------|
+| `agentmemory-client.ts` | v0.58.0: REST client for agentmemory (the ONLY long-term memory) — context, enrich, smart-search, lessons, summarize. Timeout-bounded, never throws. |
+| `agentmemory-bridge.ts` | v0.58.0: lifecycle glue — task context at start, lessons + session close at end, per-session dedupe of written lessons. |
 | `memory-aggregator.ts` | Parallel reads from AgentMemory, MagicContext, BoulderState with per-source timeouts |
 | `token-predictor.ts` | Token burn rate calculation and overflow prediction |
 | `scoring-engine.ts` | Weighted evidence scoring → score ∈ [-1,+1] → action mapping |

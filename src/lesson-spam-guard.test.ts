@@ -388,7 +388,8 @@ describe("P1 autoRemember 5-minute cooldown wiring", () => {
       storeDecision(sid, makePluginDecision("escalate", sid, "[MetaGovernor] third escalate gamma distinct"));
       await transform({}, midSessionOutput(sid));
       expect(calls.length).toBe(2);
-      expect(calls[0]!.promptText).toContain("omo_remember");
+      // v0.58.0: direct agentmemory write — the payload carries the lesson.
+      expect(calls[0]!.content ?? "").toContain("Mistake:");
     } finally {
       Date.now = realNow;
       try {

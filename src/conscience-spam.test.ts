@@ -243,12 +243,15 @@ describe("Wave 0 RED — conscience anti-spam contract (QA1–QA7)", () => {
       await getTransform(plugin)({}, midSessionOutput(sid));
       expect(writes.length).toBeGreaterThan(0);
       const txt = writes[0]!.promptText;
-      // RED on old code: raw `MetaGovernor escalate:` dump + agentmemory_memory_save instruction.
-      expect(txt).toContain("mistake");
-      expect(txt).toContain("whatToDo");
-      expect(txt).toContain("whereToGo");
-      expect(txt).toContain("toolRoute");
-      expect(txt).toContain("omo_remember");
+      const payload = writes[0]!;
+      // v0.58.0: the lesson travels on the payload (direct agentmemory write),
+      // not as an LLM instruction prompt.
+      expect(payload.mistake ?? "").not.toBe("");
+      expect(payload.whatToDo ?? "").not.toBe("");
+      // v0.58.0: direct agentmemory write — structured fields on the payload.
+      expect(payload.whereToGo ?? "").not.toBe("");
+      expect(payload.toolRoute).toBe("omo_remember");
+      expect(payload.content ?? "").toContain("Mistake:");
       expect(txt).not.toContain("agentmemory_memory_save");
       expect(txt).not.toContain("MetaGovernor escalate:");
     } finally {

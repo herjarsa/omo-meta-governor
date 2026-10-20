@@ -92,7 +92,17 @@ function createHermeticExtra(deps: Record<string, unknown> = {}) {
   } as never;
 }
 
-type RememberCall = { sessionID: string; decision: DecisionHandlerOutput; promptText: string };
+type RememberCall = {
+  sessionID: string;
+  decision: DecisionHandlerOutput;
+  promptText: string;
+  content?: string;
+  concepts?: string[];
+  mistake?: string;
+  whatToDo?: string;
+  whereToGo?: string;
+  toolRoute?: string;
+};
 
 function baseOptionsWithIntervention(extra?: Record<string, unknown>): PluginOptions {
   return {
@@ -308,15 +318,16 @@ describe("conscience auto-remember — escalate|stop fire for main agent only (s
       expect(autoRememberCalls.length).toBe(1);
       expect(autoRememberCalls[0]!.sessionID).toBe(sid);
       expect(autoRememberCalls[0]!.decision.action).toBe("escalate");
-      const txt = autoRememberCalls[0]!.promptText;
-      // D6: route via omo_remember, never raw agentmemory_memory_save verbatim.
-      expect(txt).toContain("omo_remember");
-      expect(txt).not.toContain("agentmemory_memory_save");
-      // D4: structured lesson fields required.
-      expect(txt).toContain("mistake");
-      expect(txt).toContain("whatToDo");
-      expect(txt).toContain("whereToGo");
-      expect(txt).toContain("toolRoute");
+      const payload = autoRememberCalls[0]!;
+      // v0.58.0: the plugin writes DIRECTLY to agentmemory — no LLM
+      // round-trip, no `agentmemory_memory_save` instruction. The structured
+      // lesson travels on the seam payload.
+      expect(payload.content ?? "").toContain("Mistake:");
+      expect(payload.mistake ?? "").not.toBe("");
+      expect(payload.whatToDo ?? "").not.toBe("");
+      expect(payload.whereToGo ?? "").not.toBe("");
+      expect(payload.toolRoute).toBe("omo_remember");
+      expect(payload.concepts ?? []).not.toContain("media");
     } finally {
       try { rmSync(dir, { recursive: true, force: true }); } catch {}
     }
@@ -347,15 +358,16 @@ describe("conscience auto-remember — escalate|stop fire for main agent only (s
       expect(autoRememberCalls.length).toBe(1);
       expect(autoRememberCalls[0]!.sessionID).toBe(sid);
       expect(autoRememberCalls[0]!.decision.action).toBe("stop");
-      const txt = autoRememberCalls[0]!.promptText;
-      // D6: route via omo_remember, never raw agentmemory_memory_save verbatim.
-      expect(txt).toContain("omo_remember");
-      expect(txt).not.toContain("agentmemory_memory_save");
-      // D4: structured lesson fields required.
-      expect(txt).toContain("mistake");
-      expect(txt).toContain("whatToDo");
-      expect(txt).toContain("whereToGo");
-      expect(txt).toContain("toolRoute");
+      const payload = autoRememberCalls[0]!;
+      // v0.58.0: the plugin writes DIRECTLY to agentmemory — no LLM
+      // round-trip, no `agentmemory_memory_save` instruction. The structured
+      // lesson travels on the seam payload.
+      expect(payload.content ?? "").toContain("Mistake:");
+      expect(payload.mistake ?? "").not.toBe("");
+      expect(payload.whatToDo ?? "").not.toBe("");
+      expect(payload.whereToGo ?? "").not.toBe("");
+      expect(payload.toolRoute).toBe("omo_remember");
+      expect(payload.concepts ?? []).not.toContain("media");
     } finally {
       try { rmSync(dir, { recursive: true, force: true }); } catch {}
     }

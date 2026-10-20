@@ -13,6 +13,7 @@ import { tool, type ToolResult } from "@opencode-ai/plugin"
 import { z } from "zod"
 import { projectSkillsRoot } from "./skills-catalog.js"
 import type { SqliteBackend } from "./sqlite-backend"
+import type { AgentmemoryClient } from "./agentmemory-client"
 
 export interface LessonRow {
   readonly id: string
@@ -190,10 +191,18 @@ export async function promoteDraftSkill(
 // ---------------------------------------------------------------------------
 
 export interface OmoSkillProposeDeps {
-  sqlite: SqliteBackend
+  /**
+   * v0.58.0: agentmemory is the source of the lessons (the plugin's only
+   * long-term memory). `sqlite` is kept as an optional degraded fallback
+   * when agentmemory is unreachable.
+   */
+  agentmemory?: AgentmemoryClient
+  sqlite?: SqliteBackend
   cwd: string
   minGroupSize?: number
   minAvgConfidence?: number
+  /** Project scope for the agentmemory lesson query. */
+  project?: string
 }
 
 /**
@@ -216,7 +225,23 @@ export function buildOmoSkillProposeTool(deps: OmoSkillProposeDeps) {
     },
     async execute(args, _ctx): Promise<ToolResult> {
       try {
-        const lessons = await deps.sqlite.listLessons()
+        let lessons: LessonRow[] = []
+        if (deps.agentmemory) {
+          const remote = await deps.agentmemory.listLessons({
+            project: deps.project,
+            limit: 200,
+          })
+          lessons = remote.map((l) => ({
+            id: l.id,
+            title: (l.content ?? "").split("\n")[0] ?? "",
+            content: l.content ?? "",
+            tags: Array.isArray(l.tags) ? l.tags : [],
+            confidence: typeof l.confidence === "number" ? l.confidence : 0.5,
+            created_at: 0,
+          }))
+        } else if (deps.sqlite) {
+          lessons = await deps.sqlite.listLessons()
+        }
         const candidates = findSkillCandidates(lessons, {
           minGroupSize: args.minGroupSize,
           minAvgConfidence: args.minAvgConfidence,

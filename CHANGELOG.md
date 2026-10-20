@@ -1,3 +1,67 @@
+## [0.58.0] - 2026-10-20
+
+**agentmemory como UNICA memoria del plugin** — el plugin deja de mantener
+un store paralelo de lecciones con auto-captura propia; agentmemory es la
+memoria a largo plazo: contexto al inicio de cada tarea, escritura al final
+de la sesion.
+
+### Added
+- `src/agentmemory-client.ts`: cliente REST de agentmemory (timeout 3s,
+  `fetch` inyectable, nunca lanza). Auth: `AGENTMEMORY_SECRET` ->
+  `~/.agentmemory/.env` -> `~/.agentmemory/secret` (el fallback de fichero
+  solo aplica a URLs loopback). Metodos: `context`, `enrich`, `search`,
+  `saveLesson`, `summarize`, `startSession`, `endSession`, `listLessons`,
+  `profile`, `patterns`, `insights`, `counts`.
+- `src/agentmemory-bridge.ts`: glue de ciclo de vida — `fetchTaskContext`
+  (contexto de tarea), `persistSessionEnd` (lecciones + cierre de sesion),
+  `writeLessonOnce` (dedupe por regla dentro de la sesion),
+  `resolveProjectName` (mismas reglas que el plugin agentmemory-capture).
+- `NullAgentmemoryClient` + `isTestEnvironment()`: los tests hermeticos no
+  tocan la red.
+- `omo_memory_context` no se anade todavia (F5 pendiente): las senales
+  adicionales de agentmemory (patterns/profile/insights) quedan para la
+  siguiente iteracion.
+
+### Changed
+- **BREAKING**: `omo_recall` consulta agentmemory (`/smart-search`); SQLite
+  queda como fallback de SOLO LECTURA cuando el server esta caido.
+- **BREAKING**: `omo_remember` escribe directo por HTTP a
+  `POST /agentmemory/lessons` — se elimina el round-trip LLM
+  (`agentmemory_memory_save` via session.prompt).
+- El orchestrator ya NO escribe memoria a largo plazo
+  (`saveLessons:false`, `saveDecisions:false`): un solo escritor.
+- La sesion se cierra con `/summarize` + `/session/end` tras la senal DONE.
+- `omo_skill_propose` (v0.57) lee las lecciones de agentmemory, no de SQLite.
+- Contexto de inicio de sesion: el bloque "LESSONS FROM PAST SESSIONS"
+  (SQLite) se sustituye por "MEMORY CONTEXT" (agentmemory `/context`).
+
+### Fixed
+- Doble captura: el plugin ya no observa tool calls para memoria (solo lo
+  hace el plugin agentmemory-capture).
+- `omo_recall` valida `query` explicitamente (el adaptador MCP llama
+  `execute()` con args crudos, saltandose la capa Zod del SDK).
+- `execFileSync` en `resolveProjectName` lleva `windowsHide: true`
+  (contrato no-console-flash).
+
+### Tests
+- Nuevo `src/agentmemory-client.test.ts` (13) y `src/agentmemory-bridge.test.ts` (9).
+- Tests actualizados al contrato de escritura directa: `auto-remember`,
+  `conscience-content`, `conscience-spam`, `lesson-spam-guard`,
+  `session-recall`.
+- `bun run typecheck` clean.
+
+### Config
+- `AGENTMEMORY_URL` (default `http://localhost:3111`), `AGENTMEMORY_SECRET`,
+  `AGENTMEMORY_PROJECT_NAME` (mismo nombre de proyecto que usa el plugin
+  agentmemory-capture).
+- Sin cambios de schema del plugin.
+
+### Ship protocol compliance
+- ✅ CHANGELOG `## [0.58.0]` con Added/Changed/Fixed/Tests/Config
+- ✅ `bun run typecheck` clean (exit 0)
+- ✅ Suite completa (ver nota de runs preexistentes en README de la rama)
+- ⚠️ Oracle review gate OMITIDO por orden explicita del usuario
+
 ## [0.57.0] - 2026-10-16
 
 **Nivel 2 self-improvement: lesson-patterns -> draft skills con aprobacion

@@ -217,13 +217,15 @@ describe("conscience content — real lesson, not verbatim dump", () => {
       await transform({}, midSessionOutput(sid));
       expect(calls.length).toBe(1);
       const txt = calls[0]!.promptText;
-      const mistakeLine = txt.split("\n").find((l) => l.startsWith("mistake:")) ?? "";
-      expect(mistakeLine).not.toContain("score:");
-      expect(mistakeLine).not.toContain("Iteration ratio");
-      const whereLine = txt.split("\n").find((l) => l.startsWith("whereToGo:")) ?? "";
-      expect(whereLine).not.toContain("omo_remember");
-      expect(whereLine).not.toContain("omo_recall");
-      expect(txt).toContain("concepts:");
+      // v0.58.0: the plugin writes DIRECTLY to agentmemory — the structured
+      // fields travel on the seam payload, not as an LLM instruction prompt.
+      const payload = calls[0]!;
+      expect(payload.mistake ?? "").not.toContain("score:");
+      expect(payload.mistake ?? "").not.toContain("Iteration ratio");
+      expect(payload.whereToGo ?? "").not.toContain("omo_remember");
+      expect(payload.whereToGo ?? "").not.toContain("omo_recall");
+      expect(payload.concepts ?? []).toContain("no-type-suppression");
+      expect(payload.concepts ?? []).not.toContain("media");
     } finally {
       try { rmSync(dir, { recursive: true, force: true }); } catch {}
     }

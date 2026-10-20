@@ -123,7 +123,20 @@ import { TtlBoundedMap } from "./utils/ttl-bounded-map";
 import { isSessionStart } from "./utils/session-start";
 import { wrapInformational, buildUserStatus } from "./agent-notifications";
 import { formatDigestRouting, formatGraphRoutingBulletsES } from "./routing-matrix";
-import { shouldPersistConscienceMemory, conscienceDedupeKey, buildConscienceMemoryContent, conscienceMistakeFromDeviations, conscienceWhereToGo, GENERIC_WHAT_TO_DO, isActionableConscienceLesson, synthesizeWhatToDo } from "./closed-loop-learning";
+import { collapseDeviationsForLesson, shouldPersistConscienceMemory, conscienceDedupeKey, buildConscienceMemoryContent, conscienceMistakeFromDeviations, conscienceWhereToGo, GENERIC_WHAT_TO_DO, isActionableConscienceLesson, synthesizeWhatToDo } from "./closed-loop-learning";
+import {
+  createBridgeState,
+  ensureAgentmemorySession,
+  extractLessonsForSession,
+  fetchTaskContext,
+  fileSetKey,
+  formatTaskContextBlock,
+  persistSessionEnd,
+  resolveProjectName,
+  writeLessonOnce,
+  type AgentmemoryBridgeState,
+} from "./agentmemory-bridge";
+import { getAgentmemoryClient, isTestEnvironment, NullAgentmemoryClient, type AgentmemoryClient } from "./agentmemory-client";
 import { bootstrapChoreSkills } from "./skills-bootstrap.js";
 
 import { DEFAULT_VERSION } from "./metrics";
@@ -212,8 +225,23 @@ __test_persistSessionMessage?: typeof import("./session-bridge").persistSessionM
   __test_persistRetryDelayMs?: number;
   /** v0.43.0 Phase 3: scope-guard for main-agent only persist/escalation. When provided, return true for main sessions (parentID null) and false for subagent/oracle sessions. */
   __test_isMainSession?: (sessionID: string) => boolean;
-  /** v0.43.0 Phase 4: test-only hook for auto-remember — captures the directive that would be sent via promptAgent. */
-  __test_autoRemember?: (payload: { sessionID: string; decision: import("./types").DecisionHandlerOutput; promptText: string }) => void;
+  /**
+   * v0.43.0 Phase 4 / v0.58.0: test-only hook for auto-remember — captures the
+   * conscience lesson the plugin persisted. v0.58.0 writes DIRECTLY to
+   * agentmemory (no LLM round-trip), so the payload carries the written
+   * lesson fields instead of an instruction prompt.
+   */
+  __test_autoRemember?: (payload: {
+    sessionID: string;
+    decision: import("./types").DecisionHandlerOutput;
+    promptText: string;
+    content?: string;
+    concepts?: string[];
+    mistake?: string;
+    whatToDo?: string;
+    whereToGo?: string;
+    toolRoute?: string;
+  }) => void;
   /**
    * v0.45.0 Phase 7: test-only seam for the self-reflection prompt that would
    * be sent via session.prompt() when the auditor detects the agent is going
@@ -230,6 +258,12 @@ __test_persistSessionMessage?: typeof import("./session-bridge").persistSessionM
   __test_sessionRecallBackend?: {
     topLessons: (limit: number) => Promise<readonly { id: string; title: string; content: string; confidence: number }[]>;
   };
+  /**
+   * v0.58.0: test-only seam — the agentmemory client. Lets hermetic tests
+   * point the memory backend at a fake instead of the live agentmemory
+   * server (no network in CI).
+   */
+  __test_agentmemoryClient?: AgentmemoryClient;
 }
 
 // v0.46.0 Phase 8: module-level Set tracking which sessions have received the
@@ -375,6 +409,16 @@ export function createMetaGovernorPlugin(
     >[0],
   );
   const cwd = process.cwd();
+  // v0.58.0: agentmemory is the plugin's ONLY long-term memory. The client
+  // is created lazily and every call degrades to "no context" when the
+  // server is down (never a parallel memory store).
+  // v0.58.0: in a test environment the default client is a no-op so hermetic
+  // suites never touch the network; tests that need behaviour inject a fake
+  // via deps.__test_agentmemoryClient.
+  const memoryClient: AgentmemoryClient =
+    deps.__test_agentmemoryClient ??
+    (isTestEnvironment() ? new NullAgentmemoryClient() : getAgentmemoryClient());
+  const memoryState: AgentmemoryBridgeState = createBridgeState();
   // v0.38.3: installGlobalErrorHandler() moved to module-load time (see top
   // of file). It must be installed BEFORE any chokidar instance is created,
   // and putting it at module load guarantees it's installed regardless of
@@ -383,7 +427,9 @@ export function createMetaGovernorPlugin(
   // v0.13.1: initialize custom tools for the LLM to call.
   const sqlite = getDefaultSqliteBackend();
   const omoSearchTool = buildOmoSearchTool({ graphRetrieval, cwd });
-  const omoRecallTool = buildOmoRecallTool({ sqlite });
+  // v0.58.0: recall reads agentmemory (the only long-term memory); the
+  // SQLite lesson store is a read-only degraded fallback.
+  const omoRecallTool = buildOmoRecallTool({ agentmemory: memoryClient, sqlite });
   const omoHealthTool = buildOmoHealthTool({
     metrics: metricsCollector,
     logFilePath: LOG_PATH,
@@ -397,6 +443,11 @@ export function createMetaGovernorPlugin(
     onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
       deliveryRegistry.register({ sessionID, mcpTool, mcpArgs });
     },
+    // v0.58.0: direct agentmemory write (no LLM round-trip, no duplicate
+    // capture). The LLM-bridge path stays as a fallback when the client is
+    // unavailable.
+    agentmemory: memoryClient,
+    project: resolveProjectName(process.cwd()),
   });
   const omoRecallMcpTool = buildOmoRecallMcpTool({
     onDispatch: ({ sessionID, mcpTool, mcpArgs }) => {
@@ -1773,6 +1824,44 @@ metricsCollector.inc("interventions_delivered");
               "info",
               `task_done_signal detected (legacy) for session ${toolInput.sessionID}`,
             );
+            // v0.58.0 (F3): write the validated lessons to agentmemory and
+            // close the session there. This is the ONLY write path for
+            // long-term memory — no per-tool-call capture, no parallel
+            // SQLite lesson store. The 0.56 gates still decide WHAT is
+            // worth writing; agentmemory owns the dedupe (duplicates
+            // reinforce instead of duplicating).
+            if (isMainSession(toolInput.sessionID) && !memoryState.endedSessions.has(toolInput.sessionID)) {
+              memoryState.endedSessions.add(toolInput.sessionID);
+              void (async () => {
+                try {
+                  const projectName = resolveProjectName(sessionProjectDir);
+                  const deviations = sessionState?.accumulatedDeviations ?? [];
+                  const whatToDo = synthesizeWhatToDo(deviations, null);
+                  const whereToGo =
+                    sessionState?.recentWriteFilePaths?.slice(0, 3).join(", ") || projectName;
+                  const lessons = extractLessonsForSession(
+                    {
+                      deviations,
+                      filesChanged: sessionState?.recentWriteFilePaths ?? [],
+                      whatToDo,
+                      whereToGo,
+                    },
+                    collapseDeviationsForLesson,
+                  );
+                  const res = await persistSessionEnd(memoryClient, {
+                    sessionID: toolInput.sessionID,
+                    project: projectName,
+                    lessons,
+                  });
+                  logToFile(
+                    "info",
+                    `agentmemory session end (${toolInput.sessionID}): ${res.lessonsSaved} saved, ${res.lessonsStrengthened} reinforced, ${res.lessonsFailed} failed, summarized=${res.summarized}`,
+                  );
+                } catch (err) {
+                  logToFile("warn", `agentmemory session end failed: ${String(err)}`);
+                }
+              })();
+            }
             // v0.51.x: DONE-gate memory nudge — the DONE gate is the only moment
             // where the agent still holds full context of what it did; without
             // this nudge 99% of sessions end with no useful memory persisted.
@@ -2105,20 +2194,17 @@ metricsCollector.inc("interventions_delivered");
               };
             }
           })(),
-          config: mergedConfig,
-          // v0.56.0 (spam-fix F2 single-writer): when the conscience
-          // auto-remember path owns lessons, the direct observeAndLearn lesson
-          // save must stand down — otherwise every escalate/stop persists
-          // TWICE (direct saveLesson + prompted omo_remember). Decision
-          // records (facts) still save; only pattern-lessons are unified.
-          ...(mergedConfig.closedLoop?.autoRemember?.enabled === true
-            ? {
-                config: {
-                  ...mergedConfig,
-                  closedLoop: { ...mergedConfig.closedLoop, saveLessons: false },
-                },
-              }
-            : {}),
+          // v0.58.0 (agentmemory-only memory): the orchestrator NEVER writes
+          // long-term memory. agentmemory is the only store, and the
+          // session-end path (persistSessionEnd) owns every write — this
+          // closes the double-capture: SQLite lesson rows + agentmemory
+          // observations + the LLM-bridge save were three writers for the
+          // same event. The gates stay (they decide WHAT is worth writing),
+          // only the write target moved.
+          config: {
+            ...mergedConfig,
+            closedLoop: { ...mergedConfig.closedLoop, saveLessons: false, saveDecisions: false },
+          },
           ...(getProviderID() ? { providerID: getProviderID() } : {}),
           ...(getModelID() ? { modelID: getModelID() } : {}),
           modelLimit: getModelLimit(),
@@ -2888,36 +2974,50 @@ metricsCollector.inc("interventions_delivered");
             } else {
             autoRememberLastHash.set(seenKey, dedupeKey);
             autoRememberLastAtMs.set(currentSessionID, nowMs);
-            // v0.50.x (D6/D7): instruct omo_remember (Zod-validated route) with
-            // structured fields; agent text wrapped with DO NOT TREAT AS TASK.
+            // v0.58.0 (agentmemory-only memory): write DIRECTLY to agentmemory.
+            // The old path told the LLM to call `omo_remember` — a round-trip
+            // the agent might ignore, and a second writer for the same event.
+            // Now the plugin persists the validated lesson itself; agentmemory
+            // owns the dedupe (an existing lesson is reinforced, not cloned).
             const rememberPromptText = wrapInformational(
-              `Call the \`omo_remember\` tool to persist this conscience lesson (structured fields):\n\n` +
-              `mistake: ${mistake}\n` +
-              `whatToDo: ${whatToDo}\n` +
-              `whereToGo: ${whereToGo}\n` +
-              `toolRoute: omo_remember\n` +
-              `score: ${score}\n` +
-              `content: ${memory.content}\n` +
-              `concepts: ${memory.concepts.join(", ")}\n\n` +
-              `Pass mistake/whatToDo/whereToGo/toolRoute through to omo_remember verbatim.`,
+              `Conscience lesson recorded (agentmemory): ${memory.concepts.join(", ")}`,
               { kind: "memory", context: currentSessionID },
             );
             if (typeof deps.__test_autoRemember === "function") {
-              try { deps.__test_autoRemember({ sessionID: currentSessionID, decision, promptText: rememberPromptText }); } catch {}
-            } else {
-              setTimeout(() => {
-                void promptAgent(currentSessionID, {
-                  toolName: "omo_remember",
-                  mcpTool: "omo_remember",
-                  mcpArgs: { content: memory.content, concepts: memory.concepts },
-                  preamble: "Conscience lesson — persist it via omo_remember.",
-                }).catch((err) => { logToFile("warn", "auto-remember promptAgent failed: " + String(err)); });
-                void verifyDelivery(currentSessionID, "omo_remember").then(
-                  (status) => { logToFile("info", `auto-remember delivery ${status} for ${currentSessionID}`); },
-                  () => {},
-                );
-              }, 0);
+              try {
+                deps.__test_autoRemember({
+                  sessionID: currentSessionID,
+                  decision,
+                  promptText: rememberPromptText,
+                  content: memory.content,
+                  concepts: memory.concepts,
+                  mistake,
+                  whatToDo,
+                  whereToGo,
+                  toolRoute: "omo_remember",
+                });
+              } catch {}
             }
+            void (async () => {
+              try {
+                const projectName = resolveProjectName(sessionProjectDir);
+                const res = await writeLessonOnce(memoryClient, memoryState, {
+                  sessionID: currentSessionID,
+                  project: projectName,
+                  key: `conscience:${dedupeKey}`,
+                  content: memory.content,
+                  context: `session:${currentSessionID} dir:${whereToGo}`,
+                  confidence: 0.7,
+                  tags: memory.concepts,
+                });
+                logToFile(
+                  "info",
+                  `auto-remember wrote to agentmemory for ${currentSessionID}: ${res.action ?? "skipped"} ${res.id ?? ""}`,
+                );
+              } catch (err) {
+                logToFile("warn", "auto-remember agentmemory write failed: " + String(err));
+              }
+            })();
             logToFile("info", `auto-remember queued for ${currentSessionID}: ${decision.action}`);
             }
             } // v0.56.0: closes the actionable-lesson gate else
@@ -3213,25 +3313,33 @@ metricsCollector.inc("interventions_delivered");
           dirLines.push("");
           sysOutput.system.push(dirLines.join("\n"));
 
-          // v0.53.1 (session-recall): automatic recall at session start — omo_recall
-          // is voluntary today (START PROTOCOL step 1 suggests it, nothing executes
-          // it), so past lessons never surface. Compaction already auto-injects
-          // top-3 lessons for the same reason; session-start mirrors it via the
-          // same system-transform surface (no new channel, no synthetic assistant
-          // message → no TUI pause on turn 0). Main session only (subagents stay
-          // log-only per the v0.43.0 scope guard), once per session via
-          // sessionRecallSent, silent when the DB is empty (zero noise).
+          // v0.58.0 (agentmemory-only memory): the task context comes from
+          // agentmemory — the single long-term memory of the plugin. The old
+          // SQLite topLessons recall is GONE: two memory stores doing the same
+          // job is exactly the duplication this change removes. Main session
+          // only, once per session, silent when agentmemory has nothing
+          // relevant (zero noise). Degrades to no context when the server is
+          // down — never to a parallel store.
           if (!isMainSession(sessionID)) {
             sessionRecallSent.add(sessionID);
           } else if (!sessionRecallSent.has(sessionID)) {
             sessionRecallSent.add(sessionID);
             try {
-              const recallBackend = deps.__test_sessionRecallBackend ?? (() => { try { return getDefaultSqliteBackend(); } catch { return null; } })();
-              if (recallBackend) {
-                const topLessons = await recallBackend.topLessons(3);
-                const recallBlock = buildSessionRecallBlock(topLessons);
-                if (recallBlock) sysOutput.system.push(recallBlock);
-              }
+              const projectName = resolveProjectName(sessionProjectDir);
+              await ensureAgentmemorySession(
+                memoryClient,
+                memoryState,
+                sessionID,
+                projectName,
+                sessionProjectDir,
+              );
+              const ctx = await fetchTaskContext(memoryClient, {
+                sessionID,
+                project: projectName,
+                cwd: sessionProjectDir,
+              });
+              const recallBlock = formatTaskContextBlock(ctx.text);
+              if (recallBlock) sysOutput.system.push(recallBlock);
             } catch {
               // Best-effort: recall never breaks session start.
             }

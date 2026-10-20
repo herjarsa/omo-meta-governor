@@ -21,6 +21,37 @@ import type { PluginInput } from "@opencode-ai/plugin";
 import { createMetaGovernorPlugin, buildSessionRecallBlock } from "./plugin";
 import { SqliteBackend } from "./sqlite-backend";
 import { clearAll } from "./decision-store";
+import type { AgentmemoryClient } from "./agentmemory-client";
+
+/**
+ * v0.58.0: the session-start context now comes from agentmemory (the only
+ * long-term memory). Tests inject a fake client that echoes the seeded
+ * lessons so the contract stays hermetic.
+ */
+function fakeAgentmemoryClient(titles: string[]): AgentmemoryClient {
+  return {
+    hasAuth: true,
+    baseUrl: "http://localhost:3111",
+    post: async () => null,
+    get: async () => null,
+    startSession: async () => true,
+    endSession: async () => true,
+    context: async () => ({
+      context: titles.map((t) => `- ${t}`).join("\n"),
+      tokens: 10,
+      blocks: 1,
+    }),
+    enrich: async () => "",
+    search: async () => ({ results: [], lessons: [], mode: "compact" }),
+    listLessons: async () => [],
+    profile: async () => null,
+    patterns: async () => null,
+    insights: async () => [],
+    counts: async () => null,
+    saveLesson: async () => ({ saved: true, action: "created", id: "lsn_1" }),
+    summarize: async () => true,
+  } as unknown as AgentmemoryClient;
+}
 
 const mockBaseInput = {
   client: null as unknown as PluginInput["client"],
@@ -90,6 +121,7 @@ describe("session-start recall — LESSONS FROM PAST SESSIONS", () => {
         hermeticDeps({
           __test_isMainSession: () => true,
           __test_sessionRecallBackend: backend,
+          __test_agentmemoryClient: fakeAgentmemoryClient(titles),
         }),
       )({ ...mockBaseInput } as PluginInput, { meta_governor: { enabled: true } } as never);
       const sysTransform = (plugin as unknown as Record<string, unknown>)["experimental.chat.system.transform"] as unknown as (
@@ -98,7 +130,8 @@ describe("session-start recall — LESSONS FROM PAST SESSIONS", () => {
       const sysOut = { system: [] as string[] };
       await sysTransform({ sessionID: sid, model: { providerID: "t", modelID: "t" } }, sysOut);
       const all = sysOut.system.join("\n");
-      expect(all).toContain("LESSONS FROM PAST SESSIONS");
+      // v0.58.0: the block is now the agentmemory context block.
+      expect(all).toContain("MEMORY CONTEXT");
       for (const t of titles) expect(all).toContain(t.slice(0, 30));
     } finally {
       cleanupDb(dbPath, backend);
@@ -116,6 +149,8 @@ describe("session-start recall — LESSONS FROM PAST SESSIONS", () => {
         hermeticDeps({
           __test_isMainSession: () => true,
           __test_sessionRecallBackend: backend,
+          // v0.58.0: empty agentmemory context -> nothing injected.
+          __test_agentmemoryClient: fakeAgentmemoryClient([]),
         }),
       )({ ...mockBaseInput } as PluginInput, { meta_governor: { enabled: true } } as never);
       const sysTransform = (plugin as unknown as Record<string, unknown>)["experimental.chat.system.transform"] as unknown as (
@@ -123,7 +158,7 @@ describe("session-start recall — LESSONS FROM PAST SESSIONS", () => {
       ) => Promise<void>;
       const sysOut = { system: [] as string[] };
       await sysTransform({ sessionID: sid, model: { providerID: "t", modelID: "t" } }, sysOut);
-      expect(sysOut.system.join("\n")).not.toContain("LESSONS FROM PAST SESSIONS");
+      expect(sysOut.system.join("\n")).not.toContain("MEMORY CONTEXT");
       // Pure helper agrees: empty → null.
       expect(buildSessionRecallBlock([])).toBeNull();
     } finally {
@@ -136,13 +171,14 @@ describe("session-start recall — LESSONS FROM PAST SESSIONS", () => {
     const backend = new SqliteBackend(dbPath);
     try {
       clearAll();
-      await seedLessons(backend, 3);
+      const titles = await seedLessons(backend, 3);
       const sid = `ses_recall_once_${Date.now()}`;
       const plugin = await createMetaGovernorPlugin(
         { graphSync: { enabled: false }, cliAnything: { enabled: false } },
         hermeticDeps({
           __test_isMainSession: () => true,
           __test_sessionRecallBackend: backend,
+          __test_agentmemoryClient: fakeAgentmemoryClient(titles),
         }),
       )({ ...mockBaseInput } as PluginInput, { meta_governor: { enabled: true } } as never);
       const sysTransform = (plugin as unknown as Record<string, unknown>)["experimental.chat.system.transform"] as unknown as (
@@ -150,7 +186,7 @@ describe("session-start recall — LESSONS FROM PAST SESSIONS", () => {
       ) => Promise<void>;
       const first = { system: [] as string[] };
       await sysTransform({ sessionID: sid, model: { providerID: "t", modelID: "t" } }, first);
-      expect(first.system.join("\n")).toContain("LESSONS FROM PAST SESSIONS");
+      expect(first.system.join("\n")).toContain("MEMORY CONTEXT");
       const second = { system: [] as string[] };
       await sysTransform({ sessionID: sid, model: { providerID: "t", modelID: "t" } }, second);
       expect(second.system.join("\n")).not.toContain("LESSONS FROM PAST SESSIONS");

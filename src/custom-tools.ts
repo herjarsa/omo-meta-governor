@@ -25,6 +25,7 @@ import type { execSync } from "node:child_process"
 // z is exposed via the `tool.schema` namespace export (re-exported from zod v4)
 const z = tool.schema
 import type { SqliteBackend } from "./sqlite-backend"
+import type { AgentmemoryClient } from "./agentmemory-client"
 import type { GraphRetrieval } from "./graph-retrieval"
 import type { MetricsCollector } from "./metrics"
 import { readFileSync } from "node:fs"
@@ -238,22 +239,31 @@ export function buildOmoSearchTool(deps: OmoSearchDeps) {
 }
 
 // ---------------------------------------------------------------------------
-// omo_recall — search past lessons in the SQLite store
+// omo_recall — search past lessons in agentmemory
 // ---------------------------------------------------------------------------
 
 export interface OmoRecallDeps {
-  sqlite: SqliteBackend
+  /** v0.58.0: agentmemory client — the single long-term memory. */
+  agentmemory: AgentmemoryClient
+  /**
+   * v0.58.0 fallback: local SQLite lesson store, used ONLY when agentmemory
+   * is unreachable. It is a degraded read path, not a second memory system
+   * (the plugin no longer writes lessons there).
+   */
+  sqlite?: SqliteBackend
 }
 
 /**
- * Build the `omo_recall` tool. The LLM uses this to retrieve lessons learned
- * in past sessions, enabling genuine cross-session learning.
+ * Build the `omo_recall` tool. Searches agentmemory (the plugin's only
+ * long-term memory). When agentmemory is down, falls back to the local
+ * SQLite store read-only so the agent still gets context instead of an
+ * error.
  */
 export function buildOmoRecallTool(deps: OmoRecallDeps) {
   return tool({
     description: withRoutingSuffix(
       "omo_recall",
-      "Search lessons learned in past sessions of this project. " +
+      "Search lessons learned in past sessions of this project (agentmemory). " +
       "Returns ranked lessons (highest confidence first) matching the query. " +
       "Use before making non-trivial decisions — the answer may already be in memory.",
     ),
@@ -262,12 +272,47 @@ export function buildOmoRecallTool(deps: OmoRecallDeps) {
       limit: z.number().int().min(1).max(20).optional().describe("Max lessons to return (default 5)"),
     },
     async execute(args, ctx): Promise<ToolResult> {
+      // v0.58.0: validate explicitly. The MCP adapter calls execute() with
+      // raw args (bypassing the SDK's Zod layer), so an invalid query must
+      // fail loudly here instead of silently returning "no matches".
+      if (typeof args.query !== "string" || args.query.trim().length < 2) {
+        throw new Error("omo_recall: query must be a string with at least 2 characters");
+      }
       const start = Date.now()
-      const result = await deps.sqlite.smartSearch({
-        query: args.query,
-        limit: args.limit ?? 5,
-      })
-      const lessons = result.lessons
+      const limit = args.limit ?? 5
+      let lessons: Array<{ id: string; title: string; content: string; confidence: number }> = []
+      let source: "agentmemory" | "sqlite-fallback" = "agentmemory"
+
+      try {
+        const result = await deps.agentmemory.search({ query: args.query, limit })
+        lessons = result.results
+          .map((r) => ({
+            id: String(r.id ?? ""),
+            title: String(r.title ?? ""),
+            content: String(r.content ?? ""),
+            confidence: typeof r.confidence === "number" ? r.confidence : 0.5,
+          }))
+          .filter((l) => l.content.length > 0)
+      } catch {
+        lessons = []
+      }
+
+      if (lessons.length === 0 && deps.sqlite) {
+        // Degraded read path — agentmemory down. Read-only, no writes.
+        try {
+          const local = await deps.sqlite.smartSearch({ query: args.query, limit })
+          lessons = local.lessons.map((l) => ({
+            id: l.id,
+            title: l.title,
+            content: l.content,
+            confidence: l.confidence,
+          }))
+          source = "sqlite-fallback"
+        } catch {
+          lessons = []
+        }
+      }
+
       if (lessons.length === 0) {
         return {
           title: "omo_recall: no matches",
@@ -277,6 +322,7 @@ export function buildOmoRecallTool(deps: OmoRecallDeps) {
             query: args.query,
             durationMs: Date.now() - start,
             lessonsFound: 0,
+            source,
           },
         }
       }
@@ -291,12 +337,13 @@ export function buildOmoRecallTool(deps: OmoRecallDeps) {
       return {
         title: `omo_recall: ${lessons.length} lesson${lessons.length === 1 ? "" : "s"}`,
         output:
-          `Found ${lessons.length} past lesson${lessons.length === 1 ? "" : "s"} matching "${args.query}":\n\n${formatted}`,
+          `Found ${lessons.length} past lesson${lessons.length === 1 ? "" : "s"} matching "${args.query}" (source: ${source}):\n\n${formatted}`,
         metadata: {
           tool: "omo_recall",
           query: args.query,
           durationMs: Date.now() - start,
           lessonsFound: lessons.length,
+          source,
         },
       }
     },
@@ -584,6 +631,17 @@ export interface OmoRememberDeps {
    *  Used by the plugin to register the pending delivery in the registry
    *  so the bridge tool can verify the LLM actually called the MCP tool. */
   onDispatch?: (input: { sessionID: string; mcpTool: string; mcpArgs: Record<string, unknown> }) => void
+  /**
+   * v0.58.0: direct agentmemory write. When provided, omo_remember persists
+   * the lesson over HTTP instead of instructing the LLM to call
+   * `agentmemory_memory_save` (that path needed an LLM round-trip per save
+   * and produced duplicate captures).
+   */
+  agentmemory?: AgentmemoryClient
+  /** Project scope for agentmemory writes. */
+  project?: string
+  /** Session id for agentmemory writes. */
+  sessionID?: string
 }
 
 /**
@@ -613,6 +671,41 @@ export function buildOmoRememberTool(deps: OmoRememberDeps) {
     },
     async execute(args, ctx): Promise<ToolResult> {
       const sessionID = ctx.sessionID
+      // v0.58.0: direct HTTP write to agentmemory — no LLM round-trip, no
+      // duplicate capture. agentmemory owns the dedupe (an existing lesson
+      // is reinforced, not duplicated).
+      if (deps.agentmemory) {
+        const start = Date.now()
+        const res = await deps.agentmemory.saveLesson({
+          content: args.content,
+          context: `session:${sessionID}`,
+          confidence: 0.7,
+          ...(deps.project ? { project: deps.project } : {}),
+          ...(args.concepts && args.concepts.length > 0 ? { tags: args.concepts } : {}),
+        })
+        if (!res.saved) {
+          return {
+            title: "omo_remember: save failed",
+            output: "Could not persist to agentmemory. The memory server may be down; the lesson was NOT stored.",
+            metadata: { tool: "omo_remember", ok: false, durationMs: Date.now() - start },
+          }
+        }
+        const reinforced = res.action === "strengthened"
+        return {
+          title: reinforced ? "omo_remember: reinforced" : "omo_remember: saved",
+          output: reinforced
+            ? `Existing lesson reinforced (confidence ${res.confidence?.toFixed(2) ?? "n/a"}). It will surface sooner in future recalls.`
+            : `Lesson saved to agentmemory (id: ${res.id ?? "pending"}). It will surface in future sessions via omo_recall.`,
+          metadata: {
+            tool: "omo_remember",
+            ok: true,
+            durationMs: Date.now() - start,
+            id: res.id,
+            action: res.action,
+            confidence: res.confidence,
+          },
+        }
+      }
       if (!hasSessionClient()) {
         return {
           title: "omo_remember: session not initialized",
