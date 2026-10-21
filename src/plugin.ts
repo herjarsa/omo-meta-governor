@@ -1299,13 +1299,40 @@ const isMainSession = (sid: string): boolean => {
   }
   return true;
 };
+// v0.62.0: consecutive-duplicate suppression for the TUI status line.
+// A stuck session (e.g. iteration budget blown, same stop every turn)
+// produced 448 IDENTICAL log lines in 2 days — pure token/log spam that
+// also inflates interventions_delivered. The agent already sees each
+// decision via system.transform; the status line is a human TUI aid, so
+// a repeat of the byte-identical text carries zero information.
+// Closure-scoped: fresh per plugin instance, no cross-test leakage.
+const lastStatusBySession = new Map<string, { text: string; suppressed: number }>();
+const STATUS_SUPPRESSED_HEARTBEAT_EVERY = 25;
 const persistIntervention = (sessionID: string, text: string): void => {
-if (!sessionID || !text) return;
-if (!isMainSession(sessionID)) {
-logToFile("info", `persist skipped (subagent) for ${sessionID}`);
-return;
-}
-if (!mergedConfig.intervention.persistToSession) return;
+  if (!sessionID || !text) return;
+  if (!isMainSession(sessionID)) {
+    logToFile("info", `persist skipped (subagent) for ${sessionID}`);
+    return;
+  }
+  if (!mergedConfig.intervention.persistToSession) return;
+  const prev = lastStatusBySession.get(sessionID);
+  if (prev && prev.text === text) {
+    prev.suppressed += 1;
+    if (prev.suppressed % STATUS_SUPPRESSED_HEARTBEAT_EVERY === 0) {
+      logToFile(
+        "info",
+        `status repetitions suppressed for ${sessionID}: ${prev.suppressed}x "${text.slice(0, 120)}"`,
+      );
+    }
+    return;
+  }
+  if (prev && prev.suppressed > 0) {
+    logToFile(
+      "info",
+      `status repetitions suppressed for ${sessionID}: ${prev.suppressed}x (message changed, resuming)`,
+    );
+  }
+  lastStatusBySession.set(sessionID, { text, suppressed: 0 });
 const st = auditSessions.get(sessionID);
 if (st?.backgroundTaskInFlight || st?.oracleInFlight) {
 logToFile("info", `persist skipped (background task in flight) for ${sessionID}`);

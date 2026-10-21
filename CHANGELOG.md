@@ -1,3 +1,33 @@
+## [0.62.0] - 2026-10-21
+
+**Tres fixes de 2 dias en produccion.** El plugin llevaba 2 dias corriendo
+0.61.0 en opencode: audita bien (50 decisiones, 211 intervenciones, 0
+errores) pero el vivo mostro 3 grietas. Esta version las cierra.
+
+### Fixed
+- **Stop/status spam.** Una sesion atascada (iteration budget volado, mismo
+  stop cada turno) produjo 448 lineas IDENTICAS en el log en 2 dias, e
+  inflaba `interventions_delivered`. `persistIntervention` ahora suprime
+  repetidos consecutivos byte-identicos por sesion (resumen al cambiar el
+  mensaje + heartbeat cada 25 suprimidos). El agente no pierde nada: cada
+  decision ya le llega via `system.transform`; la linea de status es ayuda
+  visual. Tests `src/status-dedupe.test.ts` D1-D2.
+- **F5 solo scoped.** El read global `POST /patterns` mostraba ruido de la
+  maquina como historia del proyecto (`co_change` x26 sobre `opencode.log`
+  en `Temp/omo-qa-run-*`). Eliminado: `getOrFetch` lee solo `/profile` +
+  `/insights` (ambos con `project` param). `commonErrors` del profile
+  verificado REAL en sesiones vivas.
+- **F0 sin estrenar.** 2 dias, 0 capturas: el Oracle nunca corrio
+  (frequency `final-only` + ninguna sesion llego a DONE), asi que el path
+  nunca se ejercito. Tests `src/oracle-capture.test.ts` C1-C3 prueban el
+  wiring completo (veredicto task -> parse -> gates -> `writeLessonOnce` ->
+  agentmemory): escribe una vez, no duplica, ignora veredictos sin LESSON.
+
+### Note
+- El estreno EN VIVO de F0 sigue pendiente de una corrida real del Oracle
+  (solo corre en el DONE-gate; ninguna sesion lo alcanzo en 2 dias). El
+  wiring esta probado; falta el veredicto.
+
 ## [0.61.0] - 2026-10-20
 
 **F0: el plugin captura la leccion del Oracle** + **F6: la ventana de

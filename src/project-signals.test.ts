@@ -113,7 +113,7 @@ describe("project-signals F5 — building the signals", () => {
 });
 
 describe("project-signals F5 — the cache", () => {
-  it("S6b: the client is read ONCE per project per TTL", async () => {
+  it("S6b: the client is read ONCE per project per TTL (profile only, no patterns)", async () => {
     let patternCalls = 0;
     let profileCalls = 0;
     const client = {
@@ -131,10 +131,13 @@ describe("project-signals F5 — the cache", () => {
     const cache = new ProjectSignalCache(300_000);
     const first = await cache.getOrFetch(client, "proj", { minFrequency: 3 });
     const second = await cache.getOrFetch(client, "proj", { minFrequency: 3 });
-    expect(patternCalls).toBe(1);
+    // v0.62.0: the global /patterns read is gone (machine-wide noise) —
+    // scoped reads only, still cached per TTL.
+    expect(patternCalls).toBe(0);
     expect(profileCalls).toBe(1);
-    expect(first.recurringErrors.length).toBe(1);
-    expect(second.recurringErrors.length).toBe(1);
+    expect(first.recurringErrors.length).toBe(0);
+    expect(second.recurringErrors.length).toBe(0);
+    expect(first.empty).toBe(true);
   });
 
   it("S6c: a disabled config never touches the client", async () => {
