@@ -44,7 +44,10 @@ describe("status-dedupe v0.62.0 — identical consecutive status persists once",
     let persists = 0;
     const plugin = createHermeticPlugin(
       { skillPriming: { enabled: false } },
-      { __test_persistSessionMessage: async () => { persists += 1; return { ok: true, messageID: null, error: null, durationMs: 0 }; } },
+      // Count ONLY the decision status line: other nudges (priming, plan
+      // reminder) may or may not fire depending on env, and must not affect
+      // this assertion. The decision status always contains "warn (score".
+      { __test_persistSessionMessage: async (_sid: string, text: string) => { if (text.includes("warn (score")) persists += 1; return { ok: true, messageID: null, error: null, durationMs: 0 }; } },
     );
     const hooks = await plugin(mockPluginInput, { meta_governor: { enabled: true, skillPriming: { enabled: false }, intervention: { mode: "message", minActionForMessage: "warn" } } });
     const transform = hooks["experimental.chat.messages.transform"] as unknown as (
@@ -68,7 +71,10 @@ describe("status-dedupe v0.62.0 — identical consecutive status persists once",
     let persists = 0;
     const plugin = createHermeticPlugin(
       { skillPriming: { enabled: false } },
-      { __test_persistSessionMessage: async () => { persists += 1; return { ok: true, messageID: null, error: null, durationMs: 0 }; } },
+      // Count ONLY the decision status line: other nudges (priming, plan
+      // reminder) may or may not fire depending on env, and must not affect
+      // this assertion. The decision status always contains "warn (score".
+      { __test_persistSessionMessage: async (_sid: string, text: string) => { if (text.includes("warn (score")) persists += 1; return { ok: true, messageID: null, error: null, durationMs: 0 }; } },
     );
     const hooks = await plugin(mockPluginInput, { meta_governor: { enabled: true, skillPriming: { enabled: false }, intervention: { mode: "message", minActionForMessage: "warn" } } });
     const transform = hooks["experimental.chat.messages.transform"] as unknown as (
