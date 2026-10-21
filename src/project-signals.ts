@@ -258,17 +258,20 @@ export class ProjectSignalCache {
     if (config.enabled === false) return EMPTY_PROJECT_SIGNALS
     const cached = this.get(project)
     if (cached) return cached
-    const [patterns, profile, insights] = await Promise.all([
-      // GLOBAL read. agentmemory's POST /patterns scopes by the `project`
-      // field of each SESSION (the directory it ran in: "opencode",
-      // "hermes", ...), NOT by the repo name the plugin resolves. Scoping
-      // the read by the plugin's project name scanned 14 observations and
-      // found nothing; the unscoped read scanned 1130 and found a
-      // recurring error with frequency 16.
-      client.patterns({ limit: 200 }).catch(() => []),
+    const [profile, insights] = await Promise.all([
       client.projectProfile(project).catch(() => null),
       client.projectInsights(project).catch(() => []),
     ])
+    // v0.62.0: patterns REMOVED. The global /patterns read scanned every
+    // session on the machine and surfaced machine-wide noise as project
+    // history — 2 days live showed co_change x26 on opencode.log temp files
+    // from QA runs (Temp/omo-qa-run-*), i.e. the exact "(machine-wide)"
+    // caveat from v0.60.0, firing as if it were this repo's history.
+    // /profile and /insights both take a project param (scoped reads) and
+    // /profile's commonErrors verified REAL on live sessions (skill-priming
+    // gates, background-task continuation). Until agentmemory exposes a
+    // per-project pattern index, the judge reads scoped sources only.
+    const patterns: readonly AgentmemoryPattern[] = []
     const signals = buildProjectSignals(
       patterns,
       profile,

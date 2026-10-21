@@ -426,10 +426,15 @@ the **project's history**, read from agentmemory:
 
 | Source | Endpoint | What it finds |
 |---|---|---|
-| Recurring errors | `POST /patterns` | `error_repeat` — the same error across sessions (e.g. "x16") |
-| Co-changes | `POST /patterns` | `co_change` — files that always change together |
 | Project profile | `GET /profile` | `commonErrors`, `conventions`, top concepts |
 | Insights | `GET /insights` | higher-order patterns agentmemory already distilled |
+
+> **v0.62.0: `POST /patterns` removed.** Two days live showed the global
+> patterns read surfacing machine-wide noise as project history (`co_change`
+> x26 on opencode.log temp files from QA runs). Until agentmemory exposes a
+> per-project pattern index, the judge reads scoped sources only
+> (`/profile` + `/insights`, both take a `project` param) — `/profile`'s
+> `commonErrors` verified real on live sessions.
 
 The difference matters: a per-turn signal reacts **after** the agent repeats
 a mistake; these let the score be low **before** it happens, with the
