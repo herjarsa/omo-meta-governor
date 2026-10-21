@@ -46,7 +46,7 @@ describe("status-dedupe v0.62.0 — identical consecutive status persists once",
       { skillPriming: { enabled: false } },
       { __test_persistSessionMessage: async () => { persists += 1; return { ok: true, messageID: null, error: null, durationMs: 0 }; } },
     );
-    const hooks = await plugin(mockPluginInput, { meta_governor: { enabled: true, skillPriming: { enabled: false } } });
+    const hooks = await plugin(mockPluginInput, { meta_governor: { enabled: true, skillPriming: { enabled: false }, intervention: { mode: "message", minActionForMessage: "warn" } } });
     const transform = hooks["experimental.chat.messages.transform"] as unknown as (
       input: unknown,
       output: { messages: { info: unknown; parts: unknown[] }[] },
@@ -70,7 +70,7 @@ describe("status-dedupe v0.62.0 — identical consecutive status persists once",
       { skillPriming: { enabled: false } },
       { __test_persistSessionMessage: async () => { persists += 1; return { ok: true, messageID: null, error: null, durationMs: 0 }; } },
     );
-    const hooks = await plugin(mockPluginInput, { meta_governor: { enabled: true, skillPriming: { enabled: false } } });
+    const hooks = await plugin(mockPluginInput, { meta_governor: { enabled: true, skillPriming: { enabled: false }, intervention: { mode: "message", minActionForMessage: "warn" } } });
     const transform = hooks["experimental.chat.messages.transform"] as unknown as (
       input: unknown,
       output: { messages: { info: unknown; parts: unknown[] }[] },
