@@ -403,6 +403,14 @@ function startWatch(projectDir: string, tool: "codegraph" | "graphify"): void {
         },
       )
     } else {
+      // Windows: graphify re-execs pinned commands (extract is pinned) via
+      // subprocess.run with NO creationflags (see _pin_hash_seed_if_needed
+      // in graphify/__main__.py) unless PYTHONHASHSEED is already set,
+      // opening a FOREGROUND console for the `graphify extract` grandchild.
+      // windowsHide above only hides the direct child, not the grandchild.
+      // Pinning PYTHONHASHSEED=0 here skips the re-exec entirely (same
+      // interpreter behavior graphify would pin itself to): no extra
+      // console window, plus deterministic clustering as a bonus.
       child = spawn("python3", ["-m", "graphify", ".", "--no-viz", "--watch"], {
         cwd: projectDir,
         stdio: "ignore",
@@ -410,7 +418,7 @@ function startWatch(projectDir: string, tool: "codegraph" | "graphify"): void {
         shell: false,  // v0.23.1: prevent cmd.exe window on Windows
         // v0.50.2: windowsHide so no console window flashes on Windows.
         windowsHide: true,
-        env: { ...process.env, OMO_MG_SPAWN: "1" },
+        env: { ...process.env, OMO_MG_SPAWN: "1", PYTHONHASHSEED: "0" },
       })
     }
 
