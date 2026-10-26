@@ -1,3 +1,36 @@
+## [0.63.0] - 2026-10-26
+
+**graphify watch sin consola en primer plano (Windows).** Cada sesion
+auto-lanzaba `python3 -m graphify . --no-viz --watch` (graphSync.watch) y
+una consola `python3.exe` aparecia EN PRIMER PLANO robando el foco. El
+spawn ya usaba `windowsHide: true`, pero eso solo oculta el hijo directo:
+graphify redirige `graphify <path>` a `extract` (comando con hash-pinning)
+y `_pin_hash_seed_if_needed` (`graphify/__main__.py`) se re-ejecuta a si
+mismo via `subprocess.run` SIN creationflags cuando `PYTHONHASHSEED` no
+esta fijado. Ese nieto `graphify extract` era la ventana visible
+(verificado en vivo: padre `... -m graphify . --watch` + hijo
+`... -m graphify extract . --watch`).
+
+### Fixed
+- `src/graph-sync.ts` (`startWatch`, rama graphify): pinear
+  `PYTHONHASHSEED=0` en el env del spawn. Graphify lo ve ya fijado y
+  omite el re-exec por completo (mismo comportamiento al que se
+  autopinearia): sin consola extra y con clustering determinista de
+  regalo. PR #32.
+
+### Tests
+- `bun test` en las 3 suites graph-sync: 23 pass, 0 fail.
+- CI del PR: `test`, `test-macos`, `test-windows` en verde.
+- `test-windows-flaky` fallo en un test en cuarentena NO relacionado
+  (`prod-violations-inject`: timeout de 5s en
+  "type-suppression violation is surfaced"), sin tocar graph-sync.
+
+### Ship protocol compliance
+- ✅ CHANGELOG `## [0.63.0]` con Fixed/Tests
+- ✅ `bun run typecheck` clean (exit 0)
+- ✅ `bun test` suites graph-sync en verde (23 pass, 0 fail)
+- ✅ PR #32 mergeado a main (commit 52e6c87)
+
 ## [0.62.0] - 2026-10-21
 
 **Tres fixes de 2 dias en produccion.** El plugin llevaba 2 dias corriendo
