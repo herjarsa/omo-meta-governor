@@ -331,6 +331,11 @@ describe("adherence plugin", () => {
         baseOptions(),
       )) as unknown as Record<string, BeforeFn & AfterFn & SysFn>
       const asAny = { filePath: "/tmp/x.ts", content: "const x = 1 as any;" }
+      // Recall established first (before+after so the session audit state
+      // records it): the memory-first-implement rule stays silent,
+      // isolating the no-type-suppression reincidencia this test pins.
+      await violate(hooks, "omo_recall", sid, { query: "x" })
+      await runAfter(hooks, "omo_recall", sid)
       await violate(hooks, "write", sid, asAny)
       await drain(hooks, sid)
       await violate(hooks, "write", sid, asAny)

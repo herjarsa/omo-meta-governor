@@ -213,6 +213,12 @@ export interface AuditContext {
  * legacy callers without frequency context stop emitting noise.
  */
   oracleFrequency?: "per-stop" | "final-only" | "off"
+  /**
+   * True when session-start auto-injected agentmemory context
+   * (fetchTaskContext non-empty). Sessions with auto context already carry
+   * cross-session knowledge, so the implement-time memory rule stays silent.
+   */
+  hadAutoMemoryContext?: boolean
 }
 
 // â”€â”€â”€ graph-first tool set (obligatorio) â”€â”€â”€
@@ -506,6 +512,27 @@ export function auditToolCall(
       detail:
         "Asked a question without first querying memory. " +
         "Must fire omo_recall or omo_recall_mcp before asking the user.",
+    })
+  }
+
+  // â”€â”€ Rule: Memory first before implementing (condicional) â”€â”€
+  // Obliga a consultar memoria en cada respuesta SOLO cuando la sesion no
+  // trae contexto propio: sin omo_recall*/remember previo (hasUsedMemory) Y
+  // sin bloque auto-inyectado de session-start (hadAutoMemoryContext).
+  // Audit-only, nunca throw: no eclipsa el block gate (ya exige recall).
+  if (
+    IMPLEMENTATION_TOOLS.includes(toolName) &&
+    !hasUsedMemory &&
+    !context.hadAutoMemoryContext
+  ) {
+    violations.push({
+      rule: "memory-first-implement",
+      tool: toolName,
+      severity: "grave",
+      detail:
+        "Implementing without session memory context. " +
+        "Must fire omo_recall (escalate to omo_recall_mcp when empty) before writing code, " +
+        "unless the session already carries auto-retrieved memory context.",
     })
   }
 

@@ -306,6 +306,11 @@ const systemDirectivesSent = new Set<string>();
 // (no isSessionStart TUI-pause risk) — the recall still reaches the agent via
 // the system prompt on turn 0.
 const sessionRecallSent = new Set<string>();
+// memory-first-implement: sessions whose turn-0 system prompt carried
+// auto-retrieved agentmemory context (fetchTaskContext non-empty). Such
+// sessions already have cross-session context, so the implement-time
+// memory rule stays silent for them.
+const sessionAutoContext = new Set<string>();
 
 /**
  * Build the session-start recall block from top lessons (v0.53.1).
@@ -1568,6 +1573,7 @@ metricsCollector.inc("interventions_delivered");
           recentWriteContents: state.recentWriteContents,
           memorySaved: state.memorySaved,
           batchCompletions: state.batchCompletions,
+          hadAutoMemoryContext: sessionAutoContext.has(toolInput.sessionID),
           // v0.56.0 (spam-fix F2): frequency-aware oracle audit — without
           // this the audit punishes the agent for obeying final-only suppression.
           oracleFrequency: mergedConfig.scoring?.oracleFrequency ?? "final-only",
@@ -1912,6 +1918,12 @@ metricsCollector.inc("interventions_delivered");
             "agentmemory_memory_recall",
             "agentmemory_memory_smart_search",
             "agentmemory_memory_save",
+            // Local consult tools count as memory usage too (memory-first
+            // audit): previously only raw agentmemory_* was recorded, so an
+            // agent that duly ran omo_recall was still flagged as not
+            // having consulted memory.
+            "omo_recall",
+            "omo_recall_mcp",
           ];
           const isMemoryTool = memoryTools.some((m: string) =>
             toolInput.tool.startsWith(m),
@@ -3574,7 +3586,10 @@ metricsCollector.inc("interventions_delivered");
                 cwd: sessionProjectDir,
               });
               const recallBlock = formatTaskContextBlock(ctx.text);
-              if (recallBlock) sysOutput.system.push(recallBlock);
+              if (recallBlock) {
+                sysOutput.system.push(recallBlock);
+                sessionAutoContext.add(sessionID);
+              }
             } catch {
               // Best-effort: recall never breaks session start.
             }

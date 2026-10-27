@@ -393,6 +393,63 @@ describe("protocol-enforcer", () => {
       expect(graph.length).toBe(1)
       expect(graph[0]!.severity).toBe("media")
     })
+
+    it("then flags memory-first-implement on write without recall nor auto context", () => {
+      const violations = auditToolCall("write", { path: "src/a.ts" }, {
+        memoryToolsUsed: [],
+        hasCodegraphDir: false,
+        hasGraphifyDir: false,
+        oracleInvoked: false,
+        filesChanged: 0,
+        emptyRecall: false,
+        escalationAttempted: false,
+      })
+      const mem = violations.filter((v) => v.rule === "memory-first-implement")
+      expect(mem.length).toBe(1)
+      expect(mem[0]!.severity).toBe("grave")
+    })
+
+    it("then stays silent when recall was already used", () => {
+      const violations = auditToolCall("write", { path: "src/a.ts" }, {
+        memoryToolsUsed: ["omo_recall"],
+        hasCodegraphDir: false,
+        hasGraphifyDir: false,
+        oracleInvoked: false,
+        filesChanged: 0,
+        emptyRecall: false,
+        escalationAttempted: false,
+      })
+      expect(violations.filter((v) => v.rule === "memory-first-implement").length).toBe(0)
+    })
+
+    it("then stays silent when session carries auto-retrieved context", () => {
+      const violations = auditToolCall("write", { path: "src/a.ts" }, {
+        memoryToolsUsed: [],
+        hasCodegraphDir: false,
+        hasGraphifyDir: false,
+        oracleInvoked: false,
+        filesChanged: 0,
+        emptyRecall: false,
+        escalationAttempted: false,
+        hadAutoMemoryContext: true,
+      })
+      expect(violations.filter((v) => v.rule === "memory-first-implement").length).toBe(0)
+    })
+
+    it("then does not flag read/grep without recall (read-only tools exempt)", () => {
+      for (const tool of ["read", "grep", "glob"]) {
+        const violations = auditToolCall(tool, {}, {
+          memoryToolsUsed: [],
+          hasCodegraphDir: false,
+          hasGraphifyDir: false,
+          oracleInvoked: false,
+          filesChanged: 0,
+          emptyRecall: false,
+          escalationAttempted: false,
+        })
+        expect(violations.filter((v) => v.rule === "memory-first-implement").length).toBe(0)
+      }
+    })
   })
 
   describe("#given auditToolCall with memory rules", () => {
@@ -520,9 +577,10 @@ describe("protocol-enforcer", () => {
     })
 
     it("then does NOT flag oracle-verification when oracle was invoked", () => {
-      // given
+      // given (recall already used so the memory-first-implement rule stays silent;
+      // this test isolates the oracle rule)
       const violations = auditToolCall("write", {}, {
-        memoryToolsUsed: [],
+        memoryToolsUsed: ["omo_recall"],
         hasCodegraphDir: false,
         hasGraphifyDir: false,
         oracleInvoked: true,
