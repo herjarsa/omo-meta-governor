@@ -1,3 +1,50 @@
+## [0.64.0] - 2026-10-27
+
+**Grafo obligatorio + memoria condicional.** El agente ya no puede saltarse
+los indices: el priming es MANDATORY con tabla CODEGRAPH (estructural,
+exacto) vs GRAPHIFY (semantico), el primer grep amplio sin grafo previo
+escala a `grave`, y la memoria se exige antes de implementar solo cuando
+la sesion no trae contexto propio (sin recall previo y sin autocontexto
+de session-start).
+
+### Added
+- Regla `memory-first-implement` (`src/protocol-enforcer.ts`): `grave`,
+  audit-only (nunca throw). Dispara en tools de `IMPLEMENTATION_TOOLS`
+  solo si no hubo `omo_recall*`/`remember` previo (`hasUsedMemory`) y la
+  sesion no trae autocontexto (`hadAutoMemoryContext`).
+- `sessionAutoContext` (`src/plugin.ts`, module-level): marca sesiones
+  cuyo system prompt de turno 0 incluyo contexto auto-recuperado
+  (`fetchTaskContext` no vacio); se pasa al audit en cada
+  `tool.execute.before`.
+- `omo_recall` / `omo_recall_mcp` ahora cuentan como uso de memoria en
+  `memoryToolsUsed` (`src/plugin.ts` after-hook): antes solo las crudas
+  `agentmemory_*` contaban, asi que un agente que consultaba via wrapper
+  seguia marcado como sin memoria (tambien valia para `memory-first`
+  de preguntas).
+- Priming MANDATORY con split (`src/routing-matrix.ts`,
+  `src/enforcement-resources.ts`): CODEGRAPH = exacto/rapido/estructural
+  (`omo_find/node/callers/impact/files/context`, `omo_impact` antes de
+  editar); GRAPHIFY = semantico/cross-modulo (`omo_search/path/explain`
+  + `GRAPH_REPORT.md`); grep solo para bytes literales.
+- `GRAPH_TOOLS` + escalado a `grave` en el primer grep/glob amplio con
+  indice presente y cero uso previo de grafo (`src/protocol-enforcer.ts`).
+
+### Tests
+- `bun run typecheck` limpio (exit 0).
+- Suite completa: 1499 pass / 0 fail / 4 skip (142 archivos).
+- CI en verde en `b65ba71` (grafo) y `a3c7331` (memoria).
+- 4 tests nuevos de `memory-first-implement` (dispara / silencio con
+  recall / silencio con autocontexto / read-grep-glob exentos);
+  severidades `codebase-graph-first` actualizadas a `grave` + 1 test
+  de `media` con grafo previo; test P0-2 al nuevo contrato;
+  adherencia (d) aisla recall via ciclo before+after.
+
+### Ship protocol compliance
+- ✅ CHANGELOG `## [0.64.0]` con Added/Tests
+- ✅ `bun run typecheck` limpio (exit 0)
+- ✅ suite completa en verde (1499 pass, 0 fail)
+- ✅ commits atomicos `b65ba71` + `a3c7331` pusheados a main con CI success
+
 ## [0.63.0] - 2026-10-26
 
 **graphify watch sin consola en primer plano (Windows).** Cada sesion
