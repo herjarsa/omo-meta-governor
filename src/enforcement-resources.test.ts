@@ -122,7 +122,9 @@ describe("P0-2 enforcement rules for OpenChamber MCP mode", () => {
 
     it("then says to use codegraph/graphify before grep", () => {
       const text = buildProtocolRule()
-      expect(text).toMatch(/codegraph.*graphify.*before.*grep|grep.*last resort/i)
+      expect(text).toContain("CODEGRAPH")
+      expect(text).toContain("GRAPHIFY")
+      expect(text).toMatch(/before grep/i)
     })
   })
 })

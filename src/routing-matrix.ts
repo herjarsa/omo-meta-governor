@@ -118,9 +118,9 @@ export function recommendedTools(question: string): readonly RoutingEntry[] {
  */
 export function formatGraphPrimingBody(): string {
   return [
-    "[GRAPH PRIMING] Before grep/regex/glob/raw read, query the project's own indexes:",
-    "1. Architecture / concepts / cross-module relationships -> omo_search (auto-routes between codegraph + graphify).",
-    "2. Symbol-level lookup, call graph, impact analysis -> omo_find / omo_impact / omo_path.",
+    "[GRAPH PRIMING] MANDATORY â€” Before grep/regex/glob/raw read, query the project's own indexes. Skipping this is a `codebase-graph-first` violation:",
+    "1. CODEGRAPH = exact + fast + structural (use FIRST for code): symbol definition/call sites -> omo_find, source+callers -> omo_node, call sites only -> omo_callers, blast radius BEFORE editing -> omo_impact, indexed files -> omo_files, task context -> omo_context. Auto-routes via omo_search when unsure.",
+    "2. GRAPHIFY = semantic + cross-module (use FIRST for ideas): architecture/concepts/relationships -> omo_search (alternate mode), connections between two parts -> omo_path, concept explanation -> omo_explain, repo overview -> read graphify-out/GRAPH_REPORT.md.",
     "3. Past lessons, decisions, prior solutions -> omo_recall (local SQLite FTS5).",
     "4. Project status (codegraph health, recent decisions) -> omo_health / omo_status.",
     "Use raw grep ONLY when the indexed queries above cannot answer the question (e.g. literal byte patterns, throwaway strings)."

@@ -96,7 +96,7 @@ export function buildSystemInjection(
     "",
     "1. **Pre-response Memory Check**: Before any action, read `<project-memory>` and `<session-history-since>` blocks in context. Cite `<memory id>` for any fact used from memory. Do not ask questions whose answers are in those blocks.",
     "",
-    "2. **Codebase Graph First**: Before using grep/glob/read for architecture or symbol queries, check whether `.codegraph/` or `graphify-out/` exists. If so, use codegraph/graphify tools first, then grep/read only as last resort.",
+    "2. **Codebase Graph First (MANDATORY)**: Before grep/glob for architecture or symbol queries, check `.codegraph/` or `graphify-out/`. CODEGRAPH (structural, exact, <5s) -> omo_find / omo_node / omo_callers / omo_impact / omo_files / omo_context â€” run omo_impact BEFORE editing. GRAPHIFY (semantic, cross-module) -> omo_search / omo_path / omo_explain + graphify-out/GRAPH_REPORT.md. Grep only for literal byte patterns afterwards.",
     "",
     // B1: canonical wrapper names (omo_*) — the rest of the plugin (buildProtocolRule,
     // START PROTOCOL, ROUTING_MATRIX) already routes memory through these wrappers.
@@ -215,6 +215,22 @@ export interface AuditContext {
   oracleFrequency?: "per-stop" | "final-only" | "off"
 }
 
+// â”€â”€â”€ graph-first tool set (obligatorio) â”€â”€â”€
+// Any prior call to one of these satisfies the graph-first obligation.
+const GRAPH_TOOLS: readonly string[] = [
+  "omo_search",
+  "omo_find",
+  "omo_impact",
+  "omo_path",
+  "omo_explain",
+  "omo_node",
+  "omo_callers",
+  "omo_context",
+  "omo_files",
+  "omo_status",
+  "omo_affected_cg",
+]
+
 // ─── codebase-graph-first scoping (P2: over-fire fix) ────────────
 // The rule targets architecture/symbol queries — broad searches across
 // the codebase — NOT directed reads of a known file. A normal exploration
@@ -330,11 +346,14 @@ export function auditToolCall(
     isBroadCodebaseQuery(toolName, args)
   ) {
     const graphType = context.hasCodegraphDir ? ".codegraph" : "graphify-out"
+    const hasUsedGraph = context.memoryToolsUsed.some((t) => GRAPH_TOOLS.includes(t))
     violations.push({
       rule: "codebase-graph-first",
       tool: toolName,
-      severity: "media",
-      detail: `Used ${toolName} when ${graphType} exists — should use codegraph/graphify first for architecture and symbol queries.`,
+      severity: hasUsedGraph ? "media" : "grave",
+      detail: hasUsedGraph
+        ? `Used ${toolName} when ${graphType} exists — should use codegraph/graphify first for architecture and symbol queries.`
+        : `MANDATORY graph-first: used ${toolName} with ${graphType} present and zero prior graph calls. Symbols/callers/impact/files -> CODEGRAPH (omo_find/omo_node/omo_callers/omo_impact/omo_files); architecture/concepts/connections -> GRAPHIFY (omo_search/omo_path/omo_explain). Re-run via the graph tool first, then grep only for literal bytes.`,
     })
   }
 

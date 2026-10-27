@@ -235,7 +235,7 @@ describe("protocol-enforcer", () => {
       // then
       expect(violations.length).toBe(1)
       expect(violations[0]!.rule).toBe("codebase-graph-first")
-      expect(violations[0]!.severity).toBe("media")
+      expect(violations[0]!.severity).toBe("grave")
       expect(violations[0]!.tool).toBe("grep")
     })
 
@@ -254,7 +254,7 @@ describe("protocol-enforcer", () => {
       // then
       expect(violations.length).toBe(1)
       expect(violations[0]!.rule).toBe("codebase-graph-first")
-      expect(violations[0]!.severity).toBe("media")
+      expect(violations[0]!.severity).toBe("grave")
     })
 
     it("then does NOT flag grep when no graph directory exists", () => {
@@ -339,7 +339,7 @@ describe("protocol-enforcer", () => {
       // then
       const graph = violations.filter((v) => v.rule === "codebase-graph-first")
       expect(graph.length).toBe(1)
-      expect(graph[0]!.severity).toBe("media")
+      expect(graph[0]!.severity).toBe("grave")
     })
 
     it("then DOES flag grep scoped to a directory as broad query", () => {
@@ -364,6 +364,24 @@ describe("protocol-enforcer", () => {
         memoryToolsUsed: [],
         hasCodegraphDir: false,
         hasGraphifyDir: true,
+        oracleInvoked: false,
+        filesChanged: 0,
+        emptyRecall: false,
+        escalationAttempted: false,
+      })
+
+      // then
+      const graph = violations.filter((v) => v.rule === "codebase-graph-first")
+      expect(graph.length).toBe(1)
+      expect(graph[0]!.severity).toBe("grave")
+    })
+
+    it("then stays media when the session already used a graph tool", () => {
+      // given — prior omo_find satisfies the graph-first obligation
+      const violations = auditToolCall("grep", { pattern: "auditToolCall" }, {
+        memoryToolsUsed: ["omo_find"],
+        hasCodegraphDir: true,
+        hasGraphifyDir: false,
         oracleInvoked: false,
         filesChanged: 0,
         emptyRecall: false,
