@@ -1211,6 +1211,8 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
     const planReminderSent = new Set<string>();
     // v0.20.0: whether the skill-priming nudge has been injected for this session
     const skillPrimingSent = new Set<string>();
+    // v0.64.x: final-gate Oracle auto-invoke scheduled once per session.
+    const finalGateOracleScheduled = new Set<string>();
     // v0.33.1: skill-priming directive cached per-session for chat.system.transform injection.
     // Set when messages.transform fires the priming nudge; read by system.transform to push to output.system.
     // v0.50.x (conscience-fix T9 / D11): was unbounded per-session Map — now
@@ -2022,6 +2024,42 @@ metricsCollector.inc("interventions_delivered");
               "info",
               `task_done_signal detected (legacy) for session ${toolInput.sessionID}`,
             );
+            // v0.64.x: final-gate Oracle auto-invoke. The plugin now drives Oracle
+            // verification instead of relying on the agent to remember it.
+            try {
+              const _oracleFreq = mergedConfig.oracle?.frequency ?? mergedConfig.scoring?.oracleFrequency ?? "final-only";
+              if (
+                _oracleFreq !== "off" &&
+                isMainSession(toolInput.sessionID) &&
+                !sessionState.oracleInvoked &&
+                !sessionState.oracleInFlight &&
+                !finalGateOracleScheduled.has(toolInput.sessionID)
+              ) {
+                finalGateOracleScheduled.add(toolInput.sessionID);
+                logToFile("info", `final_gate_oracle_autoinvoked (DONE) for session ${toolInput.sessionID}`);
+                setTimeout(() => {
+                  sessionState.oracleInFlight = true;
+                  sessionState.oracleInFlightSinceMs = Date.now();
+                  const instruction = [
+                    "[META-GOVERNOR FINAL-GATE] <promise>DONE</promise> detected but Oracle has NOT verified the work yet.",
+                    "You MUST invoke Oracle now before claiming completion:",
+                    '  task(subagent_type="oracle", run_in_background=false, prompt="Verify: summarize the changes, files touched, and risks; ask for a PASS/FAIL/CONDITIONAL verdict.")',
+                    "Do NOT emit another <promise>DONE> or report completion until Oracle returns PASS.",
+                    "Verdict: PASS -> done. FAIL/CONDITIONAL -> fix and re-invoke. Max 3 invocations.",
+                  ].join("\n");
+                  void promptAgent(toolInput.sessionID, {
+                    toolName: "meta_governor_final_gate_oracle",
+                    mcpTool: "task",
+                    mcpArgs: { subagent_type: "oracle" },
+                    preamble: instruction,
+                  }).catch((err) => {
+                    logToFile("warn", `final-gate oracle prompt failed: ${String(err)}`);
+                  });
+                }, 250);
+              }
+            } catch (err) {
+              logToFile("warn", `final-gate oracle auto-invoke failed: ${String(err)}`);
+            }
             // v0.58.0 (F3): write the validated lessons to agentmemory and
             // close the session there. This is the ONLY write path for
             // long-term memory — no per-tool-call capture, no parallel
@@ -2130,6 +2168,41 @@ metricsCollector.inc("interventions_delivered");
               "info",
               `plan_complete_signal detected for session ${toolInput.sessionID}`,
             );
+            // v0.64.x: final-gate Oracle auto-invoke (PLAN-COMPLETE).
+            try {
+              const _oracleFreq2 = mergedConfig.oracle?.frequency ?? mergedConfig.scoring?.oracleFrequency ?? "final-only";
+              if (
+                _oracleFreq2 !== "off" &&
+                isMainSession(toolInput.sessionID) &&
+                !sessionState.oracleInvoked &&
+                !sessionState.oracleInFlight &&
+                !finalGateOracleScheduled.has(toolInput.sessionID)
+              ) {
+                finalGateOracleScheduled.add(toolInput.sessionID);
+                logToFile("info", `final_gate_oracle_autoinvoked (PLAN-COMPLETE) for session ${toolInput.sessionID}`);
+                setTimeout(() => {
+                  sessionState.oracleInFlight = true;
+                  sessionState.oracleInFlightSinceMs = Date.now();
+                  const instruction = [
+                    "[META-GOVERNOR FINAL-GATE] <promise>PLAN-COMPLETE</promise> detected but Oracle has NOT verified the work yet.",
+                    "You MUST invoke Oracle now before claiming completion:",
+                    '  task(subagent_type="oracle", run_in_background=false, prompt="Verify: summarize the changes, files touched, and risks; ask for a PASS/FAIL/CONDITIONAL verdict.")',
+                    "Do NOT report completion until Oracle returns PASS.",
+                    "Verdict: PASS -> done. FAIL/CONDITIONAL -> fix and re-invoke. Max 3 invocations.",
+                  ].join("\n");
+                  void promptAgent(toolInput.sessionID, {
+                    toolName: "meta_governor_final_gate_oracle",
+                    mcpTool: "task",
+                    mcpArgs: { subagent_type: "oracle" },
+                    preamble: instruction,
+                  }).catch((err) => {
+                    logToFile("warn", `final-gate oracle prompt failed: ${String(err)}`);
+                  });
+                }, 250);
+              }
+            } catch (err) {
+              logToFile("warn", `final-gate oracle auto-invoke failed: ${String(err)}`);
+            }
           }
 
           // v0.24.0: clear oracleInFlight when Oracle's verdict has been processed.
