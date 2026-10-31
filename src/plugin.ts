@@ -2037,7 +2037,9 @@ metricsCollector.inc("interventions_delivered");
               ) {
                 finalGateOracleScheduled.add(toolInput.sessionID);
                 logToFile("info", `final_gate_oracle_autoinvoked (DONE) for session ${toolInput.sessionID}`);
-                setTimeout(() => {
+                setTimeout(async () => {
+                  // 250ms delay lets the DONE-gate memory-nudge block run first
+                  // (it needs oracleInFlight === false to fire).
                   sessionState.oracleInFlight = true;
                   sessionState.oracleInFlightSinceMs = Date.now();
                   const instruction = [
@@ -2047,14 +2049,23 @@ metricsCollector.inc("interventions_delivered");
                     "Do NOT emit another <promise>DONE> or report completion until Oracle returns PASS.",
                     "Verdict: PASS -> done. FAIL/CONDITIONAL -> fix and re-invoke. Max 3 invocations.",
                   ].join("\n");
-                  void promptAgent(toolInput.sessionID, {
-                    toolName: "meta_governor_final_gate_oracle",
-                    mcpTool: "task",
-                    mcpArgs: { subagent_type: "oracle" },
-                    preamble: instruction,
-                  }).catch((err) => {
-                    logToFile("warn", `final-gate oracle prompt failed: ${String(err)}`);
-                  });
+                  try {
+                    const result = await promptAgent(toolInput.sessionID, {
+                      toolName: "meta_governor_final_gate_oracle",
+                      mcpTool: "task",
+                      mcpArgs: { subagent_type: "oracle" },
+                      preamble: instruction,
+                    });
+                    if (!result || !result.ok) {
+                      sessionState.oracleInFlight = false;
+                      sessionState.oracleInFlightSinceMs = null;
+                      logToFile("warn", `final-gate oracle prompt not delivered (DONE): ${result?.error ?? "unknown"}`);
+                    }
+                  } catch (err) {
+                    sessionState.oracleInFlight = false;
+                    sessionState.oracleInFlightSinceMs = null;
+                    logToFile("warn", `final-gate oracle prompt failed (DONE): ${String(err)}`);
+                  }
                 }, 250);
               }
             } catch (err) {
@@ -2180,7 +2191,9 @@ metricsCollector.inc("interventions_delivered");
               ) {
                 finalGateOracleScheduled.add(toolInput.sessionID);
                 logToFile("info", `final_gate_oracle_autoinvoked (PLAN-COMPLETE) for session ${toolInput.sessionID}`);
-                setTimeout(() => {
+                setTimeout(async () => {
+                  // 250ms delay lets the DONE-gate memory-nudge block run first
+                  // (it needs oracleInFlight === false to fire).
                   sessionState.oracleInFlight = true;
                   sessionState.oracleInFlightSinceMs = Date.now();
                   const instruction = [
@@ -2190,14 +2203,23 @@ metricsCollector.inc("interventions_delivered");
                     "Do NOT report completion until Oracle returns PASS.",
                     "Verdict: PASS -> done. FAIL/CONDITIONAL -> fix and re-invoke. Max 3 invocations.",
                   ].join("\n");
-                  void promptAgent(toolInput.sessionID, {
-                    toolName: "meta_governor_final_gate_oracle",
-                    mcpTool: "task",
-                    mcpArgs: { subagent_type: "oracle" },
-                    preamble: instruction,
-                  }).catch((err) => {
-                    logToFile("warn", `final-gate oracle prompt failed: ${String(err)}`);
-                  });
+                  try {
+                    const result = await promptAgent(toolInput.sessionID, {
+                      toolName: "meta_governor_final_gate_oracle",
+                      mcpTool: "task",
+                      mcpArgs: { subagent_type: "oracle" },
+                      preamble: instruction,
+                    });
+                    if (!result || !result.ok) {
+                      sessionState.oracleInFlight = false;
+                      sessionState.oracleInFlightSinceMs = null;
+                      logToFile("warn", `final-gate oracle prompt not delivered (PLAN-COMPLETE): ${result?.error ?? "unknown"}`);
+                    }
+                  } catch (err) {
+                    sessionState.oracleInFlight = false;
+                    sessionState.oracleInFlightSinceMs = null;
+                    logToFile("warn", `final-gate oracle prompt failed (PLAN-COMPLETE): ${String(err)}`);
+                  }
                 }, 250);
               }
             } catch (err) {
