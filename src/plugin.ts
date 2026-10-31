@@ -1926,6 +1926,8 @@ metricsCollector.inc("interventions_delivered");
             // having consulted memory.
             "omo_recall",
             "omo_recall_mcp",
+            // v0.64.x: omo_remember counts as memory usage for memory-first-implement.
+            "omo_remember",
           ];
           const isMemoryTool = memoryTools.some((m: string) =>
             toolInput.tool.startsWith(m),
@@ -2079,6 +2081,9 @@ metricsCollector.inc("interventions_delivered");
             // reinforce instead of duplicating).
             if (isMainSession(toolInput.sessionID) && !memoryState.endedSessions.has(toolInput.sessionID)) {
               memoryState.endedSessions.add(toolInput.sessionID);
+               // v0.64.x: release per-session gate state to avoid unbounded growth.
+               sessionAutoContext.delete(toolInput.sessionID);
+               finalGateOracleScheduled.delete(toolInput.sessionID);
               void (async () => {
                 try {
                   const projectName = resolveProjectName(sessionProjectDir);

@@ -352,7 +352,7 @@ export function auditToolCall(
     isBroadCodebaseQuery(toolName, args)
   ) {
     const graphType = context.hasCodegraphDir ? ".codegraph" : "graphify-out"
-    const hasUsedGraph = context.memoryToolsUsed.some((t) => GRAPH_TOOLS.includes(t))
+    const usedTools = [...context.memoryToolsUsed, ...(context.recentToolCalls ?? [])]; const hasUsedGraph = usedTools.some((t) => GRAPH_TOOLS.includes(t))
     violations.push({
       rule: "codebase-graph-first",
       tool: toolName,
