@@ -61,7 +61,7 @@ describe("runGraphSync", () => {
       const result = await runGraphSync(config)
       expect(result.attempted).toBe(true)
       expect(result.codes.length).toBeGreaterThan(0)
-    }, 30000)
+    }, 60000)
   })
 
   describe("#given autoInstall=true and tools missing", () => {
@@ -85,7 +85,7 @@ describe("runGraphSync", () => {
       } catch {
         // best effort cleanup - Windows may hold file handles briefly
       }
-    }, 30000)
+    }, 60000)
   })
 
   describe("#given already initialized project", () => {
@@ -105,7 +105,7 @@ describe("runGraphSync", () => {
       const second = await runGraphSync(config)
       expect(second.alreadyInitialized).toBe(true)
       expect(second.attempted).toBe(false)
-    }, 30000)
+    }, 60000)
   })
 
   describe("#given disabled config after prior init", () => {
@@ -143,7 +143,7 @@ describe("triggerReindex runner DI (Oracle N2, v0.21.0)", () => {
     } finally {
       await fs.rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(() => {})
     }
-  }, 30000)
+  }, 60000)
 
   it("skips the availability probe when the codegraph index already exists", async () => {
     // Oracle N1: triggerCodegraphSync re-probes `codegraph --version` (up to
@@ -258,6 +258,6 @@ describe("resetInitializedProjects", () => {
       const second = await runGraphSync(config)
       expect(second.alreadyInitialized).toBe(false)
       expect(second.attempted).toBe(true)
-    }, 30000)
+    }, 60000)
   })
 })

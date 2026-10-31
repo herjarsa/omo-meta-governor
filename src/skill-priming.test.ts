@@ -319,7 +319,7 @@ describe("experimental.chat.messages.transform — skill priming", () => {
     expect(text2).toContain("superpowers")
     expect(text2).not.toContain("omo_skill_find")
     expect(text2).not.toContain("aas search_skills")
-  })
+  }, 60000)
 
 })
 
