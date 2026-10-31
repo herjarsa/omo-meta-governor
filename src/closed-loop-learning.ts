@@ -171,7 +171,7 @@ function buildLessonContent(decision: Decision, deviations: readonly Deviation[]
   const deviationSummary = collapsed
     .map((d) => `[${d.severity}] ${d.category}: ${d.detail}`)
     .join("; ")
-  return `Action "${decision.action}" (score ${decision.score.toFixed(2)}) after deviations: ${deviationSummary}. Reasoning: ${decision.reasoning}`
+  return `Action "${decision.action}" (score ${decision.score.toFixed(2)}) after deviations: ${deviationSummary}.`
 }
 
 /**
@@ -323,7 +323,7 @@ export async function observeAndLearn(
 
     try {
       await backend.saveMemory({
-        content: `Decision: ${decision.action} (score ${decision.score.toFixed(2)}). ${decision.reasoning}`,
+        content: `Decision: ${decision.action} (score ${decision.score.toFixed(2)}).`,
         concepts: ["meta-governor", "decision", decision.action],
         type: "fact",
         files: [...filesChanged],

@@ -122,7 +122,7 @@ describe("PostRepairRecorder", () => {
         expect(result).not.toBeNull()
         expect(result!.lessonSaved).not.toBeNull()
         expect(result!.lessonSaved!.type).toBe("pattern")
-        expect(result!.lessonSaved!.content).toContain("failed")
+        expect(result!.lessonSaved!.content).toContain("TOOL_TIMEOUT")
         expect(result!.decisionSaved).not.toBeNull()
         expect(result!.decisionSaved!.action).toBe("warn")
         expect(result!.decisionSaved!.score).toBe(-0.5)

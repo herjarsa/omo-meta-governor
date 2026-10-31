@@ -153,7 +153,7 @@ export async function recordRecovery(
 
     try {
       await writeBackend.saveMemory({
-        content: `Decision: ${decision.action} (score ${decision.score.toFixed(2)}). ${decision.reasoning}`,
+        content: `Decision: ${decision.action} (score ${decision.score.toFixed(2)}).`,
         concepts: ["meta-governor", "decision", decision.action, ...deviations.map((d) => d.category)],
         type: "fact",
         files: [...(outcome.filesChanged ?? [])],
@@ -180,7 +180,7 @@ export async function recordRecovery(
         const deviationSummary = deviations
           .map((d) => `[${d.severity}] ${d.category}: ${d.detail}`)
           .join("; ")
-        const content = `Action "${decision.action}" (score ${decision.score.toFixed(2)}) after deviations: ${deviationSummary}. Reasoning: ${decision.reasoning}`
+        const content = `Action "${decision.action}" (score ${decision.score.toFixed(2)}) after deviations: ${deviationSummary}.`
         const dedupeKey = conscienceDedupeKey({
           action: decision.action,
           evidenceSources: decision.evidence.map((e) => e.source),
