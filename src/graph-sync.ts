@@ -15,12 +15,12 @@
  *   - Tracks session init once per project via an in-memory Set
  */
 
-import { execSync, spawn } from "node:child_process"
+import { execFile, execSync, spawn } from "node:child_process"
 import { access, stat } from "node:fs/promises"
 import { resolve, join } from "node:path"
 import { constants } from "node:fs"
 import { oldPluginPaths, newPluginPaths, migrateOldToNew } from "./utils/migrate"
-import { killProcessTree, trackPid, untrackPid, runGuardedSync, runGuarded, killOrphanedToolProcesses } from "./proc-guard"
+import { killProcessTree, trackPid, untrackPid, runGuardedSync, runGuarded, killOrphanedToolProcesses, killOrphanedToolProcessesAsync } from "./proc-guard"
 import { TtlBoundedMap } from "./utils/ttl-bounded-map"
   try {
   migrateOldToNew({ oldPaths: oldPluginPaths(), newPaths: newPluginPaths() })
@@ -533,7 +533,7 @@ export async function runGraphSync(
   // previous crashed runs. Once per plugin process, best-effort.
   if (config.killOrphanedOnInit !== false && !orphanSweepDone) {
     orphanSweepDone = true
-    const killed = killOrphanedToolProcesses()
+    const killed = await killOrphanedToolProcessesAsync()
     void logToFile("info", "orphan sweep: killed " + killed + " leftover tool processes")
   }
 
@@ -1300,6 +1300,70 @@ export function detectRemoteNewCommits(
       })
       count = res.stdout
     }
+    const n = Number.parseInt(count.trim(), 10)
+    return Number.isFinite(n) && n > 0 ? n : 0
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * Async twin of `detectRemoteNewCommits`.
+ *
+ * The sync version shells out with `execSync`, which blocks the plugin's event
+ * loop. The plugin used to schedule it with `queueMicrotask` during `setup()`,
+ * so the git fetch (~3s on a cold remote) landed inside plugin activation.
+ */
+function execFileText(
+  cmd: string,
+  args: string[],
+  opts: { cwd: string; timeoutMs: number },
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      cmd,
+      args,
+      {
+        cwd: opts.cwd,
+        timeout: opts.timeoutMs,
+        windowsHide: true,
+        encoding: "utf8",
+        maxBuffer: 1024 * 1024,
+      },
+      (err, stdout) => {
+        if (err) {
+          reject(err)
+          return
+        }
+        resolve(stdout)
+      },
+    )
+  })
+}
+
+export async function detectRemoteNewCommitsAsync(
+  projectDir: string,
+  branch: string | undefined,
+): Promise<number> {
+  try {
+    let targetBranch = branch
+    if (!targetBranch) {
+      targetBranch = (
+        await execFileText("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+          cwd: projectDir,
+          timeoutMs: 5_000,
+        })
+      ).trim()
+    }
+    await execFileText("git", ["fetch", "origin", targetBranch], {
+      cwd: projectDir,
+      timeoutMs: 30_000,
+    })
+    const count = await execFileText(
+      "git",
+      ["rev-list", "--count", `HEAD..origin/${targetBranch}`],
+      { cwd: projectDir, timeoutMs: 10_000 },
+    )
     const n = Number.parseInt(count.trim(), 10)
     return Number.isFinite(n) && n > 0 ? n : 0
   } catch {

@@ -22,7 +22,7 @@ import {
   untrackSession,
   isGitCommitCommand,
   triggerReindex,
-  detectRemoteNewCommits,
+  detectRemoteNewCommitsAsync,
   stopWatches,
   shouldWarnStaleCache,
 } from "./graph-sync";
@@ -121,6 +121,7 @@ import { GraphRetrieval, getDefaultGraphRetrieval, configureDefaultGraphRetrieva
 import { AuditStateCache } from "./audit-state-cache";
 import { TtlBoundedMap } from "./utils/ttl-bounded-map";
 import { isSessionStart } from "./utils/session-start";
+import { deferBackgroundTask } from "./utils/defer";
 import { wrapInformational, buildUserStatus } from "./agent-notifications";
 import { formatDigestRouting, formatGraphRoutingBulletsES } from "./routing-matrix";
 import { collapseDeviationsForLesson, shouldPersistConscienceMemory, conscienceDedupeKey, buildConscienceMemoryContent, conscienceMistakeFromDeviations, conscienceWhereToGo, GENERIC_WHAT_TO_DO, isActionableConscienceLesson, synthesizeWhatToDo } from "./closed-loop-learning";
@@ -582,7 +583,8 @@ export function createMetaGovernorPlugin(
   // once at load time and warns the user if a newer version exists.
   // v0.35.0 (audit fix F16): cache the npm registry check with a 24h TTL
   // so opencode restart loops do not hammer the registry.
-  (async () => {
+  deferBackgroundTask(() => {
+    void (async () => {
     const CACHE_PATH = newPluginPaths().selfVersionCache
     const TTL_MS = 24 * 60 * 60 * 1000
     let cached: { latest: string; checkedAtMs: number } | null = null
@@ -628,7 +630,8 @@ export function createMetaGovernorPlugin(
         `STALE_CACHE: loaded v${DEFAULT_VERSION} but npm has v${latest}. Run: npm cache clean --force && rm -rf ~/.cache/opencode/packages/@herjarsa/omo-meta-governor*`,
       );
     }
-  })();
+    })()
+  });
 
   const plugin: Plugin = async (
     _input: PluginInput,
@@ -801,23 +804,22 @@ const graphSyncReadyProjects = new Set<string>();
       // npx/pip/graphify never spawns (mock.module leaks across test files
       // sharing a Bun worker â€” broke CI on macOS).
       const runGraphSyncImpl = deps.__test_runGraphSync ?? runGraphSync;
-      runGraphSyncImpl({
-        enabled: true,
-        watch: rawGraphSync?.watch ?? false,
-        autoInstall: rawGraphSync?.autoInstall ?? true,
-        installTimeoutMs: rawGraphSync?.installTimeoutMs ?? 60_000,
-        killOrphanedOnInit: rawGraphSync?.killOrphanedOnInit ?? true,
-        projectDir: sessionProjectDir,
-      })
-        .then((res) => {
-          // v0.21.0: mark the project as ready when BOTH index tools are
-          // available â€” messages.transform later nudges the agent to use
-          // them (once per session). Best-effort; never throws.
-          if (res?.attempted && res.availability.codegraph && res.availability.graphify) {
-            graphSyncReadyProjects.add(sessionProjectDir);
-          }
-})
+      deferBackgroundTask(() => {
+        void runGraphSyncImpl({
+          enabled: true,
+          watch: rawGraphSync?.watch ?? false,
+          autoInstall: rawGraphSync?.autoInstall ?? true,
+          installTimeoutMs: rawGraphSync?.installTimeoutMs ?? 60_000,
+          killOrphanedOnInit: rawGraphSync?.killOrphanedOnInit ?? true,
+          projectDir: sessionProjectDir,
+        })
+          .then((res) => {
+            if (res?.attempted && res.availability.codegraph && res.availability.graphify) {
+              graphSyncReadyProjects.add(sessionProjectDir);
+            }
+          })
         .catch((err) => { logToFile("warn", `graphSync init failed: ${String(err)}`); });
+      });
     }
     // v0.28.0: CLI-Anything hub auto-install + auto-upgrade (parallel to graph-sync).
     // Fire-and-forget; never blocks the factory. Mirrors graph-sync so the
@@ -838,7 +840,8 @@ const graphSyncReadyProjects = new Set<string>();
       // Test-only hook: assert placement without executing real CLI commands.
       deps.__test_onCliAnythingInit?.({ projectDir: sessionProjectDir });
 const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
-        runCliSyncImpl({
+      deferBackgroundTask(() => {
+        void runCliSyncImpl({
           enabled: true,
           autoInstall: rawCliAnything?.autoInstall ?? true,
           autoUpgrade: rawCliAnything?.autoUpgrade ?? true,
@@ -859,6 +862,7 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
           .catch((err) => {
             logToFile("warn", `cli-anything sync failed: ${String(err)}`);
           });
+      });
     }
     // v0.25.1: origin-fetch reindex watcher â€”
       // fetch and reindex so the agent sees fresh graph results on next tool call.
@@ -866,19 +870,23 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
       // graphSyncEnabledAtInvocation guard so tests with graphSync:{enabled:false}
       // never spawn real git processes. reindexOnFetch SE QUEDA aqui (W1-A1).
     if (graphSyncEnabledAtInvocation) {
-      queueMicrotask(() => {
-        try {
-          const fetchBranch = mergedConfig.graphSync.fetchBranch
-          const behind = detectRemoteNewCommits(sessionProjectDir, fetchBranch)
-          if (behind > 0) {
-            logToFile("info", `reindexOnFetch: ${behind} new commits on origin/${fetchBranch}, reindexing`)
-            void triggerReindex(sessionProjectDir).catch((err) => {
-              logToFile("warn", `reindexOnFetch failed: ${String(err)}`)
-            })
+      deferBackgroundTask(() => {
+        void (async () => {
+          try {
+            const fetchBranch = mergedConfig.graphSync.fetchBranch
+            const behind = await detectRemoteNewCommitsAsync(sessionProjectDir, fetchBranch)
+            if (behind > 0) {
+              logToFile("info", `reindexOnFetch: ${behind} new commits on origin/${fetchBranch}, reindexing`)
+              try {
+                await triggerReindex(sessionProjectDir)
+              } catch (err) {
+                logToFile("warn", `reindexOnFetch failed: ${String(err)}`)
+              }
+            }
+          } catch {
+            // best-effort
           }
-        } catch {
-          // best-effort
-        }
+        })()
       })
     }
     // v0.50.0: chore-skills bootstrap — extract bundled skills to the global
@@ -886,21 +894,23 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
     // best-effort: never blocks the factory, never throws. The existsSync
     // guard keeps hermetic tests (which resolve the tarball next to src/,
     // where no tarball exists) side-effect free.
-    try {
-      const distDir = dirname(fileURLToPath(import.meta.url));
-      const tarballPath = join(distDir, "skills", "chore.tar.gz");
-      if (existsSync(tarballPath)) {
-        void bootstrapChoreSkills({
-          globalDir: join(homedir(), ".agents", "skills"),
-          tarballPath,
-          pluginVersion: DEFAULT_VERSION,
-        }).catch((err) => {
-          logToFile("warn", `chore-skills bootstrap failed: ${String(err)}`);
-        });
+    deferBackgroundTask(() => {
+      try {
+        const distDir = dirname(fileURLToPath(import.meta.url));
+        const tarballPath = join(distDir, "skills", "chore.tar.gz");
+        if (existsSync(tarballPath)) {
+          void bootstrapChoreSkills({
+            globalDir: join(homedir(), ".agents", "skills"),
+            tarballPath,
+            pluginVersion: DEFAULT_VERSION,
+          }).catch((err) => {
+            logToFile("warn", `chore-skills bootstrap failed: ${String(err)}`);
+          });
+        }
+      } catch (err) {
+        logToFile("warn", `chore-skills bootstrap failed: ${String(err)}`);
       }
-    } catch (err) {
-      logToFile("warn", `chore-skills bootstrap failed: ${String(err)}`);
-    }
+    });
     // v0.35.0 (Tier 3): declared up here so `dispose` can close it even when
     // the plugin is disabled (the early-return for !enabled would otherwise
     // leave the watcher reference in TDZ).
@@ -1400,34 +1410,35 @@ metricsCollector.inc("interventions_delivered");
     // call — pure functions, no cache to invalidate). Fire-and-forget: errors
     // are logged, never thrown.
 
-    try {
-      const projectSkillsDir = join(sessionProjectDir, ".agents", "skills");
-      const startSkillsFsWatcherImpl =
-        deps.__test_startSkillsFsWatcher ?? startSkillsFsWatcher;
-      skillsFsWatcher = await startSkillsFsWatcherImpl({
-        projectDir: projectSkillsDir,
-        onChange: async (p, event) => {
-          // Spec: only count creates, not edits. The resolver re-scans on
-          // every call, so change events don't need any action.
-          if (event !== "add") return;
-          try {
-            metricsCollector.inc("tier3_skills_created");
-            logToFile("info", `tier3_skills_created: ${p}`);
-          } catch (err) {
-            logToFile("warn", `tier3 watcher onChange failed: ${String(err)}`);
-          }
-        },
-
-
-
-
-
-
-
-      });
-    } catch (err) {
-      logToFile("warn", `tier3 fs watcher failed to start: ${String(err)}`);
-    }
+    deferBackgroundTask(() => {
+      try {
+        const projectSkillsDir = join(sessionProjectDir, ".agents", "skills");
+        const startSkillsFsWatcherImpl =
+          deps.__test_startSkillsFsWatcher ?? startSkillsFsWatcher;
+        void startSkillsFsWatcherImpl({
+          projectDir: projectSkillsDir,
+          onChange: async (p, event) => {
+            // Spec: only count creates, not edits. The resolver re-scans on
+            // every call, so change events don't need any action.
+            if (event !== "add") return;
+            try {
+              metricsCollector.inc("tier3_skills_created");
+              logToFile("info", `tier3_skills_created: ${p}`);
+            } catch (err) {
+              logToFile("warn", `tier3 watcher onChange failed: ${String(err)}`);
+            }
+          },
+        })
+          .then((watcher) => {
+            skillsFsWatcher = watcher;
+          })
+          .catch((err) => {
+            logToFile("warn", `tier3 fs watcher failed to start: ${String(err)}`);
+          });
+      } catch (err) {
+        logToFile("warn", `tier3 fs watcher failed to start: ${String(err)}`);
+      }
+    });
 
     return {
       // v0.30 zombie-fix: OpenCode calls dispose on plugin teardown.

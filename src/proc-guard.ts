@@ -16,7 +16,7 @@
  *   - Tracks every spawned pid in a module-level Set so a crash can't leak.
  *   - Covers the tools the plugin spawns (graphify/codegraph/npx/python).
  */
-import { spawn, spawnSync } from "node:child_process"
+import { execFile, spawn, spawnSync } from "node:child_process"
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -312,6 +312,46 @@ export function killOrphanedToolProcesses(): number {
       } catch {
         // best-effort
       }
+    }
+  } catch {
+    // Never throw
+  }
+  return count
+}
+
+/**
+ * Async twin of `killOrphanedToolProcesses` used by `runGraphSync`.
+ *
+ * `spawnSync` blocks the event loop (~1s per call: taskkill + a PowerShell
+ * CIM query on Windows). The plugin runs the sweep at factory time, so it must
+ * not block plugin activation.
+ */
+export async function killOrphanedToolProcessesAsync(): Promise<number> {
+  const runQuiet = (cmd: string, args: string[]): Promise<boolean> =>
+    new Promise((resolve) => {
+      try {
+        execFile(cmd, args, { windowsHide: true }, (err) => resolve(!err))
+      } catch {
+        resolve(false)
+      }
+    })
+  let count = 0
+  try {
+    if (process.platform === "win32") {
+      for (const name of ["graphify.exe", "codegraph.exe"]) {
+        await runQuiet("taskkill", ["/IM", name, "/F"])
+      }
+      const killed = await runQuiet("powershell", [
+        "-NoProfile",
+        "-Command",
+        "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'OMO_MG_WATCH|OMO_MG_SPAWN' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
+      ])
+      if (killed) count = 1
+    } else {
+      for (const name of ["graphify", "codegraph"]) {
+        await runQuiet("pkill", ["-x", name])
+      }
+      await runQuiet("pkill", ["-f", "OMO_MG_WATCH|OMO_MG_SPAWN"])
     }
   } catch {
     // Never throw

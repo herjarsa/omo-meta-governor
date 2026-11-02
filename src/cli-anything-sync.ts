@@ -7,7 +7,6 @@
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs"
 import { dirname } from "node:path"
-import { execSync } from "node:child_process"
 import { oldPluginPaths, newPluginPaths, migrateOldToNew } from "./utils/migrate"
 import {
   fetchCliHubLatestVersion,
@@ -128,22 +127,15 @@ export async function runCliAnythingSync(
   }
 
   const codes: CliAnythingCode[] = []
-  const runner = fullConfig.runner ?? ((cmd, opts) => {
-    // Lazy require so the test-only DI seam is the default in production
-    // (this block only runs when no runner is injected)
-      // execSync now imported at module top level
-    return execSync(cmd, {
-      timeout: opts?.timeoutMs ?? 10_000,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      // v0.50.2: windowsHide so no console window flashes on Windows.
-      windowsHide: true,
-    })
-  })
+  // Deliberately leave the runner undefined in production: each wrapper then
+  // uses its async (`exec`-based) runner. Building an execSync runner here made
+  // this "fire-and-forget" call block the plugin factory for ~9s (pip + npx
+  // probes), which OpenCode reported as a failed location activation.
+  const runner = fullConfig.runner
 
   // --- 1. Probe installed state ---
-  const installedVersion = getInstalledCliHubVersion(runner)
-  const metaSkillInstalled = isCliHubMetaSkillInstalled(
+  const installedVersion = await getInstalledCliHubVersion(runner)
+  const metaSkillInstalled = await isCliHubMetaSkillInstalled(
     fullConfig.installScope,
     runner,
     10_000,
@@ -158,11 +150,11 @@ export async function runCliAnythingSync(
 
   // --- 2. Auto-install when missing ---
   if (installedVersion === null && fullConfig.autoInstall) {
-    const install = installCliHub(runner, fullConfig.installTimeoutMs)
+    const install = await installCliHub(runner, fullConfig.installTimeoutMs)
     codes.push(install.code)
     if (install.ok) {
       // Re-probe to update availability
-      const newVersion = getInstalledCliHubVersion(runner)
+      const newVersion = await getInstalledCliHubVersion(runner)
       availability.cliHub = true
       availability.cliHubVersion = newVersion
     }
@@ -171,7 +163,7 @@ export async function runCliAnythingSync(
   }
 
   if (!metaSkillInstalled && fullConfig.autoInstall) {
-    const skillInstall = installCliHubMetaSkill(
+    const skillInstall = await installCliHubMetaSkill(
       fullConfig.installScope,
       runner,
       fullConfig.installTimeoutMs,
@@ -199,7 +191,7 @@ export async function runCliAnythingSync(
 
     let latestCliHubVersion: string | null = cache?.cliHubLatestVersion ?? null
     if (shouldProbe) {
-      latestCliHubVersion = fetchCliHubLatestVersion(runner)
+      latestCliHubVersion = await fetchCliHubLatestVersion(runner)
       writeUpgradeCache(fullConfig.cachePath, {
         cliHubLatestVersion: latestCliHubVersion,
         metaSkillLastCheckedISO: new Date(now).toISOString(),
@@ -213,10 +205,10 @@ export async function runCliAnythingSync(
       availability.cliHubVersion !== null &&
       compareSemver(latestCliHubVersion, availability.cliHubVersion) > 0
     ) {
-      const upgrade = upgradeCliHub(runner, fullConfig.installTimeoutMs)
+      const upgrade = await upgradeCliHub(runner, fullConfig.installTimeoutMs)
       codes.push(upgrade.code)
       if (upgrade.ok) {
-        const newVersion = getInstalledCliHubVersion(runner)
+        const newVersion = await getInstalledCliHubVersion(runner)
         availability.cliHubVersion = newVersion
       }
     } else if (availability.cliHub && availability.cliHubVersion) {
@@ -225,7 +217,7 @@ export async function runCliAnythingSync(
 
     // Meta-skill upgrade (always attempt; npx skills update is idempotent)
     if (availability.metaSkill) {
-      const skillUpgrade = upgradeCliHubMetaSkill(
+      const skillUpgrade = await upgradeCliHubMetaSkill(
         fullConfig.installScope,
         runner,
         fullConfig.installTimeoutMs,

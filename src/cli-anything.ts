@@ -9,7 +9,7 @@
  * returns a structured result. NEVER throws. All errors are caught and
  * returned as null / failure codes (mirrors graph-sync.ts v0.26.0 pattern).
  */
-import { execSync } from "node:child_process"
+import { exec, execSync } from "node:child_process"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -80,6 +80,8 @@ export interface CliHubListEntry {
 }
 
 export type Runner = (cmd: string, opts?: { timeoutMs?: number }) => string
+/** Async runner used by the startup path so probes never block the event loop. */
+export type AsyncRunner = (cmd: string, opts?: { timeoutMs?: number }) => Promise<string>
 
 // ---------------------------------------------------------------------------
 // Default runner (real subprocess). Tests inject a fake.
@@ -95,6 +97,37 @@ const defaultRunner: Runner = (cmd, opts) => {
   })
   return result.toString()
 }
+
+/**
+ * Async counterpart of `defaultRunner`.
+ *
+ * `execSync` blocks the single JS thread the plugin shares with OpenCode. The
+ * startup probes used to cost ~9s of wall clock (pip + two `npx skills` calls)
+ * inside `setup()`, and the host aborts plugin activation after ~13s. Using
+ * `exec` keeps those probes off the activation path.
+ */
+const defaultAsyncRunner: AsyncRunner = (cmd, opts) =>
+  new Promise((resolve, reject) => {
+    exec(
+      cmd,
+      {
+        timeout: opts?.timeoutMs ?? 10_000,
+        encoding: "utf8",
+        windowsHide: true,
+        maxBuffer: 8 * 1024 * 1024,
+      },
+      (err, stdout, stderr) => {
+        if (err) {
+          const failure = err as Error & { stdout?: string; stderr?: string }
+          failure.stdout = stdout
+          failure.stderr = stderr
+          reject(failure)
+          return
+        }
+        resolve(stdout)
+      },
+    )
+  })
 
 // ---------------------------------------------------------------------------
 // Internal: safe runner that catches spawn errors
@@ -132,6 +165,38 @@ function safeRun(
   }
 }
 
+/**
+ * Async twin of `safeRun`. Injected runners may be sync (tests) or async
+ * (production); awaiting a plain string is a no-op, so both work.
+ */
+async function safeRunAsync(
+  cmd: string,
+  runner: Runner | AsyncRunner | undefined,
+  timeoutMs: number,
+): Promise<RunResult> {
+  const execute: AsyncRunner = runner
+    ? async (command, opts) => await runner(command, opts)
+    : defaultAsyncRunner
+  try {
+    const out = await execute(cmd, { timeoutMs })
+    return { ok: true, stdout: out, stderr: "", timedOut: false }
+  } catch (err) {
+    const e = err as { stdout?: Buffer | string; stderr?: Buffer | string; message?: string }
+    const stdout = typeof e.stdout === "string"
+      ? e.stdout
+      : e.stdout instanceof Buffer
+        ? e.stdout.toString("utf8")
+        : ""
+    const stderr = typeof e.stderr === "string"
+      ? e.stderr
+      : e.stderr instanceof Buffer
+        ? e.stderr.toString("utf8")
+        : (e.message ?? "")
+    const timedOut = /timed out|ETIMEDOUT|timeout/i.test(stderr)
+    return { ok: false, stdout, stderr, timedOut }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // cli-anything-hub version probes
 // ---------------------------------------------------------------------------
@@ -140,18 +205,18 @@ function safeRun(
  * Get the installed cli-anything-hub version.
  * Returns null when not installed.
  */
-export function getInstalledCliHubVersion(
-  runner: Runner = defaultRunner,
-): string | null {
+export async function getInstalledCliHubVersion(
+  runner?: Runner | AsyncRunner,
+): Promise<string | null> {
   // Tier 1: `pip show cli-anything-hub`
-  let res = safeRun("pip show cli-anything-hub", runner, 10_000)
+  let res = await safeRunAsync("pip show cli-anything-hub", runner, 10_000)
   if (!res.ok) {
     // Tier 2: `pip3 show cli-anything-hub`
-    res = safeRun("pip3 show cli-anything-hub", runner, 10_000)
+    res = await safeRunAsync("pip3 show cli-anything-hub", runner, 10_000)
   }
   if (!res.ok) {
     // Tier 3: `python -m pip show cli-anything-hub`
-    res = safeRun("python -m pip show cli-anything-hub", runner, 10_000)
+    res = await safeRunAsync("python -m pip show cli-anything-hub", runner, 10_000)
   }
   if (!res.ok) return null
   // Parse `Version: 0.4.1`
@@ -163,16 +228,16 @@ export function getInstalledCliHubVersion(
  * Fetch the latest cli-anything-hub version from PyPI.
  * Returns null on any failure.
  */
-export function fetchCliHubLatestVersion(
-  runner: Runner = defaultRunner,
-): string | null {
+export async function fetchCliHubLatestVersion(
+  runner?: Runner | AsyncRunner,
+): Promise<string | null> {
   // pip index versions is non-interactive and returns just the version.
-  let res = safeRun("pip index versions cli-anything-hub", runner, 10_000)
+  let res = await safeRunAsync("pip index versions cli-anything-hub", runner, 10_000)
   if (!res.ok) {
-    res = safeRun("pip3 index versions cli-anything-hub", runner, 10_000)
+    res = await safeRunAsync("pip3 index versions cli-anything-hub", runner, 10_000)
   }
   if (!res.ok) {
-    res = safeRun("python -m pip index versions cli-anything-hub", runner, 10_000)
+    res = await safeRunAsync("python -m pip index versions cli-anything-hub", runner, 10_000)
   }
   if (!res.ok) return null
   // Parse `cli-anything-hub (0.4.1)` or `cli-anything-hub (0.4.1, ...)`
@@ -211,10 +276,10 @@ export function compareSemver(a: string, b: string): -1 | 0 | 1 {
  *  3. pip install --user (older fallback, no system pollution)
  *  4. pip install (last resort; uses --break-system-packages on PEP 668 systems)
  */
-export function installCliHub(
-  runner: Runner = defaultRunner,
+export async function installCliHub(
+  runner?: Runner | AsyncRunner,
   timeoutMs = 60_000,
-): CliAnythingResult {
+): Promise<CliAnythingResult> {
   const start = Date.now()
   const attempts = [
     // 1. uv tool install — clean isolated environment, no PEP 668 conflict
@@ -228,7 +293,7 @@ export function installCliHub(
   ]
   let lastStderr = ""
   for (const cmd of attempts) {
-    const res = safeRun(cmd, runner, timeoutMs)
+    const res = await safeRunAsync(cmd, runner, timeoutMs)
     if (res.ok) {
       return {
         ok: true,
@@ -254,10 +319,10 @@ export function installCliHub(
 /**
  * Upgrade cli-anything-hub. Same tier order as installCliHub.
  */
-export function upgradeCliHub(
-  runner: Runner = defaultRunner,
+export async function upgradeCliHub(
+  runner?: Runner | AsyncRunner,
   timeoutMs = 60_000,
-): CliAnythingResult {
+): Promise<CliAnythingResult> {
   const start = Date.now()
   const attempts = [
     "uv tool upgrade cli-anything-hub",
@@ -268,7 +333,7 @@ export function upgradeCliHub(
   ]
   let lastStderr = ""
   for (const cmd of attempts) {
-    const res = safeRun(cmd, runner, timeoutMs)
+    const res = await safeRunAsync(cmd, runner, timeoutMs)
     if (res.ok) {
       return {
         ok: true,
@@ -469,16 +534,16 @@ export function installCli(
  * Install the cli-hub-meta-skill via `npx skills add HKUDS/CLI-Anything --skill cli-hub-meta-skill`.
  * scope: 'global' (default) installs to ~/.claude/skills/, 'project' to ./.claude/skills/.
  */
-export function installCliHubMetaSkill(
+export async function installCliHubMetaSkill(
   scope: "global" | "project" = "global",
-  runner: Runner = defaultRunner,
+  runner?: Runner | AsyncRunner,
   timeoutMs = 60_000,
   skillsBin = "npx skills",
-): CliAnythingResult {
+): Promise<CliAnythingResult> {
   const start = Date.now()
   const scopeFlag = scope === "global" ? "-g" : "-p"
   const cmd = `${skillsBin} add HKUDS/CLI-Anything --skill cli-hub-meta-skill ${scopeFlag} -y`
-  const res = safeRun(cmd, runner, timeoutMs)
+  const res = await safeRunAsync(cmd, runner, timeoutMs)
   if (!res.ok) {
     return {
       ok: false,
@@ -502,16 +567,16 @@ export function installCliHubMetaSkill(
 /**
  * Upgrade the cli-hub-meta-skill via `npx skills update`.
  */
-export function upgradeCliHubMetaSkill(
+export async function upgradeCliHubMetaSkill(
   scope: "global" | "project" = "global",
-  runner: Runner = defaultRunner,
+  runner?: Runner | AsyncRunner,
   timeoutMs = 60_000,
   skillsBin = "npx skills",
-): CliAnythingResult {
+): Promise<CliAnythingResult> {
   const start = Date.now()
   const scopeFlag = scope === "global" ? "-g" : "-p"
   const cmd = `${skillsBin} update cli-hub-meta-skill ${scopeFlag} -y`
-  const res = safeRun(cmd, runner, timeoutMs)
+  const res = await safeRunAsync(cmd, runner, timeoutMs)
   if (!res.ok) {
     return {
       ok: false,
@@ -535,14 +600,14 @@ export function upgradeCliHubMetaSkill(
 /**
  * Check whether cli-hub-meta-skill is installed by parsing `npx skills list --global`.
  */
-export function isCliHubMetaSkillInstalled(
+export async function isCliHubMetaSkillInstalled(
   scope: "global" | "project" = "global",
-  runner: Runner = defaultRunner,
+  runner?: Runner | AsyncRunner,
   timeoutMs = 10_000,
   skillsBin = "npx skills",
-): boolean {
+): Promise<boolean> {
   const scopeFlag = scope === "global" ? "-g" : "-p"
-  const res = safeRun(`${skillsBin} list ${scopeFlag}`, runner, timeoutMs)
+  const res = await safeRunAsync(`${skillsBin} list ${scopeFlag}`, runner, timeoutMs)
   if (!res.ok) return false
   return /cli-hub-meta-skill/i.test(res.stdout)
 }

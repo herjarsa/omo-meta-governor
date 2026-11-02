@@ -52,25 +52,25 @@ describe("compareSemver", () => {
 })
 
 describe("getInstalledCliHubVersion", () => {
-  it("returns the parsed version when pip show succeeds", () => {
+  it("returns the parsed version when pip show succeeds", async () => {
     const runner = makeRunner({
       "pip show cli-anything-hub":
         "Name: cli-anything-hub\nVersion: 0.4.1\nLocation: /usr/lib/python3.12/site-packages\n",
     })
-    expect(getInstalledCliHubVersion(runner)).toBe("0.4.1")
+    expect(await getInstalledCliHubVersion(runner)).toBe("0.4.1")
   })
 
-  it("falls back to pip3 when pip fails", () => {
+  it("falls back to pip3 when pip fails", async () => {
     const runner = (cmd: string) => {
       if (cmd.startsWith("pip show")) throw new Error("pip not found")
       if (cmd.startsWith("pip3 show"))
         return "Name: cli-anything-hub\nVersion: 0.4.0\n"
       throw new Error(`unexpected: ${cmd}`)
     }
-    expect(getInstalledCliHubVersion(runner)).toBe("0.4.0")
+    expect(await getInstalledCliHubVersion(runner)).toBe("0.4.0")
   })
 
-  it("falls back to python -m pip when pip3 fails", () => {
+  it("falls back to python -m pip when pip3 fails", async () => {
     const runner = (cmd: string) => {
       if (cmd.startsWith("pip ")) throw new Error("no pip")
       if (cmd.startsWith("pip3 ")) throw new Error("no pip3")
@@ -78,58 +78,58 @@ describe("getInstalledCliHubVersion", () => {
         return "Name: cli-anything-hub\nVersion: 0.3.9\n"
       throw new Error(`unexpected: ${cmd}`)
     }
-    expect(getInstalledCliHubVersion(runner)).toBe("0.3.9")
+    expect(await getInstalledCliHubVersion(runner)).toBe("0.3.9")
   })
 
-  it("returns null when all probes fail (not installed)", () => {
+  it("returns null when all probes fail (not installed)", async () => {
     const runner = () => {
       throw new Error("not installed")
     }
-    expect(getInstalledCliHubVersion(runner)).toBeNull()
+    expect(await getInstalledCliHubVersion(runner)).toBeNull()
   })
 })
 
 describe("fetchCliHubLatestVersion", () => {
-  it("parses pip index versions output", () => {
+  it("parses pip index versions output", async () => {
     const runner = makeRunner({
       "pip index versions cli-anything-hub":
         "cli-anything-hub (0.4.1)\nAvailable versions: 0.4.1, 0.4.0, 0.3.9\n",
     })
-    expect(fetchCliHubLatestVersion(runner)).toBe("0.4.1")
+    expect(await fetchCliHubLatestVersion(runner)).toBe("0.4.1")
   })
 
-  it("returns null on failure", () => {
-    expect(fetchCliHubLatestVersion(() => { throw new Error("no pip") })).toBeNull()
+  it("returns null on failure", async () => {
+    expect(await fetchCliHubLatestVersion(() => { throw new Error("no pip") })).toBeNull()
   })
 })
 
 describe("installCliHub", () => {
-  it("succeeds on the first attempt (uv tool install)", () => {
+  it("succeeds on the first attempt (uv tool install)", async () => {
     const runner = makeRunner({
       "uv tool install": "Installed cli-anything-hub-0.4.1",
     })
-    const result = installCliHub(runner)
+    const result = await installCliHub(runner)
     expect(result.ok).toBe(true)
     expect(result.code).toBe("cli-anything-install-succeeded")
   })
 
-  it("falls back to pip install --user after uv tool install fails", () => {
+  it("falls back to pip install --user after uv tool install fails", async () => {
     const runner = (cmd: string) => {
       if (cmd.startsWith("uv tool install")) throw new Error("no uv")
       if (cmd.startsWith("uv pip install")) throw new Error("no uv")
       if (cmd.startsWith("pip install --user")) return "Successfully installed"
       throw new Error(`unexpected: ${cmd}`)
     }
-    const result = installCliHub(runner)
+    const result = await installCliHub(runner)
     expect(result.ok).toBe(true)
     expect(result.code).toBe("cli-anything-install-succeeded")
   })
 
-  it("returns failure when every tier fails", () => {
+  it("returns failure when every tier fails", async () => {
     const runner = () => {
       throw new Error("no pip, no uv, no nothing")
     }
-    const result = installCliHub(runner)
+    const result = await installCliHub(runner)
     expect(result.ok).toBe(false)
     expect(result.code).toBe("cli-anything-install-failed")
     expect(result.stderr).toContain("no pip, no uv")
@@ -137,11 +137,11 @@ describe("installCliHub", () => {
 })
 
 describe("upgradeCliHub", () => {
-  it("succeeds with uv tool upgrade", () => {
+  it("succeeds with uv tool upgrade", async () => {
     const runner = makeRunner({
       "uv tool upgrade": "Upgraded cli-anything-hub",
     })
-    const result = upgradeCliHub(runner)
+    const result = await upgradeCliHub(runner)
     expect(result.ok).toBe(true)
     expect(result.code).toBe("cli-anything-upgrade-succeeded")
   })
@@ -216,13 +216,13 @@ describe("installCli", () => {
 })
 
 describe("installCliHubMetaSkill", () => {
-  it("invokes `npx skills add HKUDS/CLI-Anything --skill cli-hub-meta-skill -g -y`", () => {
+  it("invokes `npx skills add HKUDS/CLI-Anything --skill cli-hub-meta-skill -g -y`", async () => {
     let captured = ""
     const runner = (cmd: string) => {
       captured = cmd
       return "skill installed"
     }
-    const result = installCliHubMetaSkill("global", runner, 10_000, "npx skills")
+    const result = await installCliHubMetaSkill("global", runner, 10_000, "npx skills")
     expect(result.ok).toBe(true)
     expect(captured).toContain("npx skills add HKUDS/CLI-Anything")
     expect(captured).toContain("--skill cli-hub-meta-skill")
@@ -230,44 +230,44 @@ describe("installCliHubMetaSkill", () => {
     expect(captured).toContain("-y")
   })
 
-  it("uses -p for project scope", () => {
+  it("uses -p for project scope", async () => {
     let captured = ""
     const runner = (cmd: string) => {
       captured = cmd
       return "skill installed"
     }
-    installCliHubMetaSkill("project", runner, 10_000, "npx skills")
+    await installCliHubMetaSkill("project", runner, 10_000, "npx skills")
     expect(captured).toContain("-p")
     expect(captured).not.toContain("-g ")
   })
 })
 
 describe("upgradeCliHubMetaSkill", () => {
-  it("invokes `npx skills update cli-hub-meta-skill -g -y`", () => {
+  it("invokes `npx skills update cli-hub-meta-skill -g -y`", async () => {
     let captured = ""
     const runner = (cmd: string) => {
       captured = cmd
       return "skill updated"
     }
-    const result = upgradeCliHubMetaSkill("global", runner, 10_000, "npx skills")
+    const result = await upgradeCliHubMetaSkill("global", runner, 10_000, "npx skills")
     expect(result.ok).toBe(true)
     expect(captured).toContain("npx skills update cli-hub-meta-skill")
   })
 })
 
 describe("isCliHubMetaSkillInstalled", () => {
-  it("returns true when the skill appears in `npx skills list`", () => {
+  it("returns true when the skill appears in `npx skills list`", async () => {
     const runner = makeRunner({
       "npx skills list -g":
         "cli-hub-meta-skill  HKUDS/CLI-Anything  1.0.0  global\nsome-other-skill  x/y  0.1.0  global\n",
     })
-    expect(isCliHubMetaSkillInstalled("global", runner, 10_000, "npx skills")).toBe(true)
+    expect(await isCliHubMetaSkillInstalled("global", runner, 10_000, "npx skills")).toBe(true)
   })
 
-  it("returns false when the skill is missing", () => {
+  it("returns false when the skill is missing", async () => {
     const runner = makeRunner({
       "npx skills list -g": "some-other-skill  x/y  0.1.0  global\n",
     })
-    expect(isCliHubMetaSkillInstalled("global", runner, 10_000, "npx skills")).toBe(false)
+    expect(await isCliHubMetaSkillInstalled("global", runner, 10_000, "npx skills")).toBe(false)
   })
 })
