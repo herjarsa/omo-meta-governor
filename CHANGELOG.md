@@ -1,3 +1,59 @@
+## [0.65.0] - 2026-11-08
+
+**Lecciones que valen la pena.** Los escritores automáticos de memoria ya no
+guardan filas que sólo repiten la directiva de protocolo que el agente ya
+tuvo en contexto: una lección automática debe estar anclada a un archivo real
+o a un código de diagnóstico. `omo_remember` explícito no cambia.
+
+### Added
+- `isLessonWorthSaving()` (`src/closed-loop-learning.ts`): gate único para
+  todo escritor automático. Rechaza lecciones que sólo reformulan la regla
+  estática ya inyectada cada sesión (`STATIC_REMEDIES` = `RULE_GUIDANCE` +
+  genérico) cuando no hay ancla — la clase reportada en agentmemory:
+  `Action "stop" (score -0.37) ... memory-first: Asked a question without
+  first querying memory ... WhereToGo: session:ses_...`.
+- `hasConcretePlace()`: ancla = archivo real (`src/a.ts`, `patch-edges.cjs`).
+  `session:<id>` y un nombre de proyecto suelto NO son lugares.
+- `hasDiagnosticAnchor()`: ancla = código de fallo específico
+  (`TOOL_TIMEOUT`, `JSON_PARSE_ERROR`); mantiene vivas las lecciones de
+  recuperación, que no tienen archivo.
+- `src/lesson-quality.test.ts`: L1 (la fila reportada no se guarda), L2 (la
+  misma regla anclada sí), L3 (código de diagnóstico como ancla), L4
+  (contenido sin volcado de score + round-trip), L5 (end-to-end: sólo
+  memory-first → 0 lecciones; write infractor → 1).
+
+### Fixed
+- `buildConscienceMemoryContent()` ya no emite el prefijo
+  `Action "stop" (score X) after deviations: ...` (era el título y el cuerpo
+  de cada lección). Cuerpo: `Mistake:` / `Evidence:` (sólo si aporta detalle
+  distinto) / `What to do:` / `Where:` — etiquetas que `parseLessonContent`
+  sí puede releer (antes usaba `WhatToDo:`/`WhereToGo:` y no hacía round-trip).
+- `src/plugin.ts` (auto-remember), `src/agentmemory-bridge.ts`
+  (`extractLessonsForSession`) y `src/post-repair-recorder.ts` aplican el
+  gate y registran el motivo del descarte. El cierre de sesión escribía una
+  fila de la misma clase por cada desviación.
+
+### Changed
+- Una lección automática sin ancla (sin archivo y sin código de error) cuyo
+  remedio es estático ya no se persiste. Dedupe y cooldown no podían arreglar
+  contenido inútil: sólo lo ocultaban.
+
+### Tests
+- `bun run typecheck` limpio (exit 0).
+- Focalizados: 60 pass / 0 fail (lesson-quality, spam-oracle-dump,
+  conscience-content, conscience-spam, lesson-spam-guard,
+  post-repair-recorder, agentmemory-bridge).
+- Suite local: 1494 pass / 12 fail, todos preexistentes de entorno Windows
+  (`tar` en `bootstrapChoreSkills`, separadores en `graphSync init
+  placement`, hooks en `workflow-gates`/`plugin-activation`), verificados con
+  los cambios en `git stash` (A/B idéntico).
+- 5 tests nuevos (`src/lesson-quality.test.ts`).
+
+### Ship protocol compliance
+- ✅ CHANGELOG `## [0.65.0]` con Added/Fixed/Changed/Tests
+- ✅ `bun run typecheck` limpio (exit 0)
+- ✅ tests nuevos y focales en verde (60 pass / 0 fail)
+
 ## [0.64.0] - 2026-10-27
 
 **Grafo obligatorio + memoria condicional.** El agente ya no puede saltarse
