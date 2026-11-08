@@ -24,10 +24,13 @@ import type {
 } from "./types"
 import {
   conscienceDedupeKey,
+  conscienceWhereToGo,
   defaultClosedLoopConfig,
+  isLessonWorthSaving,
   isNeutralContinueDecision,
   lessonConfidenceForDecision,
   MIN_LESSON_CONFIDENCE,
+  synthesizeWhatToDo,
 } from "./closed-loop-learning"
 
 /**
@@ -168,7 +171,23 @@ export async function recordRecovery(
   // v0.51.1 (P1 spam guard): neutral continues + sub-threshold confidence
   // never persist; saves carry the stable dedupeKey for real backend dedupe.
   let lessonSkipReason: string | null = null
-  if (severityMeetsThreshold(deviations, config.minSeverityToLearn)) {
+  // v0.65.x (lesson quality): an unanchored lesson whose remedy the plugin
+  // already injects every session is not knowledge. Recovery lessons survive
+  // through their diagnostic anchor (TOOL_TIMEOUT, JSON_PARSE_ERROR), not by
+  // restating a rule.
+  const lessonMistake = deviations.map((d) => `${d.category}: ${d.detail}`).join("; ").slice(0, 300)
+  const lessonWhatToDo = synthesizeWhatToDo(deviations, decision.shouldEscalateTo)
+  const lessonWhereToGo = conscienceWhereToGo(outcome.filesChanged ?? [], outcome.sessionID)
+  const worthiness = isLessonWorthSaving({
+    mistake: lessonMistake,
+    whatToDo: lessonWhatToDo,
+    whereToGo: lessonWhereToGo,
+    deviations,
+    files: outcome.filesChanged ?? [],
+  })
+  if (!worthiness.ok) {
+    lessonSkipReason = worthiness.reason
+  } else if (severityMeetsThreshold(deviations, config.minSeverityToLearn)) {
     if (isNeutralContinueDecision(decision)) {
       lessonSkipReason = "neutral continue carries no learnable signal (action=continue score=" + decision.score.toFixed(2) + ")"
     } else {
@@ -177,10 +196,9 @@ export async function recordRecovery(
         lessonSkipReason = "confidence below threshold (" + lessonConfidence.toFixed(2) + " < " + MIN_LESSON_CONFIDENCE.toFixed(2) + ")"
       } else {
         const concepts = [...new Set(deviations.flatMap((d) => [d.category, d.severity]))]
-        const deviationSummary = deviations
-          .map((d) => `[${d.severity}] ${d.category}: ${d.detail}`)
-          .join("; ")
-        const content = `Action "${decision.action}" (score ${decision.score.toFixed(2)}) after deviations: ${deviationSummary}.`
+        // Structured lesson, not the old scoring dump: `Action "warn" (score
+        // -0.50) after deviations: ...` is a log line, not knowledge.
+        const content = `Mistake: ${lessonMistake}\nWhat to do: ${lessonWhatToDo}\nWhere: ${lessonWhereToGo}`
         const dedupeKey = conscienceDedupeKey({
           action: decision.action,
           evidenceSources: decision.evidence.map((e) => e.source),

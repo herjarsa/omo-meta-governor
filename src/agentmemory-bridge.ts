@@ -28,6 +28,7 @@ import {
   type AgentmemoryLesson,
   getAgentmemoryClient,
 } from "./agentmemory-client.js"
+import { isLessonWorthSaving } from "./closed-loop-learning.js"
 import type { Deviation } from "./types.js"
 
 // ─── F2: task context ──────────────────────────────────────────────
@@ -217,6 +218,18 @@ export function extractLessonsForSession(
   const lessons: Array<{ content: string; context: string; confidence: number; tags: string[] }> = []
   for (const deviation of collapsed) {
     const mistake = `${deviation.category}: ${deviation.detail}`.slice(0, 300)
+    // v0.65.x (lesson quality): write only lessons worth recalling. A rule
+    // restated with its own canned remedy and no real place (`session:...` or
+    // a bare project name) teaches nothing — it is the junk class the user
+    // reported, and it used to be written once per deviation at session end.
+    const worthiness = isLessonWorthSaving({
+      mistake,
+      whatToDo: input.whatToDo,
+      whereToGo: input.whereToGo,
+      deviations: [deviation],
+      files: input.filesChanged,
+    })
+    if (!worthiness.ok) continue
     // v0.59.0 (F1 lesson canónica): the content MUST be byte-identical for
     // the same (rule, where, remedy) triple. The old format embedded the
     // scoring float ("score -0.50" vs "-0.51") and the target file

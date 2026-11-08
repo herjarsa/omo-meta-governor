@@ -124,7 +124,7 @@ import { isSessionStart } from "./utils/session-start";
 import { deferBackgroundTask } from "./utils/defer";
 import { wrapInformational, buildUserStatus } from "./agent-notifications";
 import { formatDigestRouting, formatGraphRoutingBulletsES } from "./routing-matrix";
-import { collapseDeviationsForLesson, shouldPersistConscienceMemory, conscienceDedupeKey, buildConscienceMemoryContent, conscienceMistakeFromDeviations, conscienceWhereToGo, GENERIC_WHAT_TO_DO, isActionableConscienceLesson, synthesizeWhatToDo } from "./closed-loop-learning";
+import { collapseDeviationsForLesson, shouldPersistConscienceMemory, conscienceDedupeKey, buildConscienceMemoryContent, conscienceMistakeFromDeviations, conscienceWhereToGo, GENERIC_WHAT_TO_DO, isActionableConscienceLesson, isLessonWorthSaving, synthesizeWhatToDo } from "./closed-loop-learning";
 import {
   createBridgeState,
   ensureAgentmemorySession,
@@ -3303,6 +3303,16 @@ metricsCollector.inc("interventions_delivered");
               logToFile("info", `auto-remember skipped (not actionable lesson) for ${currentSessionID}: ${decision.action}`);
             } else {
             const whereToGo = conscienceWhereToGo(files, currentSessionID);
+            // v0.65.x (lesson quality): a lesson must be WORTH saving, not just
+            // unique. This rejects the reported junk class at the source: an
+            // unanchored lesson that only restates the static rule directive the
+            // plugin already injects every session, scoped to a dead session
+            // (`Action "stop" ... memory-first ... WhereToGo: session:ses_...`).
+            // Dedupe/cooldown used to hide that noise; they never made it useful.
+            const worthiness = isLessonWorthSaving({ mistake, whatToDo, whereToGo, deviations, files });
+            if (!worthiness.ok) {
+              logToFile("info", `auto-remember skipped (${worthiness.reason}) for ${currentSessionID}: ${decision.action}`);
+            } else {
             const score = decision.historyEntry?.decision?.score ?? 0;
             // Oracle note 3: thread the real decision action so stop lessons read
             // Action stop. Gate above already rejected warn/continue, so the fallback
@@ -3375,6 +3385,7 @@ metricsCollector.inc("interventions_delivered");
             })();
             logToFile("info", `auto-remember queued for ${currentSessionID}: ${decision.action}`);
             }
+            } // v0.65.x: closes the lesson-worthiness gate else
             } // v0.56.0: closes the actionable-lesson gate else
             }
             }

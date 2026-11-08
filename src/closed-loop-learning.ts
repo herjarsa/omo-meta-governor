@@ -228,6 +228,97 @@ export function synthesizeWhatToDo(
 }
 
 /**
+ * Remedies the plugin injects into EVERY session (system prompt + enforcement
+ * resources). Re-persisting one of these is not learning — the agent already
+ * has the sentence before it ever makes the mistake. An UNANCHORED lesson
+ * carrying one of them is the exact garbage class reported in agentmemory:
+ *   Action "stop" (score -0.37) after deviations: [grave] memory-first: Asked
+ *   a question without first querying memory... WhatToDo: Query memory
+ *   (`omo_recall`, then `omo_recall_mcp`) before asking the user...
+ *   WhereToGo: session:ses_e97c...
+ * Nothing in that row is new: the rule, the remedy and the score were all
+ * already in context, and the place does not exist outside that session.
+ */
+const STATIC_REMEDIES: ReadonlySet<string> = new Set(
+  [...Object.values(RULE_GUIDANCE), GENERIC_WHAT_TO_DO].map(normalizeLessonText),
+)
+
+function normalizeLessonText(text: string): string {
+  return text.trim().toLowerCase().replace(/\s+/g, " ")
+}
+
+/** File-ish place: `src/a.ts`, `D:\\repo\\b.ts`, `patch-edges.cjs`. */
+const FILE_EXTENSION_PATTERN =
+  /\.(?:[cm]?[jt]sx?|jsonc?|mdx?|py|go|rs|java|kt|rb|php|cs|cpp|c|h|sh|bash|ps1|ya?ml|toml|ini|sql|scss?|html|vue|svelte|lock)$/i
+
+/**
+ * Does the lesson point at a REAL place in the repo? `session:<id>` is not a
+ * place — a lesson scoped to a dead session can never be applied again, so it
+ * cannot be a lesson. Nor is a bare project name.
+ */
+export function hasConcretePlace(whereToGo: string, files: readonly string[] = []): boolean {
+  const isPlace = (value: string): boolean => {
+    const v = value.trim()
+    if (v.length === 0 || v.startsWith("session:")) return false
+    if (v.includes("/") || v.includes("\\")) return true
+    return FILE_EXTENSION_PATTERN.test(v)
+  }
+  if (files.some(isPlace)) return true
+  return whereToGo.split(/[,;]/).some(isPlace)
+}
+
+/**
+ * A diagnostic anchor is a specific failure code (`TOOL_TIMEOUT`,
+ * `JSON_PARSE_ERROR`) — knowledge a static rule line cannot supply. Recovery
+ * lessons have no file, so this is what keeps them saveable.
+ */
+export function hasDiagnosticAnchor(text: string): boolean {
+  return /\b[A-Z][A-Z0-9]{2,}(?:_[A-Z0-9]+)+\b/.test(text)
+}
+
+export interface LessonWorthinessInput {
+  readonly mistake: string
+  readonly whatToDo: string
+  readonly whereToGo: string
+  readonly deviations: readonly Deviation[]
+  readonly files?: readonly string[]
+}
+
+export interface LessonWorthiness {
+  readonly ok: boolean
+  readonly reason: string
+}
+
+/**
+ * Value gate for every AUTOMATIC lesson writer (conscience auto-remember,
+ * session end, post-repair recorder). The agent's explicit `omo_remember` is
+ * NOT gated: that is deliberate judgment, this is a heuristic.
+ *
+ * A lesson is worth saving only when it is ANCHORED — tied to a concrete file,
+ * or carrying a specific diagnostic code. An unanchored lesson whose remedy is
+ * one the plugin already injects every session teaches nothing, so it is
+ * dropped at the source instead of being hidden later by dedupe/cooldown.
+ */
+export function isLessonWorthSaving(input: LessonWorthinessInput): LessonWorthiness {
+  const mistake = input.mistake.trim()
+  const whatToDo = input.whatToDo.trim()
+  if (mistake.length < 20) return { ok: false, reason: "mistake too short to teach anything" }
+  if (whatToDo.length === 0) return { ok: false, reason: "no corrective action" }
+  const anchored =
+    hasConcretePlace(input.whereToGo, input.files ?? []) ||
+    hasDiagnosticAnchor(mistake) ||
+    input.deviations.some((d) => hasDiagnosticAnchor(d.detail))
+  if (!anchored && STATIC_REMEDIES.has(normalizeLessonText(whatToDo))) {
+    return {
+      ok: false,
+      reason:
+        "restates the static rule directive injected every session (no file, code or artifact anchor)",
+    }
+  }
+  return { ok: true, reason: "anchored lesson" }
+}
+
+/**
  * Value gate for conscience lessons (v0.56.0 F3). Returns false when the
  * lesson is not actionable: a mistake body too short to carry signal, or the
  * generic fallback whatToDo on an ungrounded lesson (no file/place scope and
@@ -600,15 +691,31 @@ export function buildConscienceMemoryContent(input: BuildConscienceMemoryContent
   const deviations: readonly Deviation[] = provided.length > 0 ? provided : [
     { severity: "media", category: "conscience", detail: input.mistake },
   ]
-  const decision: Decision = {
-    action: input.action,
-    score: input.score,
-    reasoning: `${input.whatToDo} -> ${input.whereToGo}`,
-    evidence: [],
-    shouldEscalateTo: null,
-  }
-  const base = buildLessonContent(decision, deviations)
-  const content = `${base}\nMistake: ${input.mistake}\nWhatToDo: ${input.whatToDo}\nWhereToGo: ${input.whereToGo}`
+  // v0.65.x (lesson quality): the old body prefixed every lesson with
+  // `Action "stop" (score -0.37) after deviations: ...` — a scoring dump that
+  // taught nothing on recall and became the lesson's title in agentmemory.
+  // The saved body is now a pure lesson, and it uses the SAME labels the
+  // recall/synthesis parser reads (Mistake / What to do / Where), so a lesson
+  // written here can be parsed back instead of being opaque prose.
+  const collapsed = collapseDeviationsForLesson(deviations)
+  const mistake = input.mistake.trim()
+  const mistakeNormalized = normalizeLessonText(mistake)
+  // Only surface evidence that ADDS a concrete detail. When the mistake was
+  // derived from the deviations it already states them; repeating the same
+  // sentence twice is what made these rows unreadable.
+  const evidence = collapsed
+    .filter(
+      (d) =>
+        !mistakeNormalized.includes(
+          normalizeLessonText(d.detail).replace(/ \(×\d+ repeats this session\)$/, ""),
+        ),
+    )
+    .map((d) => `[${d.severity}] ${d.category}: ${d.detail}`)
+  const lines = [`Mistake: ${mistake}`]
+  if (evidence.length > 0) lines.push(`Evidence: ${evidence.join("; ")}`)
+  lines.push(`What to do: ${input.whatToDo}`)
+  lines.push(`Where: ${input.whereToGo}`)
+  const content = lines.join("\n")
   const concepts = extractConcepts(deviations, input.files)
   return { content, concepts }
 }
