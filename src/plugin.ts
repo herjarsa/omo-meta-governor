@@ -123,6 +123,7 @@ import { TtlBoundedMap } from "./utils/ttl-bounded-map";
 import { isSessionStart } from "./utils/session-start";
 import { deferBackgroundTask } from "./utils/defer";
 import { wrapInformational, buildUserStatus } from "./agent-notifications";
+import { buildLessonLearnedAgentMessage, buildLessonLearnedUserStatus, type LearnedLessonNotice } from "./lesson-notice";
 import { formatDigestRouting, formatGraphRoutingBulletsES } from "./routing-matrix";
 import { collapseDeviationsForLesson, shouldPersistConscienceMemory, conscienceDedupeKey, buildConscienceMemoryContent, conscienceMistakeFromDeviations, conscienceWhereToGo, GENERIC_WHAT_TO_DO, isActionableConscienceLesson, isLessonWorthSaving, synthesizeWhatToDo } from "./closed-loop-learning";
 import {
@@ -132,6 +133,7 @@ import {
   fetchTaskContext,
   fileSetKey,
   formatTaskContextBlock,
+  parseLessonContent,
   persistSessionEnd,
   resolveProjectName,
   writeLessonOnce,
@@ -1242,6 +1244,10 @@ const runCliSyncImpl = deps.__test_runCliAnythingSync ?? runCliAnythingSync;
     // drained once by messages.transform (with isSessionStart guard).
     // TtlBoundedMap (1000 sessions, 24h TTL) per postWaveSessions precedent.
     const memoryNudgePending = new TtlBoundedMap<string, string>(1000, 24 * 60 * 60 * 1000);
+    // v0.66.0: session-end lesson notice — pending agent text per session.
+    // Set only when persistSessionEnd actually saved/reinforced a lesson;
+    // drained once by messages.transform (same guards as memoryNudgePending).
+    const lessonLearnedPending = new TtlBoundedMap<string, string>(1000, 24 * 60 * 60 * 1000);
 
     const implementationToolsSeen = new Set<string>();
     // v0.49.1: auto-remember anti-loop guard — per-session last hash + timestamp.
@@ -2120,6 +2126,42 @@ metricsCollector.inc("interventions_delivered");
                     "info",
                     `agentmemory session end (${toolInput.sessionID}): ${res.lessonsSaved} saved, ${res.lessonsStrengthened} reinforced, ${res.lessonsFailed} failed, summarized=${res.summarized}`,
                   );
+                  // v0.66.0: tell the AGENT which lessons were just persisted.
+                  // The write is automatic, so without this the agent ends the
+                  // session unaware of what was learned on its behalf — and the
+                  // DONE-gate nudge ("no memory saved") would contradict it.
+                  // Queued, not pushed: this path is fire-and-forget and has no
+                  // transform output to attach to; the drain runs next turn.
+                  const persistedCount = res.lessonsSaved + res.lessonsStrengthened;
+                  if (persistedCount > 0) {
+                    const learned: LearnedLessonNotice[] = lessons
+                      .map((lesson) => {
+                        const parsed = parseLessonContent(lesson.content);
+                        return {
+                          mistake: parsed.mistake,
+                          whatToDo: parsed.whatToDo,
+                          whereToGo: parsed.whereToGo,
+                        };
+                      })
+                      .filter((lesson) => lesson.mistake.length > 0);
+                    lessonLearnedPending.set(
+                      toolInput.sessionID,
+                      buildLessonLearnedAgentMessage(learned, {
+                        saved: res.lessonsSaved,
+                        strengthened: res.lessonsStrengthened,
+                        failed: res.lessonsFailed,
+                      }),
+                    );
+                    memoryNudgePending.delete(toolInput.sessionID);
+                    persistIntervention(
+                      toolInput.sessionID,
+                      buildLessonLearnedUserStatus(learned, persistedCount),
+                    );
+                    logToFile(
+                      "info",
+                      `lesson_learned_queued for session ${toolInput.sessionID}: ${persistedCount} lesson(s)`,
+                    );
+                  }
                   // v0.59.0: autonomous skill synthesis. The agent creates its
                   // OWN skills from the lessons it just learned — no human
                   // step. The quality gate (src/skill-quality.ts) decides
@@ -2969,6 +3011,33 @@ metricsCollector.inc("interventions_delivered");
         // never at session start (would pause the TUI). Re-checks in-flight
         // guards so a background task started after queueing still suppresses.
         // Never touches the respectDoneSignal latch below.
+        // v0.66.0: session-end lesson notice drain — the agent is told which
+        // lessons the plugin persisted on its behalf. Same guards as the memory
+        // nudge: main session only, never at session start, and the pending
+        // text survives a skipped turn. It also cancels the "no memory saved"
+        // nudge, which would otherwise claim the opposite of what happened.
+        const lessonNoticeText = lessonLearnedPending.get(currentSessionID);
+        if (lessonNoticeText) {
+          if (!isMainSession(currentSessionID)) {
+            lessonLearnedPending.delete(currentSessionID);
+            logToFile(
+              "info",
+              `lesson_learned_skipped (subagent) for session ${currentSessionID}`,
+            );
+          } else if (!isSessionStart(output.messages)) {
+            output.messages.push({
+              info: { role: "assistant", agent: "meta-governor", synthetic: true },
+              parts: [{ type: "text", text: lessonNoticeText, synthetic: true }],
+            });
+            lessonLearnedPending.delete(currentSessionID);
+            memoryNudgePending.delete(currentSessionID);
+            logToFile(
+              "info",
+              `lesson_learned_injected for session ${currentSessionID}`,
+            );
+          }
+        }
+
         const memoryNudgeText = memoryNudgePending.get(currentSessionID);
         if (memoryNudgeText) {
           const nudgeState = auditSessions.get(currentSessionID);

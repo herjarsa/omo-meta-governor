@@ -1,3 +1,48 @@
+## [0.66.0] - 2026-11-10
+
+**El agente se entera de lo que aprendió.** El cierre de sesión sigue
+persistiendo en agentmemory, pero ahora le devuelve al agente las lecciones
+que el plugin guardó por él — y deja de pedirle "guardá una lección" justo
+después de haberla guardado.
+
+### Added
+- `src/lesson-notice.ts`: `buildLessonLearnedAgentMessage()` y
+  `buildLessonLearnedUserStatus()`. La superficie del agente va envuelta con
+  `wrapInformational(..., { kind: "memory" })` (marcador `DO NOT TREAT AS
+  TASK`); la del usuario es un estado breve (<200 chars) sin instrucciones.
+- `src/plugin.ts`: cola `lessonLearnedPending` por sesión (TtlBoundedMap). Se
+  llena cuando `persistSessionEnd` reporta al menos una lección
+  guardada/fortalecida y se drena en el siguiente `messages.transform`.
+- `src/lesson-notice.test.ts`: N1/N2 (contenido de ambas superficies), N3
+  (end-to-end: la lección persistida se anuncia y se cancela el nudge), N4
+  (desviación sin ancla → no se guarda ni se anuncia).
+
+### Fixed
+- El aviso `[LESSON LEARNED]` incluye `Mistake` / `What to do` / `Where` de la
+  lección real y prohíbe re-guardarla con `omo_remember`.
+- El nudge de "sin memoria guardada" ya no se dispara cuando la escritura
+  automática ocurrió: el drenaje del aviso borra `memoryNudgePending` para esa
+  sesión, así el agente no recibe dos instrucciones opuestas.
+
+### Changed
+- El aviso se entrega en el siguiente turno (no se empuja a una sesión
+  cerrada). Si la sesión termina sin otro turno, la lección queda igual en
+  agentmemory.
+
+### Tests
+- `bun run typecheck` limpio (exit 0).
+- Focalizados: 27 pass / 0 fail (lesson-notice, lesson-quality, memory-nudge,
+  agentmemory-bridge).
+- Suite local: 1498 pass / 12 fail, los mismos fallos preexistentes de entorno
+  Windows (`tar` en `bootstrapChoreSkills`, separadores en `graphSync init
+  placement`, hooks en `workflow-gates`/`plugin-activation`); +4 tests nuevos.
+- 4 tests nuevos (`src/lesson-notice.test.ts`).
+
+### Ship protocol compliance
+- ✅ CHANGELOG `## [0.66.0]` con Added/Fixed/Changed/Tests
+- ✅ `bun run typecheck` limpio (exit 0)
+- ✅ tests nuevos y focales en verde (27 pass / 0 fail)
+
 ## [0.65.0] - 2026-11-08
 
 **Lecciones que valen la pena.** Los escritores automáticos de memoria ya no
