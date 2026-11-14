@@ -292,7 +292,8 @@ export interface LessonWorthiness {
 /**
  * Value gate for every AUTOMATIC lesson writer (conscience auto-remember,
  * session end, post-repair recorder). The agent's explicit `omo_remember` is
- * NOT gated: that is deliberate judgment, this is a heuristic.
+ * NOT gated until v0.67.0; v0.67.0 applies it at the HTTP write boundary
+ * (`canonicalizeLessonForWrite`), so every writer shares the same contract.
  *
  * A lesson is worth saving only when it is ANCHORED — tied to a concrete file,
  * or carrying a specific diagnostic code. An unanchored lesson whose remedy is
@@ -326,6 +327,81 @@ export function isLessonWorthSaving(input: LessonWorthinessInput): LessonWorthin
  * teaches nothing). A generic whatToDo on a GROUNDED lesson (real files) or
  * a grave deviation still persists: the mistake names a real rule + place.
  */
+export interface LessonWriteVerdict {
+  readonly ok: boolean
+  readonly content: string
+  readonly reason: string
+}
+
+/**
+ * A legacy scoring dump: `Action "stop" (score -0.57) after deviations: ...`.
+ * It records a decision, not knowledge, and used to become the lesson title.
+ */
+const SCORE_DUMP_LINE =
+  /^\s*Action\s+"[^"]*"\s*\(\s*score\s+-?\d+(?:\.\d+)?\s*\)\s*after deviations:/i
+
+/** Read `Label: value` up to the next known lesson label (or end of text). */
+function labelledValue(text: string, labels: readonly string[]): string {
+  for (const label of labels) {
+    const match = new RegExp(`(?:${label})\\s*:\\s*`, "i").exec(text)
+    if (!match) continue
+    const rest = text.slice(match.index + match[0].length)
+    const next = /(?:Mistake|What to do|WhatToDo|WhereToGo|Where to go|Where|Evidence)\s*:/i.exec(rest)
+    const value = (next ? rest.slice(0, next.index) : rest).trim()
+    if (value.length > 0) return value
+  }
+  return ""
+}
+
+/**
+ * v0.67.0 (write-boundary guard): the contract every lesson must satisfy
+ * before it reaches agentmemory — including `omo_remember`, which used to
+ * forward whatever the agent passed. A copied intervention text
+ * (`Action "stop" (score -0.57) ... Reasoning: ... -> session:ses_...` plus
+ * `WhatToDo:` / `WhereToGo:`) became a stored row that way.
+ *
+ * - Legacy score-dump lines are stripped: they carry a decision, not knowledge.
+ * - A `Mistake:` / `What to do:` lesson goes through the same worthiness gate
+ *   as the automatic writers. Caller tags count as candidate anchors because
+ *   file basenames often arrive there.
+ * - Free-form notes (`Always use bun:sqlite`) pass through unchanged: they are
+ *   facts, not the rule-restating junk class.
+ */
+export function canonicalizeLessonForWrite(
+  content: string,
+  files: readonly string[] = [],
+): LessonWriteVerdict {
+  const text = content.replace(/\r\n/g, "\n").trim()
+  if (text.length === 0) return { ok: false, content: "", reason: "empty lesson" }
+  let sawDump = false
+  const kept: string[] = []
+  for (const line of text.split("\n")) {
+    if (SCORE_DUMP_LINE.test(line)) {
+      sawDump = true
+      continue
+    }
+    if (sawDump && /^\s*(?:Reasoning|Message|Score|Tool calls so far)\s*:/i.test(line)) continue
+    kept.push(line)
+  }
+  const body = kept.join("\n").trim()
+  if (body.length === 0) return { ok: false, content: "", reason: "scoring dump without a lesson" }
+  const mistake = labelledValue(body, ["Mistake"])
+  const whatToDo = labelledValue(body, ["What to do", "WhatToDo"])
+  if (mistake.length === 0 || whatToDo.length === 0) {
+    return sawDump
+      ? { ok: false, content: "", reason: "scoring dump without a lesson" }
+      : { ok: true, content: body, reason: "free-form note" }
+  }
+  const whereToGo = labelledValue(body, ["WhereToGo", "Where to go", "Where"])
+  const worthiness = isLessonWorthSaving({ mistake, whatToDo, whereToGo, deviations: [], files })
+  if (!worthiness.ok) return { ok: false, content: "", reason: worthiness.reason }
+  const canonical = [`Mistake: ${mistake}`, `What to do: ${whatToDo}`]
+  const evidence = labelledValue(body, ["Evidence"])
+  if (evidence.length > 0) canonical.push(`Evidence: ${evidence}`)
+  if (whereToGo.length > 0) canonical.push(`Where: ${whereToGo}`)
+  return { ok: true, content: canonical.join("\n"), reason: "canonical lesson" }
+}
+
 export function isActionableConscienceLesson(
   mistake: string,
   whatToDo: string,

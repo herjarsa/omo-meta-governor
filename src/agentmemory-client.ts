@@ -25,6 +25,7 @@
  */
 
 import { readFileSync } from "node:fs"
+import { canonicalizeLessonForWrite } from "./closed-loop-learning.js"
 import { homedir } from "node:os"
 import { join } from "node:path"
 
@@ -404,13 +405,21 @@ export class AgentmemoryClient {
     action?: string
     id?: string
     confidence?: number
+    /** v0.67.0: the write-boundary quality gate refused this content. */
+    rejected?: boolean
+    reason?: string
   }> {
+    // v0.67.0: ONE gate for every writer. `omo_remember` used to forward the
+    // agent's text verbatim, so a copied score dump or a rule the plugin
+    // already injects became a stored "lesson".
+    const guard = canonicalizeLessonForWrite(input.content, input.tags ?? [])
+    if (!guard.ok) return { saved: false, rejected: true, reason: guard.reason }
     const res = await this.post<{
       success?: boolean
       action?: string
       lesson?: { id?: string; confidence?: number }
     }>("/lessons", {
-      content: input.content,
+      content: guard.content,
       ...(input.context ? { context: input.context } : {}),
       ...(input.confidence !== undefined ? { confidence: input.confidence } : {}),
       ...(input.project ? { project: input.project } : {}),

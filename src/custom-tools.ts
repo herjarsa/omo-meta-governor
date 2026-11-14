@@ -685,8 +685,10 @@ export function buildOmoRememberTool(deps: OmoRememberDeps) {
         })
         if (!res.saved) {
           return {
-            title: "omo_remember: save failed",
-            output: "Could not persist to agentmemory. The memory server may be down; the lesson was NOT stored.",
+            title: res.rejected ? "omo_remember: rejected (quality gate)" : "omo_remember: save failed",
+            output: res.rejected
+              ? `NOT saved: ${res.reason ?? "not a lesson worth recalling"}. That text restates a rule the plugin already injects every session (or points at no real file, code or artifact). Save the actual finding instead: "Mistake: <what went wrong>. What to do: <specific fix>. Where: <file/area>".`
+              : "Could not persist to agentmemory. The memory server may be down; the lesson was NOT stored.",
             metadata: { tool: "omo_remember", ok: false, durationMs: Date.now() - start },
           }
         }

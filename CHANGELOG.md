@@ -1,3 +1,49 @@
+## [0.66.1] - 2026-11-10
+
+**Solo lecciones de calidad, en TODOS los escritores.** 0.65.0 cerró los
+escritores automáticos, pero `omo_remember` seguía reenviando cualquier texto
+que recibiera. Pegar la intervención del plugin (`Action "stop" (score
+-0.57) ... Reasoning: ... -> session:ses_...` + `WhatToDo:` / `WhereToGo:`)
+creaba una fila idéntica a la basura reportada. El gate ahora vive en el
+único boundary HTTP de escritura, así que cubre a todos los escritores
+—presentes y futuros.
+
+### Added
+- `canonicalizeLessonForWrite()` (`src/closed-loop-learning.ts`): verdicto
+  único de escritura. Quita líneas de score dump (`Action "..." (score ...)
+  after deviations:` y su `Reasoning:`), parsea etiquetas nuevas y legacy
+  (`Mistake`, `What to do`/`WhatToDo`, `Where`/`WhereToGo`, `Evidence`) y
+  aplica `isLessonWorthSaving` con los tags del llamador como anclas
+  candidatas. Las notas libres (`Always use bun:sqlite`) pasan intactas.
+- `src/lesson-write-guard.test.ts`: W1 (el payload reportado no llega a la
+  red), W2 (la misma lección anclada a un archivo sí se guarda, canónica),
+  W3 (nota libre intacta), W4 (score dump sin cuerpo rechazado), W5
+  (`omo_remember` reporta el rechazo en vez de fingir el guardado).
+
+### Fixed
+- `AgentmemoryClient.saveLesson()` aplica el guard antes del POST: un dump
+  copiado o una lección que sólo reformula una regla ya inyectada, sin
+  archivo ni código, no se envía (`saved:false`, `rejected:true`, `reason`).
+- `omo_remember` distingue rechazo de caída del servidor: devuelve
+  `NOT saved: <motivo>` con el formato que sí sirve (`Mistake / What to do /
+  Where: <archivo>`), en lugar de un genérico "memory server may be down".
+- El contenido aceptado se normaliza a `Mistake:` / `What to do:` /
+  `Where:`, así el fingerprint de agentmemory no ve variantes legacy como
+  lecciones distintas.
+
+### Tests
+- `bun run typecheck` limpio (exit 0).
+- Focalizados: 77 pass / 0 fail (lesson-write-guard, lesson-quality,
+  agentmemory-client, custom-tools, lesson-notice).
+- 5 tests nuevos (`src/lesson-write-guard.test.ts`).
+- Auditoría de datos reales: las filas con score dump terminan el 2026-10-27;
+  ninguna posterior a 0.65.0. El payload reportado es de `omo_remember`.
+
+### Ship protocol compliance
+- ✅ CHANGELOG `## [0.66.1]` con Added/Fixed/Tests
+- ✅ `bun run typecheck` limpio (exit 0)
+- ✅ tests nuevos y focales en verde (77 pass / 0 fail)
+
 ## [0.66.0] - 2026-11-10
 
 **El agente se entera de lo que aprendió.** El cierre de sesión sigue
