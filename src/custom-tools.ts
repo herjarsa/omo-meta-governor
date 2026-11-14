@@ -689,7 +689,12 @@ export function buildOmoRememberTool(deps: OmoRememberDeps) {
             output: res.rejected
               ? `NOT saved: ${res.reason ?? "not a lesson worth recalling"}. That text restates a rule the plugin already injects every session (or points at no real file, code or artifact). Save the actual finding instead: "Mistake: <what went wrong>. What to do: <specific fix>. Where: <file/area>".`
               : "Could not persist to agentmemory. The memory server may be down; the lesson was NOT stored.",
-            metadata: { tool: "omo_remember", ok: false, durationMs: Date.now() - start },
+            metadata: {
+              tool: "omo_remember",
+              ok: false,
+              durationMs: Date.now() - start,
+              ...(res.rejected ? { rejected: true, reason: res.reason } : {}),
+            },
           }
         }
         const reinforced = res.action === "strengthened"

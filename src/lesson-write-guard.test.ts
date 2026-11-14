@@ -100,6 +100,8 @@ describe("lesson write guard (v0.67.0)", () => {
     });
     const res = await tool.execute({ content: REPORTED } as never, { sessionID: "ses_guard" } as never);
     expect(res.title).toContain("rejected");
+    expect(res.metadata?.rejected).toBe(true);
+    expect(String(res.metadata?.reason ?? "")).toContain("static rule");
     expect(String(res.output)).toContain("NOT saved");
     expect(String(res.output)).toContain("Mistake:");
   });

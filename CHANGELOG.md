@@ -1,3 +1,32 @@
+## [0.66.2] - 2026-11-10
+
+**El rechazo se ve en el resultado, no solo en el texto.** Cierre del gate
+0.66.1: `omo_remember` ahora expone `metadata.rejected: true` y
+`metadata.reason`, para que el agente (y cualquier consumidor del ToolResult)
+sepa que el gate rechazó la lección sin inferirlo del título.
+
+### Fixed
+- `omo_remember` incluye `rejected: true` y el motivo en `metadata` cuando el
+  write-boundary gate refusa la escritura. Antes sólo cambiaba `title` y
+  `output`.
+
+### Tests
+- `bun run typecheck` limpio (exit 0).
+- Focalizados: 77 pass / 0 fail; W5 ahora afirma `metadata.rejected === true`
+  y un `reason` con el motivo.
+- Verificación contra el ARTEFACTO publicado 0.66.1 (instalado desde npm en un
+  directorio temporal, `hooks.tool.omo_remember` real, proxy delante del
+  agentmemory vivo en :3113): payload exacto de spam → `NOT saved: restates
+  the static rule directive ...`, **0 POST** a `/agentmemory/lessons`, conteo
+  61 → 61 e ids idénticos; lección anclada → guardada y canónica; nota libre →
+  guardada byte-idéntica; limpieza → 61 filas y 20 basura, la más nueva
+  2026-10-24 (ninguna nueva).
+
+### Ship protocol compliance
+- ✅ CHANGELOG `## [0.66.2]` con Fixed/Tests
+- ✅ `bun run typecheck` limpio (exit 0)
+- ✅ tests nuevos y focales en verde (77 pass / 0 fail)
+
 ## [0.66.1] - 2026-11-10
 
 **Solo lecciones de calidad, en TODOS los escritores.** 0.65.0 cerró los
